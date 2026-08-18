@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Artable — Daily Bonus</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div class="device-wrap">
+    <div class="device-frame">
+      <div class="app-screen app-shell">
+
+        <div class="screen-scroll app-scroll">
+
+          <header class="app-header" style="padding-bottom:0;">
+            <div class="top-row" style="margin-bottom:0;">
+              <button class="back-btn" type="button" onclick="history.back()" aria-label="Go back">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+              </button>
+            </div>
+            <div class="app-header__greeting" style="text-align:center; flex:1;">
+              <p class="greeting-name" style="font-size:17px;">Daily Bonus</p>
+            </div>
+            <span style="width:40px;"></span>
+          </header>
+
+          <div class="app-content">
+
+            <div class="daily-bonus-hero">
+              <span class="daily-bonus-hero__flame">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2c1 4-3 5-3 9a3 3 0 0 0 6 0c0-1.5-1-2-1-3.5 2 1 3 3.5 3 5.5a5 5 0 0 1-10 0C7 8 10 6 12 2Z"/></svg>
+              </span>
+              <p class="daily-bonus-hero__streak"><span data-field="currentStreak">0</span><span>Day Streak</span></p>
+              <div class="daily-bonus-hero__reward">
+                <span data-field="todayRewardAmount"></span>
+              </div>
+              <p class="daily-bonus-hero__next">Next Milestone: <span data-field="nextMilestone"></span></p>
+            </div>
+
+            <button class="btn-gradient" type="button" id="claimTodayBtn" style="margin-top:20px;">
+              <span>Claim Today's Bonus</span>
+            </button>
+            <p class="empty-note hidden" id="bonusClaimedNote" style="margin-top:8px;">Come back tomorrow for your next reward.</p>
+
+            <div class="profile-section-title" style="margin-top:22px;">
+              <h3>This Week</h3>
+              <a href="reward-calendar.html">View Calendar</a>
+            </div>
+            <div class="weekly-rewards-row" id="weeklyRewardsRow"></div>
+
+            <div class="profile-section-title" style="margin-top:14px;">
+              <h3>Milestones</h3>
+            </div>
+            <div class="milestones-list" id="milestonesList"></div>
+
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    hydrateDailyBonus();
+  </script>
+</body>
+</html>

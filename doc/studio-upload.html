@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Artable — Submitting</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div class="device-wrap">
+    <div class="device-frame">
+      <div class="app-screen app-shell">
+
+        <div class="screen-scroll app-scroll">
+
+          <header class="app-header">
+            <div class="app-header__greeting" style="text-align:center; flex:1;">
+              <p class="greeting-name" style="font-size:17px;">Submitting Entry</p>
+            </div>
+          </header>
+
+          <div class="app-content" style="justify-content:center; flex:1; display:flex; flex-direction:column;">
+
+            <div class="upload-card">
+              <div class="upload-progress-wrap">
+                <div class="upload-progress-track">
+                  <div class="upload-progress-fill" id="uploadProgressBar"></div>
+                </div>
+                <p class="upload-percent" id="uploadPercent">0%</p>
+              </div>
+
+              <div class="upload-steps" id="uploadSteps"></div>
+            </div>
+
+            <p class="upload-hint">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              <span>Please keep the app open while we submit your entry.</span>
+            </p>
+
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    hydrateStudioUpload();
+  </script>
+</body>
+</html>

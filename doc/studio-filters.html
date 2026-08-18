@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Artable — Effects</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div class="device-wrap">
+    <div class="device-frame">
+      <div class="app-screen app-shell">
+
+        <div class="screen-scroll app-scroll">
+
+          <div class="camera-stage camera-stage--compact">
+            <img class="camera-stage__bg" src="https://images.unsplash.com/photo-1598963561591-3a14d9ba6a7b?w=800&h=1000&q=80&auto=format&fit=crop&crop=faces,entropy" alt="Camera preview placeholder" onerror="imgFallback(this)">
+            <div class="camera-stage__scrim"></div>
+            <div class="camera-top-controls">
+              <button class="camera-ctrl-btn" type="button" onclick="history.back()" aria-label="Go back">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+              </button>
+              <span style="width:38px;"></span>
+            </div>
+            <p class="studio-panel-title">Effects &amp; Filters</p>
+          </div>
+
+          <div class="app-content">
+
+            <div class="detail-section" style="margin-top:20px;">
+              <h3>Choose a Filter</h3>
+              <div class="filter-carousel" id="filterCarousel"></div>
+            </div>
+
+            <div class="detail-section">
+              <h3>Speed</h3>
+              <div class="speed-row" id="speedRow">
+                <button class="speed-btn" type="button" data-speed="0.5">0.5x</button>
+                <button class="speed-btn active" type="button" data-speed="1">1x</button>
+                <button class="speed-btn" type="button" data-speed="1.5">1.5x</button>
+                <button class="speed-btn" type="button" data-speed="2">2x</button>
+              </div>
+            </div>
+
+            <div class="beauty-row">
+              <span class="beauty-row__label">Beauty Filter</span>
+              <label class="beauty-switch">
+                <input type="checkbox" id="beautyToggle">
+                <span class="beauty-switch__track"></span>
+              </label>
+            </div>
+            <div class="beauty-intensity-row hidden" id="beautyIntensityRow">
+              <input type="range" min="0" max="100" value="50" id="beautyIntensityInput">
+            </div>
+
+            <button class="btn-gradient" type="button" id="applyFiltersBtn" style="margin-top:34px;">
+              <span>Apply</span>
+            </button>
+
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    hydrateStudioFilters();
+  </script>
+</body>
+</html>

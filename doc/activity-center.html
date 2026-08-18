@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Artable — Activity Center</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div class="device-wrap">
+    <div class="device-frame">
+      <div class="app-screen app-shell">
+
+        <div class="screen-scroll app-scroll">
+
+          <header class="app-header" style="padding-bottom:0;">
+            <div class="top-row" style="margin-bottom:0;">
+              <button class="back-btn" type="button" onclick="history.back()" aria-label="Go back">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+              </button>
+            </div>
+            <div class="app-header__greeting" style="text-align:center; flex:1;">
+              <p class="greeting-name" style="font-size:17px;">Activity Center</p>
+            </div>
+            <span style="width:40px;"></span>
+          </header>
+
+          <div class="app-content">
+
+            <div class="activity-summary-row">
+              <div class="activity-summary-chip activity-summary-chip--likes">
+                <span class="activity-summary-chip__icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8Z"/></svg>
+                </span>
+                <strong data-field="activityLikes"></strong>
+                <span class="activity-summary-chip__label">Likes</span>
+              </div>
+              <div class="activity-summary-chip activity-summary-chip--comments">
+                <span class="activity-summary-chip__icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z"/></svg>
+                </span>
+                <strong data-field="activityComments"></strong>
+                <span class="activity-summary-chip__label">Comments</span>
+              </div>
+              <div class="activity-summary-chip activity-summary-chip--ratings">
+                <span class="activity-summary-chip__icon">
+                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.9-6.2-3.3-6.2 3.3 1.2-6.9-5-4.9 6.9-1L12 2Z"/></svg>
+                </span>
+                <strong data-field="activityRatings"></strong>
+                <span class="activity-summary-chip__label">Ratings</span>
+              </div>
+              <div class="activity-summary-chip activity-summary-chip--entries">
+                <span class="activity-summary-chip__icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11.5 11 13.5 15.5 9"/><rect x="3" y="3" width="18" height="18" rx="4"/></svg>
+                </span>
+                <strong data-field="activityEntries"></strong>
+                <span class="activity-summary-chip__label">Entries</span>
+              </div>
+            </div>
+
+            <div class="activity-tab-row">
+              <button class="tab-btn active" type="button" data-type="all">All</button>
+              <button class="tab-btn" type="button" data-type="likes">Likes</button>
+              <button class="tab-btn" type="button" data-type="comments">Comments</button>
+              <button class="tab-btn" type="button" data-type="ratings">Ratings</button>
+              <button class="tab-btn" type="button" data-type="challenges">Challenges</button>
+              <button class="tab-btn" type="button" data-type="rewards">Rewards</button>
+            </div>
+
+            <div class="activity-list" id="activityList"></div>
+
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    hydrateActivityCenter();
+  </script>
+</body>
+</html>

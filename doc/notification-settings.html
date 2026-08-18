@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Artable — Notification Settings</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div class="device-wrap">
+    <div class="device-frame">
+      <div class="app-screen app-shell">
+
+        <div class="screen-scroll app-scroll">
+
+          <header class="app-header" style="padding-bottom:0;">
+            <div class="top-row" style="margin-bottom:0;">
+              <button class="back-btn" type="button" onclick="history.back()" aria-label="Go back">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+              </button>
+            </div>
+            <div class="app-header__greeting" style="text-align:center; flex:1;">
+              <p class="greeting-name" style="font-size:17px;">Notification Settings</p>
+            </div>
+            <span style="width:40px;"></span>
+          </header>
+
+          <div class="app-content">
+
+            <div class="master-toggle-card">
+              <span class="master-toggle-card__icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+              </span>
+              <div class="master-toggle-card__body">
+                <strong>Push Notifications</strong>
+                <span>Master switch for all notification categories</span>
+              </div>
+              <label class="settings-switch">
+                <input type="checkbox" id="pushMasterToggle" checked>
+                <span class="settings-switch__track"></span>
+              </label>
+            </div>
+
+            <div class="profile-section-title" style="margin-top:20px;">
+              <h3>Categories</h3>
+            </div>
+            <div class="notification-settings-list" id="notificationSettingsList"></div>
+
+            <div class="info-note-card" style="margin-top:18px;">
+              <span class="info-note-card__icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 1.5-2 1.7-2 3.3"/><line x1="12" y1="16.2" x2="12" y2="16.2"/></svg>
+              </span>
+              <div class="info-note-card__text">
+                <span>You can change these preferences anytime.</span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    hydrateNotificationSettings();
+  </script>
+</body>
+</html>

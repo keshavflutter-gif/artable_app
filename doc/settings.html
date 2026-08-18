@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Artable — Settings</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div class="device-wrap">
+    <div class="device-frame">
+      <div class="app-screen app-shell">
+
+        <div class="screen-scroll app-scroll">
+
+          <header class="app-header" style="padding-bottom:0;">
+            <div class="top-row" style="margin-bottom:0;">
+              <button class="back-btn" type="button" onclick="history.back()" aria-label="Go back">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+              </button>
+            </div>
+            <div class="app-header__greeting" style="text-align:center; flex:1;">
+              <p class="greeting-name" style="font-size:17px;">Settings</p>
+            </div>
+            <span style="width:40px;"></span>
+          </header>
+
+          <div class="app-content">
+
+            <div class="settings-profile-card">
+              <img class="settings-profile-card__avatar" data-field="settingsAvatar" src="" alt="Profile" onerror="imgFallback(this)">
+              <div class="settings-profile-card__body">
+                <strong data-field="settingsName"></strong>
+                <span data-field="settingsHandle"></span>
+                <span data-field="settingsEmail"></span>
+                <div class="settings-profile-card__badges" id="settingsPrimeBadgeSlot"></div>
+              </div>
+              <a class="settings-profile-card__edit" href="edit-profile.html" aria-label="Edit Profile">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+              </a>
+            </div>
+
+            <div class="settings-group">
+              <p class="settings-group__title">Account</p>
+              <div class="settings-group__card">
+                <a class="settings-menu-item" href="edit-profile.html">
+                  <span class="settings-menu-item__icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="4"/><path d="M5.5 21a6.5 6.5 0 0 1 13 0"/></svg>
+                  </span>
+                  <span class="settings-menu-item__body"><strong>Edit Profile</strong><span>Name, photo, bio, and links</span></span>
+                  <span class="settings-menu-item__chevron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg></span>
+                </a>
+                <a class="settings-menu-item" href="membership-plan.html">
+                  <span class="settings-menu-item__icon">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 3h12l4 6-10 12L2 9Z"/></svg>
+                  </span>
+                  <span class="settings-menu-item__body"><strong>Membership</strong><span>Manage your Prime subscription</span></span>
+                  <span class="settings-menu-item__chevron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg></span>
+                </a>
+              </div>
+            </div>
+
+            <div class="settings-group">
+              <p class="settings-group__title">Security</p>
+              <div class="settings-group__card">
+                <a class="settings-menu-item" href="change-password.html">
+                  <span class="settings-menu-item__icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+                  </span>
+                  <span class="settings-menu-item__body"><strong>Change Password</strong><span>Keep your account secure</span></span>
+                  <span class="settings-menu-item__chevron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg></span>
+                </a>
+              </div>
+            </div>
+
+            <div class="settings-group">
+              <p class="settings-group__title">Notifications & Privacy</p>
+              <div class="settings-group__card">
+                <a class="settings-menu-item" href="notification-settings.html">
+                  <span class="settings-menu-item__icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                  </span>
+                  <span class="settings-menu-item__body"><strong>Notification Settings</strong><span>Choose what you get notified about</span></span>
+                  <span class="settings-menu-item__chevron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg></span>
+                </a>
+                <a class="settings-menu-item" href="privacy-settings.html">
+                  <span class="settings-menu-item__icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5v6c0 5 3.4 8.7 8 11 4.6-2.3 8-6 8-11V5l-8-3Z"/></svg>
+                  </span>
+                  <span class="settings-menu-item__body"><strong>Privacy Settings</strong><span>Control who sees your activity</span></span>
+                  <span class="settings-menu-item__chevron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg></span>
+                </a>
+              </div>
+            </div>
+
+            <div class="settings-group">
+              <p class="settings-group__title">Help & Legal</p>
+              <div class="settings-group__card">
+                <a class="settings-menu-item" href="help-support.html">
+                  <span class="settings-menu-item__icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 1.5-2 1.7-2 3.3"/><line x1="12" y1="16.2" x2="12" y2="16.2"/></svg>
+                  </span>
+                  <span class="settings-menu-item__body"><strong>Help & Support</strong><span>FAQs and contact options</span></span>
+                  <span class="settings-menu-item__chevron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg></span>
+                </a>
+                <a class="settings-menu-item" href="terms.html">
+                  <span class="settings-menu-item__icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
+                  </span>
+                  <span class="settings-menu-item__body"><strong>Terms & Conditions</strong></span>
+                  <span class="settings-menu-item__chevron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg></span>
+                </a>
+                <a class="settings-menu-item" href="privacy-policy.html">
+                  <span class="settings-menu-item__icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5v6c0 5 3.4 8.7 8 11 4.6-2.3 8-6 8-11V5l-8-3Z"/><path d="m9 12 2 2 4-4"/></svg>
+                  </span>
+                  <span class="settings-menu-item__body"><strong>Privacy Policy</strong></span>
+                  <span class="settings-menu-item__chevron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg></span>
+                </a>
+              </div>
+            </div>
+
+            <div class="settings-group settings-group--danger">
+              <p class="settings-group__title">Account Actions</p>
+              <div class="settings-group__card">
+                <a class="settings-menu-item" href="logout-delete-confirm.html?mode=logout">
+                  <span class="settings-menu-item__icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                  </span>
+                  <span class="settings-menu-item__body"><strong>Logout</strong></span>
+                  <span class="settings-menu-item__chevron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg></span>
+                </a>
+                <a class="settings-menu-item settings-menu-item--delete" href="logout-delete-confirm.html?mode=delete">
+                  <span class="settings-menu-item__icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                  </span>
+                  <span class="settings-menu-item__body"><strong>Delete Account</strong></span>
+                  <span class="settings-menu-item__chevron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg></span>
+                </a>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    hydrateSettings();
+  </script>
+</body>
+</html>

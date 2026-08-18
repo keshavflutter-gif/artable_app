@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Artable — Subscription Success</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div class="device-wrap">
+    <div class="device-frame">
+      <div class="app-screen app-shell">
+
+        <div class="screen-scroll app-scroll">
+
+          <div class="app-content">
+            <div class="success-screen">
+              <span class="success-screen__icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              </span>
+              <h2>Welcome to Prime</h2>
+              <p>You now have an ad-free experience with a premium diamond badge on your profile.</p>
+              <span class="prime-diamond-badge">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 3h12l4 6-10 12L2 9Z"/></svg>
+                <span>Prime Member</span>
+              </span>
+
+              <div class="success-screen__actions">
+                <button class="btn-gradient" type="button" id="successViewProfileBtn"><span>View My Profile</span></button>
+                <button class="btn-secondary-outline" type="button" id="successBackHomeBtn"><span>Back to Home</span></button>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    hydrateSubscriptionSuccess();
+  </script>
+</body>
+</html>

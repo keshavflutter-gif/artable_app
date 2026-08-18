@@ -1,0 +1,50 @@
+<svg viewBox="0 0 280 240" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <defs>
+    <linearGradient id="ob2Grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF8A3D"/>
+      <stop offset="50%" stop-color="#FF3D77"/>
+      <stop offset="100%" stop-color="#4C6CF7"/>
+    </linearGradient>
+    <linearGradient id="ob2Spot" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#FFD166" stop-opacity="0.5"/>
+      <stop offset="100%" stop-color="#FFD166" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <circle cx="140" cy="120" r="104" fill="url(#ob2Grad)" opacity="0.09"/>
+  <polygon points="140,10 100,180 180,180" fill="url(#ob2Spot)"/>
+
+  <!-- trophy -->
+  <path d="M112,46 h56 v38 a28,28 0 0 1 -56,0 Z" fill="url(#ob2Grad)"/>
+  <path d="M112,54 c-20,0 -22,32 4,34" fill="none" stroke="url(#ob2Grad)" stroke-width="5.5" stroke-linecap="round"/>
+  <path d="M168,54 c20,0 22,32 -4,34" fill="none" stroke="url(#ob2Grad)" stroke-width="5.5" stroke-linecap="round"/>
+  <rect x="132" y="112" width="16" height="20" fill="url(#ob2Grad)"/>
+  <rect x="114" y="132" width="52" height="12" rx="5" fill="url(#ob2Grad)"/>
+  <circle cx="140" cy="62" r="9" fill="#fff" opacity="0.4"/>
+
+  <!-- confetti falling -->
+  <g>
+    <rect x="70" y="40" width="6" height="10" rx="2" fill="#FFC93C" opacity="0.8" transform="rotate(20 73 45)"/>
+    <rect x="200" y="56" width="6" height="10" rx="2" fill="#8B3DFF" opacity="0.75" transform="rotate(-15 203 61)"/>
+    <circle cx="90" cy="80" r="3.4" fill="#FF3D77" opacity="0.7"/>
+    <circle cx="190" cy="30" r="3" fill="#4C6CF7" opacity="0.7"/>
+    <polygon points="60,90 66,86 67,95" fill="#FFC93C" opacity="0.7"/>
+    <polygon points="216,96 222,92 223,101" fill="#FF3D77" opacity="0.7"/>
+  </g>
+
+  <!-- podium bars (leaderboard) -->
+  <g fill="url(#ob2Grad)" opacity="0.9">
+    <rect x="60" y="176" width="34" height="42" rx="5"/>
+    <rect x="102" y="158" width="34" height="60" rx="5"/>
+    <rect x="144" y="184" width="34" height="34" rx="5"/>
+  </g>
+  <g fill="#fff" font-family="Poppins, sans-serif" font-weight="700" font-size="14" text-anchor="middle">
+    <text x="77" y="202">2</text>
+    <text x="119" y="192">1</text>
+    <text x="161" y="206">3</text>
+  </g>
+
+  <circle cx="34" cy="70" r="4.2" fill="#FFC93C" opacity="0.75"/>
+  <circle cx="244" cy="100" r="5" fill="#FF3D77" opacity="0.65"/>
+  <path d="M224,50 L227,56 L233,58 L227,60 L224,66 L221,60 L215,58 L221,56 Z" fill="#8B3DFF" opacity="0.75"/>
+</svg>

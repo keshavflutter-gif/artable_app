@@ -1,0 +1,35 @@
+<svg viewBox="0 0 400 320" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" preserveAspectRatio="xMidYMin slice">
+  <defs>
+    <filter id="wcBlurTop" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="17"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#wcBlurTop)">
+    <!-- top-left warm splash -->
+    <ellipse cx="10" cy="-10" rx="150" ry="120" fill="#FFC65C" fill-opacity="0.65"/>
+    <ellipse cx="80" cy="40" rx="110" ry="85" fill="#FF5FA0" fill-opacity="0.55"/>
+    <ellipse cx="-30" cy="70" rx="95" ry="75" fill="#FF8A3D" fill-opacity="0.5"/>
+    <ellipse cx="60" cy="-30" rx="80" ry="65" fill="#FFE066" fill-opacity="0.5"/>
+
+    <!-- top-right cool splash -->
+    <ellipse cx="400" cy="0" rx="150" ry="120" fill="#8B5CFF" fill-opacity="0.6"/>
+    <ellipse cx="330" cy="50" rx="115" ry="88" fill="#5C8CFF" fill-opacity="0.55"/>
+    <ellipse cx="430" cy="90" rx="90" ry="72" fill="#C860FF" fill-opacity="0.5"/>
+    <ellipse cx="350" cy="-20" rx="75" ry="60" fill="#7FE0FF" fill-opacity="0.4"/>
+  </g>
+
+  <!-- crisp confetti scatter -->
+  <g>
+    <polygon points="55,110 62,104 63,116" fill="#FF8A3D" opacity="0.65"/>
+    <polygon points="95,128 102,123 103,134" fill="#FF3D77" opacity="0.5"/>
+    <circle cx="140" cy="92" r="3.6" fill="#FFC93C" opacity="0.6"/>
+    <circle cx="35" cy="140" r="2.8" fill="#C246E8" opacity="0.5"/>
+    <polygon points="25,100 31,95 32,106" fill="#FFD166" opacity="0.55"/>
+    <polygon points="325,120 332,114 333,126" fill="#8B3DFF" opacity="0.55"/>
+    <polygon points="360,138 367,133 368,145" fill="#4C6CF7" opacity="0.5"/>
+    <circle cx="295" cy="78" r="3.6" fill="#B067FF" opacity="0.6"/>
+    <circle cx="378" cy="150" r="2.8" fill="#FF6FA5" opacity="0.5"/>
+    <polygon points="370,90 376,85 377,96" fill="#FFC93C" opacity="0.5"/>
+  </g>
+</svg>

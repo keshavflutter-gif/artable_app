@@ -1,0 +1,55 @@
+<svg viewBox="0 0 280 240" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <defs>
+    <linearGradient id="ob1Grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFC93C"/>
+      <stop offset="50%" stop-color="#FF5C8A"/>
+      <stop offset="100%" stop-color="#8B3DFF"/>
+    </linearGradient>
+    <linearGradient id="ob1Spot" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#FFD166" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#FFD166" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <circle cx="140" cy="120" r="104" fill="url(#ob1Grad)" opacity="0.09"/>
+  <polygon points="140,14 96,220 184,220" fill="url(#ob1Spot)"/>
+
+  <!-- microphone (hero) -->
+  <g>
+    <rect x="120" y="52" width="40" height="72" rx="20" fill="url(#ob1Grad)"/>
+    <rect x="128" y="60" width="6" height="50" rx="3" fill="#fff" opacity="0.35"/>
+    <path d="M98,100 a42,42 0 0 0 84,0" fill="none" stroke="url(#ob1Grad)" stroke-width="6.5" stroke-linecap="round"/>
+    <line x1="140" y1="142" x2="140" y2="168" stroke="url(#ob1Grad)" stroke-width="6.5" stroke-linecap="round"/>
+    <line x1="114" y1="168" x2="166" y2="168" stroke="url(#ob1Grad)" stroke-width="6.5" stroke-linecap="round"/>
+  </g>
+
+  <!-- sound rings -->
+  <g fill="none" stroke="url(#ob1Grad)" stroke-width="2.4" opacity="0.4">
+    <path d="M78,88 a62,62 0 0 1 -14,42"/>
+    <path d="M202,88 a62,62 0 0 0 14,42"/>
+  </g>
+
+  <!-- camera -->
+  <g transform="translate(24,138)">
+    <rect x="0" y="16" width="60" height="42" rx="9" fill="#fff" stroke="url(#ob1Grad)" stroke-width="3.2"/>
+    <rect x="16" y="4" width="24" height="14" rx="4" fill="url(#ob1Grad)"/>
+    <circle cx="30" cy="37" r="13" fill="none" stroke="url(#ob1Grad)" stroke-width="3.2"/>
+    <circle cx="30" cy="37" r="5" fill="url(#ob1Grad)" opacity="0.5"/>
+    <circle cx="50" cy="26" r="3" fill="#FF3D77"/>
+  </g>
+
+  <!-- music note -->
+  <g transform="translate(200,148)">
+    <circle cx="8" cy="46" r="10" fill="url(#ob1Grad)"/>
+    <circle cx="38" cy="40" r="10" fill="url(#ob1Grad)"/>
+    <line x1="18" y1="46" x2="18" y2="4" stroke="url(#ob1Grad)" stroke-width="4.4"/>
+    <line x1="48" y1="40" x2="48" y2="0" stroke="url(#ob1Grad)" stroke-width="4.4"/>
+    <line x1="18" y1="4" x2="48" y2="0" stroke="url(#ob1Grad)" stroke-width="4.4"/>
+  </g>
+
+  <!-- confetti + sparkle -->
+  <path d="M56,54 L59,61 L66,64 L59,67 L56,74 L53,67 L46,64 L53,61 Z" fill="#FFC93C" opacity="0.85"/>
+  <circle cx="228" cy="78" r="5" fill="#FF3D77" opacity="0.7"/>
+  <circle cx="64" cy="196" r="3.4" fill="#8B3DFF" opacity="0.6"/>
+  <polygon points="220,196 226,192 227,201" fill="#4C6CF7" opacity="0.6"/>
+</svg>

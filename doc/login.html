@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Artable — Log In</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="device-wrap">
+    <div class="device-frame">
+      <div class="app-screen">
+        <div class="bg-decoration">
+          <img class="bg-frame" src="assets/bg-frame-3.png" alt="">
+        </div>
+
+        <div class="screen-scroll">
+
+          <div class="logo-header compact">
+            <div class="logo-mark"><img src="assets/logo.svg" alt="Artable logo"></div>
+            <h1 class="app-name" data-app-name>ARTABLE</h1>
+            <p class="app-tagline">Every Talent Deserves a Stage</p>
+          </div>
+
+          <h2 class="screen-title">Welcome Back!</h2>
+          <p class="screen-subtitle">Log in to continue your creative journey</p>
+
+          <form id="loginForm" novalidate>
+            <div class="field-group">
+              <div class="auth-input">
+                <span class="field-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z" opacity="0"/><path d="M22 6 12 13 2 6"/><path d="M2 6h20v12H2z"/></svg>
+                </span>
+                <input id="email" type="email" placeholder="Email Address" autocomplete="email" required>
+              </div>
+            </div>
+
+            <div class="field-group">
+              <div class="auth-input">
+                <span class="field-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M7 10V7a5 5 0 0 1 10 0v3"/></svg>
+                </span>
+                <input id="password" type="password" placeholder="Password" autocomplete="current-password" required>
+                <button type="button" class="field-toggle" data-toggle-for="password" aria-label="Show password">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                </button>
+              </div>
+            </div>
+
+            <p class="link-right"><a class="link-accent" href="forgot-password.html">Forgot Password?</a></p>
+
+            <button class="btn-gradient" type="submit">
+              LOG IN
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            </button>
+          </form>
+
+          <div class="divider-row">
+            <span class="line"></span><span>OR CONTINUE WITH</span><span class="line"></span>
+          </div>
+
+          <div class="social-row">
+            <button class="btn-social" type="button"><img src="assets/google.svg" alt="Google">Google</button>
+            <button class="btn-social" type="button"><img src="assets/apple.svg" alt="Apple">Apple</button>
+          </div>
+
+          <p class="footer-row">New here? <a href="signup.html">Sign Up</a></p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/common.js"></script>
+  <script>
+    document.getElementById('loginForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      // TODO(api): call login endpoint with email/password, then route
+      // to the home dashboard on success (home dashboard is a separate
+      // screen set, out of scope here).
+    });
+  </script>
+</body>
+</html>

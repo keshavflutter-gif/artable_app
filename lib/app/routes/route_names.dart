@@ -1,0 +1,40 @@
+class RouteNames {
+  RouteNames._();
+
+  static const String splash = 'splash';
+  static const String onboarding = 'onboarding';
+  static const String login = 'login';
+  static const String signup = 'signup';
+  static const String otp = 'otp';
+  static const String forgotPassword = 'forgot-password';
+  static const String resetPassword = 'reset-password';
+  static const String home = 'home';
+  static const String reels = 'reels';
+  static const String challenges = 'challenges';
+  static const String challengeDetail = 'challenge-detail';
+  static const String categories = 'categories';
+  static const String search = 'search';
+  static const String trendingVideos = 'trending-videos';
+  static const String leaderboard = 'leaderboard';
+  static const String profile = 'profile';
+  static const String editProfile = 'edit-profile';
+  static const String talentScore = 'talent-score';
+  static const String achievements = 'achievements';
+  static const String rewards = 'rewards';
+  static const String settings = 'settings';
+  static const String changePassword = 'change-password';
+  static const String studioCamera = 'studio-camera';
+  static const String studioDetails = 'studio-details';
+  static const String studioDrafts = 'studio-drafts';
+  static const String studioFilters = 'studio-filters';
+  static const String studioMusic = 'studio-music';
+  static const String studioPreview = 'studio-preview';
+  static const String studioStart = 'studio-start';
+  static const String studioUpload = 'studio-upload';
+  static const String wallet = 'wallet';
+  static const String winners = 'winners';
+  static const String membership = 'membership';
+  static const String dailyBonus = 'daily-bonus';
+  static const String inviteFriends = 'invite-friends';
+  static const String notifications = 'notifications';
+}

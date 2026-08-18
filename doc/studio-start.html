@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Artable — Studio</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div class="device-wrap">
+    <div class="device-frame">
+      <div class="app-screen app-shell">
+
+        <div class="screen-scroll app-scroll">
+
+          <header class="app-header">
+            <div class="top-row" style="margin-bottom:0;">
+              <button class="back-btn" type="button" onclick="history.back()" aria-label="Go back">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+              </button>
+            </div>
+            <div class="app-header__greeting" style="text-align:center; flex:1;">
+              <p class="greeting-name" style="font-size:17px;">Studio</p>
+            </div>
+            <span style="width:40px;"></span>
+          </header>
+
+          <div class="app-content">
+
+            <div id="studioStepRow"></div>
+
+            <div class="studio-hero">
+              <div class="studio-hero__glow"></div>
+              <img class="studio-hero__photo" data-field="summaryImage" src="" alt="Challenge">
+              <div class="studio-hero__scrim"></div>
+              <div class="studio-hero__body">
+                <span class="studio-hero__badge">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>
+                  Max 60 sec
+                </span>
+                <p class="studio-hero__eyebrow">Ready to record your talent?</p>
+                <h3 class="studio-hero__title" data-field="summaryTitle"></h3>
+                <div class="studio-hero__meta">
+                  <span data-field="summaryCategory"></span>
+                  <span class="studio-hero__dot"></span>
+                  <span data-field="summaryPrize"></span>
+                </div>
+                <p class="studio-hero__end" data-field="summaryEndDate"></p>
+              </div>
+            </div>
+
+            <div class="studio-info-note">
+              <span class="studio-info-note__icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              </span>
+              <span>Gallery upload is not allowed. Record your video using the in-app studio.</span>
+            </div>
+
+            <div class="detail-section">
+              <h3>Recording Tips</h3>
+              <div class="studio-tip-grid">
+                <div class="studio-tip-chip studio-tip-chip--a">
+                  <span class="studio-tip-chip__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><path d="M12 1v3M12 20v3M4.2 4.2l2.2 2.2M17.6 17.6l2.2 2.2M1 12h3M20 12h3M4.2 19.8l2.2-2.2M17.6 6.4l2.2-2.2"/></svg></span>
+                  <span>Good lighting</span>
+                </div>
+                <div class="studio-tip-chip studio-tip-chip--b">
+                  <span class="studio-tip-chip__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4M8 22h8"/></svg></span>
+                  <span>Clear sound</span>
+                </div>
+                <div class="studio-tip-chip studio-tip-chip--c">
+                  <span class="studio-tip-chip__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></svg></span>
+                  <span>Keep talent centered</span>
+                </div>
+                <div class="studio-tip-chip studio-tip-chip--d">
+                  <span class="studio-tip-chip__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
+                  <span>Follow challenge rules</span>
+                </div>
+              </div>
+            </div>
+
+            <button class="btn-gradient" type="button" id="startRecordingBtn" style="margin-top:22px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 7l-7 5 7 5V7Z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+              <span>Start Recording</span>
+            </button>
+
+            <button class="btn-secondary-outline" type="button" id="viewDraftsStudioBtn" style="width:100%; margin-top:10px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><polyline points="14 2 14 8 20 8"/></svg>
+              <span>View Drafts</span>
+            </button>
+
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    hydrateStudioStart();
+  </script>
+</body>
+</html>

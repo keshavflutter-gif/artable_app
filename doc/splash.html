@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Artable — Splash</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="device-wrap">
+    <div class="device-frame">
+      <div class="app-screen" id="splashScreen">
+        <div class="bg-decoration">
+          <img class="bg-frame" src="assets/bg-frame-1.png" alt="">
+        </div>
+
+        <div class="screen-scroll screen-center">
+          <div class="logo-header">
+            <div class="logo-mark"><img src="assets/logo.svg" alt="Artable logo"></div>
+            <h1 class="app-name" data-app-name>ARTABLE</h1>
+            <p class="app-tagline">Every Talent Deserves a Stage</p>
+            <div class="tagline-divider">
+              <span></span>
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2 L14 10 L22 12 L14 14 L12 22 L10 14 L2 12 L10 10 Z"/></svg>
+              <span></span>
+            </div>
+          </div>
+        </div>
+
+        <p class="splash-version">v1.0.0</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/common.js"></script>
+  <script>
+    // Auto-redirect disabled per request — splash is now a static screen.
+    // TODO(api): once real version-check/auto-login logic exists, call
+    // runSplashSequence({ nextIfLoggedIn: 'onboarding.html', nextIfLoggedOut: 'onboarding.html', delay: 1800 })
+    // here to resume auto-navigation.
+  </script>
+</body>
+</html>

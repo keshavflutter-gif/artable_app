@@ -1,0 +1,36 @@
+<svg viewBox="0 0 200 150" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <defs>
+    <linearGradient id="rpGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF8A3D"/>
+      <stop offset="55%" stop-color="#FF3D77"/>
+      <stop offset="100%" stop-color="#8B3DFF"/>
+    </linearGradient>
+    <radialGradient id="rpGlow" cx="50%" cy="45%" r="60%">
+      <stop offset="0%" stop-color="#FF9AC1" stop-opacity="0.32"/>
+      <stop offset="100%" stop-color="#FF9AC1" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <ellipse cx="100" cy="138" rx="72" ry="7" fill="#8B3DFF" opacity="0.10"/>
+  <circle cx="100" cy="70" r="62" fill="url(#rpGlow)"/>
+
+  <!-- radiant rings -->
+  <circle cx="100" cy="82" r="46" fill="none" stroke="url(#rpGrad)" stroke-width="1.6" opacity="0.25"/>
+  <circle cx="100" cy="82" r="58" fill="none" stroke="url(#rpGrad)" stroke-width="1.4" opacity="0.15"/>
+
+  <!-- lock -->
+  <rect x="66" y="76" width="68" height="56" rx="14" fill="url(#rpGrad)" opacity="0.16"/>
+  <rect x="66" y="76" width="68" height="56" rx="14" fill="none" stroke="url(#rpGrad)" stroke-width="3.4"/>
+  <path d="M78,76 v-18 a22,22 0 0 1 44,0 v18" fill="none" stroke="url(#rpGrad)" stroke-width="4.4" stroke-linecap="round"/>
+  <circle cx="100" cy="100" r="8" fill="url(#rpGrad)"/>
+  <rect x="97" y="105" width="6" height="14" rx="3" fill="url(#rpGrad)"/>
+
+  <!-- check badge -->
+  <circle cx="140" cy="110" r="17" fill="#fff" stroke="url(#rpGrad)" stroke-width="2.6"/>
+  <path d="M133,110 l5,5 l10,-11" fill="none" stroke="url(#rpGrad)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- particles -->
+  <path d="M150,34 L152,40 L158,42 L152,44 L150,50 L148,44 L142,42 L148,40 Z" fill="#FFC93C" opacity="0.85"/>
+  <circle cx="46" cy="46" r="3.2" fill="#4C6CF7" opacity="0.6"/>
+  <circle cx="34" cy="104" r="2.6" fill="#FF3D77" opacity="0.6"/>
+</svg>

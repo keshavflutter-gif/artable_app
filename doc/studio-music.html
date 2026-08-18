@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Artable — Music</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div class="device-wrap">
+    <div class="device-frame">
+      <div class="app-screen app-shell">
+
+        <div class="screen-scroll app-scroll">
+
+          <header class="app-header">
+            <div class="top-row" style="margin-bottom:0;">
+              <button class="back-btn" type="button" onclick="history.back()" aria-label="Go back">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+              </button>
+            </div>
+            <div class="app-header__greeting" style="text-align:center; flex:1;">
+              <p class="greeting-name" style="font-size:17px;">Add Music</p>
+            </div>
+            <span style="width:40px;"></span>
+          </header>
+
+          <div class="app-content">
+
+            <div class="music-search-bar">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input type="text" id="musicSearchInput" placeholder="Search music">
+            </div>
+
+            <div class="tab-row music-tabs">
+              <button class="tab-btn active" type="button" data-tab="all">All</button>
+              <button class="tab-btn" type="button" data-tab="trending">Trending</button>
+              <button class="tab-btn" type="button" data-tab="bollywood">Bollywood</button>
+              <button class="tab-btn" type="button" data-tab="romantic">Romantic</button>
+              <button class="tab-btn" type="button" data-tab="happy">Happy</button>
+            </div>
+
+            <div class="music-track-list" id="musicList"></div>
+
+            <p class="music-library-note">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              <span>All music is from the Artable music library.</span>
+            </p>
+
+          </div>
+        </div>
+
+        <div class="music-selected-bar hidden" id="musicSelectedBar">
+          <span class="music-selected-bar__icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg></span>
+          <span class="music-selected-bar__name" id="musicSelectedName"></span>
+          <button class="btn-gradient music-selected-bar__done" type="button" id="musicDoneBtn">Use This Music</button>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    hydrateStudioMusic();
+  </script>
+</body>
+</html>

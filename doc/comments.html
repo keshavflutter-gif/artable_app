@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Artable — Comments</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div class="device-wrap">
+    <div class="device-frame">
+      <div class="app-screen app-shell">
+
+        <div class="screen-scroll app-scroll" style="padding-bottom:86px;">
+
+          <header class="app-header" style="padding-bottom:0; border-bottom:1px solid rgba(94,46,170,0.08);">
+            <div class="top-row" style="margin-bottom:0;">
+              <button class="back-btn" type="button" onclick="history.back()" aria-label="Go back">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+              </button>
+            </div>
+            <div class="app-header__greeting" style="text-align:center; flex:1;">
+              <p class="greeting-name" style="font-size:17px;">Comments</p>
+              <p class="comments-header__count" id="commentsCount"></p>
+            </div>
+            <span style="width:40px;"></span>
+          </header>
+
+          <div class="comments-sort" id="commentsSort">
+            <button class="comments-sort__btn is-active" type="button" data-sort="top">Top comments</button>
+            <button class="comments-sort__btn" type="button" data-sort="recent">Recent</button>
+          </div>
+
+          <div class="app-content" style="padding-top:6px;">
+            <div id="commentsList"></div>
+          </div>
+        </div>
+
+        <div class="comment-input-bar">
+          <div class="comment-input-bar__field">
+            <input type="text" id="commentInput" placeholder="Add a comment...">
+          </div>
+          <button class="comment-input-bar__send" type="button" id="commentSendBtn" aria-label="Post comment">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    hydrateComments();
+  </script>
+</body>
+</html>

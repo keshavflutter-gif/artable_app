@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Artable — Onboarding</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="device-wrap">
+    <div class="device-frame">
+      <div class="app-screen">
+        <div class="bg-decoration">
+          <img class="bg-frame" src="assets/bg-frame-2.png" alt="">
+        </div>
+
+        <div class="screen-scroll" style="padding-top:18px;">
+          <div class="onboard-topbar">
+            <button class="skip-btn" id="skipBtn" type="button">Skip</button>
+          </div>
+
+          <div class="onboard-viewport">
+            <div class="onboard-track">
+
+              <!-- Slide 1 -->
+              <div class="onboard-slide">
+                <div class="onboard-illustration">
+                  <img src="assets/illustration-onboarding-1.svg" alt="Showcase your talent illustration">
+                </div>
+                <h2>Showcase Your Talent</h2>
+                <p>Record and share your singing, dancing, comedy, art, fitness, magic, acting, sports and more.</p>
+              </div>
+
+              <!-- Slide 2 -->
+              <div class="onboard-slide">
+                <div class="onboard-illustration">
+                  <img src="assets/illustration-onboarding-2.svg" alt="Join challenges illustration">
+                </div>
+                <h2>Join Challenges</h2>
+                <p>Participate in active challenges, get rated by users, and climb the leaderboard.</p>
+              </div>
+
+              <!-- Slide 3 -->
+              <div class="onboard-slide">
+                <div class="onboard-illustration">
+                  <img src="assets/illustration-onboarding-3.svg" alt="Win rewards illustration">
+                </div>
+                <h2>Win Rewards</h2>
+                <p>Earn prizes, badges, daily bonuses, referral rewards, and wallet rewards.</p>
+              </div>
+
+            </div>
+          </div>
+
+          <div class="onboard-dots">
+            <span class="dot active" data-index="0"></span>
+            <span class="dot" data-index="1"></span>
+            <span class="dot" data-index="2"></span>
+          </div>
+
+          <div class="onboard-footer">
+            <button class="btn-gradient" id="nextBtn" type="button">
+              Next
+              <svg class="btn-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/common.js"></script>
+  <script>initOnboarding();</script>
+</body>
+</html>

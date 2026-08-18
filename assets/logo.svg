@@ -1,0 +1,87 @@
+<svg viewBox="0 0 120 130" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Artable logo placeholder">
+  <defs>
+    <linearGradient id="aGrad" x1="25%" y1="0%" x2="90%" y2="100%">
+      <stop offset="0%" stop-color="#FFEB8A"/>
+      <stop offset="16%" stop-color="#FFA53C"/>
+      <stop offset="40%" stop-color="#FF3D77"/>
+      <stop offset="66%" stop-color="#C21FE0"/>
+      <stop offset="100%" stop-color="#3350F0"/>
+    </linearGradient>
+    <linearGradient id="ribbonGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#FF3D77"/>
+      <stop offset="100%" stop-color="#A93DFF"/>
+    </linearGradient>
+    <radialGradient id="glowGrad" cx="50%" cy="45%" r="60%">
+      <stop offset="0%" stop-color="#C77CFF" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#C77CFF" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="aClip">
+      <path fill-rule="evenodd" d="M60,18 L107,112 L13,112 Z M60,45 L91,102 L29,102 Z"/>
+    </clipPath>
+  </defs>
+
+  <!-- faint circuit-dot texture behind the mark (top-right), like reference -->
+  <g fill="#241E38" opacity="0.14">
+    <circle cx="96" cy="10" r="1.1"/><circle cx="104" cy="10" r="1.1"/><circle cx="112" cy="10" r="1.1"/>
+    <circle cx="96" cy="18" r="1.1"/><circle cx="104" cy="18" r="1.1"/><circle cx="112" cy="18" r="1.1"/>
+    <circle cx="96" cy="26" r="1.1"/><circle cx="104" cy="26" r="1.1"/><circle cx="112" cy="26" r="1.1"/>
+    <circle cx="100" cy="34" r="1.1"/><circle cx="108" cy="34" r="1.1"/>
+  </g>
+  <g stroke="#241E38" stroke-width="0.6" opacity="0.12" fill="none">
+    <path d="M96,10 H112 M96,18 H112 M96,10 V26 M112,10 V34"/>
+  </g>
+
+  <!-- soft glow behind mark -->
+  <circle cx="60" cy="68" r="58" fill="url(#glowGrad)"/>
+
+  <!-- base gradient "A" (placeholder low-poly mark, id="logo-mark") -->
+  <path id="logo-mark" fill-rule="evenodd" fill="url(#aGrad)"
+        d="M60,18 L107,112 L13,112 Z M60,45 L91,102 L29,102 Z"/>
+
+  <!-- low-poly facet overlay with visible edge lines for a faceted 3D look -->
+  <g clip-path="url(#aClip)" stroke="#241E38" stroke-opacity="0.24" stroke-width="0.7" stroke-linejoin="round">
+    <polygon points="60,18 63,40 48,58" fill="#ffffff" opacity="0.20"/>
+    <polygon points="60,18 78,58 63,40" fill="#000000" opacity="0.05"/>
+    <polygon points="63,40 78,58 72,72" fill="#ffffff" opacity="0.08"/>
+    <polygon points="78,58 95,90 72,112" fill="#000000" opacity="0.05"/>
+    <polygon points="78,58 107,112 95,90" fill="#000000" opacity="0.10"/>
+    <polygon points="48,58 72,112 60,112" fill="#ffffff" opacity="0.06"/>
+    <polygon points="48,58 60,112 32,112" fill="#ffffff" opacity="0.11"/>
+    <polygon points="13,112 34,112 22,86" fill="#000000" opacity="0.14"/>
+    <polygon points="22,86 34,112 44,96" fill="#000000" opacity="0.07"/>
+    <polygon points="107,112 86,112 98,80" fill="#ffffff" opacity="0.09"/>
+    <polygon points="86,112 76,96 98,80" fill="#ffffff" opacity="0.05"/>
+    <polygon points="34,112 48,86 60,112" fill="#000000" opacity="0.09"/>
+    <polygon points="60,112 72,86 86,112" fill="#ffffff" opacity="0.07"/>
+  </g>
+  <path d="M60,18 L107,112 L13,112 Z M60,45 L91,102 L29,102 Z" fill-rule="evenodd" fill="none"
+        stroke="#241E38" stroke-opacity="0.28" stroke-width="1.1" stroke-linejoin="round"/>
+
+  <!-- ribbon swoosh across the base -->
+  <path d="M2,96 C30,82 48,110 76,94 C90,86 102,92 110,99 L110,107 C98,100 88,95 76,102 C50,118 32,88 2,105 Z"
+        fill="url(#ribbonGrad)" opacity="0.94"/>
+
+  <!-- confetti particles trailing left -->
+  <g fill="#FF9A3C">
+    <polygon points="10,52 16,47 17,57" opacity="0.92"/>
+    <polygon points="0,66 6,61 7,71" fill="#FF3D77" opacity="0.85"/>
+    <polygon points="16,72 22,68 22,77" opacity="0.75"/>
+    <polygon points="-4,80 2,76 2,85" fill="#FF3D77" opacity="0.7"/>
+    <polygon points="8,86 14,82 14,91" opacity="0.6"/>
+    <polygon points="-6,46 0,42 0,50" fill="#FFC93C" opacity="0.75"/>
+    <polygon points="22,38 27,34 27,42" fill="#FFC93C" opacity="0.55"/>
+    <circle cx="24" cy="60" r="1.6" fill="#C246E8" opacity="0.6"/>
+    <circle cx="-6" cy="92" r="1.6" fill="#4C6CF7" opacity="0.55"/>
+    <circle cx="30" cy="30" r="1.4" fill="#FF5C8A" opacity="0.6"/>
+  </g>
+
+  <!-- sparkle stars -->
+  <g>
+    <path d="M96,10 L99,18 L107,21 L99,24 L96,32 L93,24 L85,21 L93,18 Z" fill="#FFD166"/>
+    <path d="M108,34 L110,39 L115,41 L110,43 L108,48 L106,43 L101,41 L106,39 Z" fill="#FF6FA5" opacity="0.9"/>
+    <path d="M28,8 L30,13 L35,15 L30,17 L28,22 L26,17 L21,15 L26,13 Z" fill="#B067FF" opacity="0.85"/>
+    <path d="M10,20 L12,25 L17,27 L12,29 L10,34 L8,29 L3,27 L8,25 Z" fill="#FF9A3C" opacity="0.8"/>
+    <path d="M100,58 L102,62 L106,64 L102,66 L100,70 L98,66 L94,64 L98,62 Z" fill="#FFD166" opacity="0.75"/>
+    <path d="M50,4 L51.5,7.5 L55,9 L51.5,10.5 L50,14 L48.5,10.5 L45,9 L48.5,7.5 Z" fill="#FF6FA5" opacity="0.8"/>
+  </g>
+</svg>

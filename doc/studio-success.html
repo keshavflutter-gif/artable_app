@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Artable — Entry Submitted</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div class="device-wrap">
+    <div class="device-frame">
+      <div class="app-screen app-shell">
+
+        <div class="screen-scroll app-scroll">
+
+          <div class="app-content" style="justify-content:center; flex:1; display:flex; flex-direction:column; padding-top:40px;">
+
+            <div class="success-check">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </div>
+
+            <h2 class="success-title">Entry Submitted!</h2>
+            <p class="success-text">Your video has been submitted for review.</p>
+
+            <div class="summary-card">
+              <img data-field="summaryImage" src="" alt="Challenge">
+              <div class="summary-card__body">
+                <h3 data-field="summaryTitle"></h3>
+                <p data-field="summaryCategory"></p>
+                <p data-field="summaryPrize"></p>
+                <p data-field="summaryEndDate"></p>
+              </div>
+            </div>
+
+            <div class="success-actions">
+              <button class="btn-gradient" type="button" id="viewEntryBtn">
+                <span>View Entry</span>
+              </button>
+              <button class="btn-secondary-outline" type="button" id="joinMoreBtn" style="width:100%;">
+                <span>Join More Challenges</span>
+              </button>
+              <button class="btn-secondary-outline" type="button" id="backToHomeBtn" style="width:100%;">
+                <span>Back to Home</span>
+              </button>
+            </div>
+
+            <p class="preview-note" style="margin-top:16px; justify-content:center; text-align:center;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              <span>Your entry will be reviewed before it goes live.</span>
+            </p>
+
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    hydrateStudioSuccess();
+  </script>
+</body>
+</html>

@@ -1,0 +1,49 @@
+<svg viewBox="0 0 200 150" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <defs>
+    <linearGradient id="otpGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF8A3D"/>
+      <stop offset="50%" stop-color="#FF3D77"/>
+      <stop offset="100%" stop-color="#8B3DFF"/>
+    </linearGradient>
+    <radialGradient id="otpGlow" cx="50%" cy="45%" r="60%">
+      <stop offset="0%" stop-color="#FF9AC1" stop-opacity="0.32"/>
+      <stop offset="100%" stop-color="#FF9AC1" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <ellipse cx="100" cy="138" rx="80" ry="7" fill="#8B3DFF" opacity="0.10"/>
+  <circle cx="100" cy="70" r="66" fill="url(#otpGlow)"/>
+
+  <!-- phone body -->
+  <rect x="58" y="14" width="84" height="120" rx="18" fill="url(#otpGrad)" opacity="0.14"/>
+  <rect x="58" y="14" width="84" height="120" rx="18" fill="none" stroke="url(#otpGrad)" stroke-width="3.4"/>
+  <rect x="88" y="20" width="24" height="4" rx="2" fill="url(#otpGrad)" opacity="0.6"/>
+
+  <!-- code chips on screen -->
+  <g fill="#fff" stroke="url(#otpGrad)" stroke-width="2.6">
+    <rect x="68" y="46" width="16" height="20" rx="4"/>
+    <rect x="92" y="46" width="16" height="20" rx="4"/>
+    <rect x="116" y="46" width="16" height="20" rx="4"/>
+  </g>
+  <g fill="url(#otpGrad)">
+    <circle cx="76" cy="56" r="2.4"/><circle cx="100" cy="56" r="2.4"/><circle cx="124" cy="56" r="2.4"/>
+  </g>
+
+  <!-- shield check -->
+  <path d="M100,78 L124,88 v18 c0,16 -10,26 -24,32 c-14,-6 -24,-16 -24,-32 v-18 Z" fill="url(#otpGrad)"/>
+  <path d="M90,112 l7,7 l14,-16" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- signal waves -->
+  <g fill="none" stroke="url(#otpGrad)" stroke-width="2.6" stroke-linecap="round" opacity="0.75">
+    <path d="M20,50 a40,40 0 0 1 24,-24"/>
+    <path d="M12,66 a58,58 0 0 1 36,-52"/>
+  </g>
+  <g fill="none" stroke="url(#otpGrad)" stroke-width="2.6" stroke-linecap="round" opacity="0.75">
+    <path d="M180,50 a40,40 0 0 0 -24,-24"/>
+    <path d="M188,66 a58,58 0 0 0 -36,-52"/>
+  </g>
+
+  <!-- sparkle -->
+  <path d="M168,100 L170,106 L176,108 L170,110 L168,116 L166,110 L160,108 L166,106 Z" fill="#FFC93C" opacity="0.85"/>
+  <circle cx="26" cy="104" r="3" fill="#4C6CF7" opacity="0.6"/>
+</svg>

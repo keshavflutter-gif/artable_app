@@ -1,0 +1,635 @@
+/* =========================================================
+   ARTABLE — Launch & Authentication Screens
+   Shared design tokens + reusable components
+   App name "ARTABLE" is a placeholder — search this file for
+   ".app-name" / data-app-name to swap branding later.
+   ========================================================= */
+
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap');
+
+:root{
+  /* --- Brand gradient (from icon: yellow -> orange -> pink -> purple -> blue) --- */
+  --grad-logo: linear-gradient(155deg, #FFDE59 0%, #FFA53C 22%, #FF5C8A 45%, #C246E8 68%, #4C6CF7 100%);
+  --grad-button: linear-gradient(90deg, #FF8A3D 0%, #FF3D77 50%, #8B3DFF 100%);
+  --grad-button-active: linear-gradient(90deg, #F07531 0%, #F02D66 50%, #7A2CF2 100%);
+  --grad-text: linear-gradient(90deg, #FF7A45 0%, #FF3D77 60%, #9B3DFF 100%);
+
+  --color-bg: #FFFFFF;
+  --color-surface: #FFFFFF;
+  --color-text: #241E38;
+  --color-text-soft: #8B849C;
+  --color-text-faint: #B7B1C6;
+  --color-orange: #FF7A45;
+  --color-pink: #FF3D77;
+  --color-purple: #8B3DFF;
+  --color-blue: #4C6CF7;
+  --color-input-bg: #F8F7FC;
+  --color-input-border: #ECE8F5;
+  --color-input-border-focus: #C9B9F7;
+  --color-divider: #EEE9F7;
+
+  --shadow-soft: 0 10px 30px rgba(139, 61, 255, 0.10);
+  --shadow-card: 0 18px 40px rgba(94, 46, 170, 0.12);
+  --shadow-btn: 0 12px 24px rgba(255, 61, 119, 0.28);
+  --shadow-input: 0 4px 14px rgba(94, 46, 170, 0.05);
+
+  --radius-xl: 28px;
+  --radius-lg: 22px;
+  --radius-input: 16px;
+  --radius-btn: 30px;
+  --radius-sm: 12px;
+
+  --font-display: 'Poppins', 'Segoe UI', system-ui, sans-serif;
+  --font-body: 'Inter', 'Segoe UI', system-ui, sans-serif;
+}
+
+*{ box-sizing: border-box; }
+html,body{ margin:0; padding:0; }
+
+body{
+  font-family: var(--font-body);
+  color: var(--color-text);
+  background: #EFEAF7;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* =========================================================
+   Device frame — gives a phone-mockup preview on desktop
+   browsers while the .app-screen itself stays fully fluid
+   for real mobile viewports.
+   ========================================================= */
+.device-wrap{
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 12px;
+}
+
+.device-frame{
+  width: 100%;
+  max-width: 400px;
+  min-height: 844px;
+  background: var(--color-bg);
+  border-radius: 44px;
+  /* No hardware phone bezel here on purpose — the black-border "device"
+     look isn't part of the app's actual UI. This soft shadow is only
+     a desktop-preview aid so screens read as separate cards. */
+  box-shadow: 0 30px 70px rgba(40, 20, 80, 0.22), 0 0 0 1px rgba(40,20,80,0.06);
+  position: relative;
+  overflow: hidden;
+}
+
+@media (max-width: 480px){
+  .device-wrap{ padding: 0; }
+  .device-frame{ border-radius: 0; min-height: 100vh; box-shadow: none; }
+}
+
+/* =========================================================
+   Screen scaffold
+   ========================================================= */
+.app-screen{
+  position: relative;
+  min-height: 844px;
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg);
+}
+@media (max-width: 480px){
+  .app-screen{ min-height: 100vh; }
+}
+
+.screen-scroll{
+  position: relative;
+  z-index: 2;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 28px 26px 28px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* =========================================================
+   Background frame — a single full-bleed reference image per
+   screen (assets/bg-frame-1.png / -2.png / -3.png, rotated
+   across the 7 screens). Replaces the old hand-drawn blob +
+   SVG watercolor-splash system entirely.
+   ========================================================= */
+.bg-decoration{
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.bg-frame{
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+
+/* =========================================================
+   Component: Logo header
+   ========================================================= */
+.logo-header{
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.logo-mark{
+  position: relative;
+  width: 190px;
+  height: 190px;
+  margin-bottom: 2px;
+  filter: drop-shadow(0 18px 30px rgba(139, 61, 255, 0.36));
+}
+.logo-mark::before{
+  content: '';
+  position: absolute;
+  inset: -22%;
+  background: radial-gradient(circle, rgba(199,124,255,0.4), transparent 68%);
+  border-radius: 50%;
+  z-index: -1;
+}
+.logo-mark img, .logo-mark svg{ width: 100%; height: 100%; display: block; }
+
+.app-name{
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 38px;
+  letter-spacing: 1.5px;
+  color: var(--color-text);
+  margin: 0;
+  text-align: center;
+}
+.app-tagline{
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: 0.3px;
+  margin: 0;
+  text-align: center;
+  background: var(--grad-text);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.tagline-divider{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 0;
+}
+.tagline-divider span{ width: 22px; height: 1px; background: linear-gradient(90deg, transparent, var(--color-input-border)); }
+.tagline-divider span:last-child{ background: linear-gradient(90deg, var(--color-input-border), transparent); }
+.tagline-divider svg{ width: 12px; height: 12px; color: var(--color-orange); }
+
+/* Login / Sign Up: still large and brand-forward, just a step down from Splash */
+.logo-header.compact{ margin-bottom: 10px; gap: 6px; }
+.logo-header.compact .logo-mark{ width: 138px; height: 138px; margin-bottom: 0; }
+.logo-header.compact .app-name{ font-size: 30px; }
+.logo-header.compact .app-tagline{ font-size: 13.5px; }
+
+/* OTP / Forgot / Reset: icon-only accent header (no wordmark shown) */
+.logo-header.icon-only{ margin-bottom: 6px; }
+.logo-header.icon-only .logo-mark{ width: 104px; height: 104px; margin-bottom: 0; }
+
+/* =========================================================
+   Headings / copy
+   ========================================================= */
+.screen-title{
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 26px;
+  margin: 2px 0 6px;
+  color: var(--color-text);
+}
+.screen-subtitle{
+  font-family: var(--font-body);
+  font-size: 14px;
+  color: var(--color-text-soft);
+  margin: 0 0 22px;
+  line-height: 1.55;
+}
+
+/* =========================================================
+   Component: Auth input
+   ========================================================= */
+.field-group{ margin-bottom: 14px; }
+
+.auth-input{
+  position: relative;
+  display: flex;
+  align-items: center;
+  background: #fff;
+  border: 1.5px solid var(--color-input-border);
+  border-radius: var(--radius-input);
+  box-shadow: 0 8px 20px rgba(94, 46, 170, 0.08);
+  padding: 0 12px;
+  height: 58px;
+  transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
+}
+.auth-input:focus-within{
+  border-color: transparent;
+  box-shadow: 0 0 0 2px #fff, 0 0 0 3.5px rgba(139,61,255,0.55), 0 10px 22px rgba(139, 61, 255, 0.18);
+  transform: translateY(-1px);
+}
+.auth-input .field-icon{
+  width: 34px; height: 34px;
+  margin-right: 10px;
+  flex-shrink: 0;
+  border-radius: 11px;
+  background: linear-gradient(135deg, rgba(255,138,61,0.14), rgba(139,61,255,0.14));
+  color: var(--color-purple);
+  display: flex; align-items: center; justify-content: center;
+}
+.auth-input .field-icon svg{ width: 17px; height: 17px; }
+.auth-input input{
+  border: none;
+  outline: none;
+  background: transparent;
+  flex: 1;
+  height: 100%;
+  font-family: var(--font-body);
+  font-size: 14.5px;
+  color: var(--color-text);
+}
+.auth-input input::placeholder{ color: var(--color-text-faint); }
+
+.field-toggle{
+  background: none;
+  border: none;
+  padding: 4px;
+  margin-left: 6px;
+  cursor: pointer;
+  color: var(--color-text-soft);
+  display: flex; align-items: center; justify-content: center;
+}
+.field-toggle svg{ width: 19px; height: 19px; }
+
+.field-hint{
+  font-size: 12px;
+  color: var(--color-text-soft);
+  margin: 6px 4px 0;
+}
+.field-hint.error{ color: var(--color-pink); }
+.field-hint.success{ color: #21B573; }
+
+/* =========================================================
+   Component: Gradient CTA button
+   ========================================================= */
+.btn-gradient{
+  position: relative;
+  width: 100%;
+  height: 56px;
+  border: none;
+  border-radius: var(--radius-btn);
+  background: var(--grad-button);
+  color: #fff;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  cursor: pointer;
+  box-shadow: 0 14px 26px rgba(255, 61, 119, 0.32), inset 0 1px 0 rgba(255,255,255,0.35);
+  transition: transform .12s ease, box-shadow .12s ease, background .12s ease;
+  overflow: hidden;
+}
+.btn-gradient::before{
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(255,255,255,0.28), rgba(255,255,255,0) 55%);
+  pointer-events: none;
+}
+.btn-gradient:hover{ background: var(--grad-button-active); box-shadow: 0 16px 30px rgba(255, 61, 119, 0.38), inset 0 1px 0 rgba(255,255,255,0.35); }
+.btn-gradient:active{ transform: translateY(1px) scale(0.99); }
+.btn-gradient svg{ width: 18px; height: 18px; position: relative; }
+.btn-gradient span{ position: relative; }
+/* Disabled state stays visually identical to enabled — validation
+   feedback (shake + red hint) communicates errors instead, so the
+   CTA never looks "dead" to the user. */
+.btn-gradient:disabled{ cursor: pointer; }
+
+@keyframes shake{
+  10%, 90% { transform: translateX(-1px); }
+  20%, 80% { transform: translateX(2px); }
+  30%, 50%, 70% { transform: translateX(-4px); }
+  40%, 60% { transform: translateX(4px); }
+}
+.shake{ animation: shake .5s ease; }
+
+.btn-ghost{
+  width: 100%;
+  height: 50px;
+  border-radius: var(--radius-btn);
+  background: transparent;
+  border: 1.5px solid var(--color-input-border);
+  color: var(--color-text-soft);
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+/* =========================================================
+   Component: Social login button
+   ========================================================= */
+.social-row{
+  display: flex;
+  gap: 12px;
+  margin-top: 4px;
+}
+.btn-social{
+  flex: 1;
+  height: 52px;
+  border-radius: var(--radius-btn);
+  background: #fff;
+  border: 1.5px solid var(--color-input-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 13.5px;
+  color: var(--color-text);
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(94, 46, 170, 0.08);
+  transition: transform .12s ease, box-shadow .12s ease;
+}
+.btn-social:hover{ transform: translateY(-1px); box-shadow: 0 10px 22px rgba(94, 46, 170, 0.14); }
+.btn-social img, .btn-social svg{ width: 19px; height: 19px; }
+
+.divider-row{
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 0 16px;
+}
+.divider-row .line{ flex: 1; height: 1px; background: var(--color-divider); }
+.divider-row span{
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  color: var(--color-text-faint);
+  white-space: nowrap;
+}
+
+/* =========================================================
+   Links / footer rows
+   ========================================================= */
+.link-right{
+  text-align: right;
+  margin: -6px 0 18px;
+}
+.link-accent{
+  color: var(--color-purple);
+  font-weight: 600;
+  font-size: 13px;
+  text-decoration: none;
+}
+.footer-row{
+  text-align: center;
+  margin-top: 22px;
+  font-size: 13.5px;
+  color: var(--color-text-soft);
+}
+.footer-row a{ color: var(--color-purple); font-weight: 700; text-decoration: none; margin-left: 4px; }
+
+.back-btn{
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  border: 1.5px solid var(--color-input-border);
+  background: #fff;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  color: var(--color-text);
+  box-shadow: var(--shadow-input);
+  flex-shrink: 0;
+}
+.back-btn svg{ width: 18px; height: 18px; }
+
+.top-row{
+  display: flex;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+/* =========================================================
+   Utility
+   ========================================================= */
+.spacer{ flex: 1; }
+.mt-auto{ margin-top: auto; }
+.text-center{ text-align: center; }
+.hidden{ display: none !important; }
+
+/* skip link a11y-ish reset */
+a{ font-family: var(--font-body); }
+button{ font-family: inherit; }
+
+/* =========================================================
+   Splash screen (static — no loading animation)
+   ========================================================= */
+.splash-version{
+  position: absolute;
+  bottom: 22px;
+  left: 0; right: 0;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--color-text-faint);
+  z-index: 2;
+}
+
+/* =========================================================
+   Onboarding
+   ========================================================= */
+.onboard-topbar{
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 2px 0;
+}
+.skip-btn{
+  background: none;
+  border: none;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 13.5px;
+  color: var(--color-text-soft);
+  cursor: pointer;
+  padding: 8px;
+}
+.onboard-viewport{
+  overflow: hidden;
+  flex: 1;
+  display: flex;
+}
+.onboard-track{
+  display: flex;
+  width: 100%;
+  transition: transform .35s ease;
+}
+.onboard-slide{
+  min-width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 10px 6px 0;
+}
+.onboard-illustration{
+  width: 100%;
+  max-width: 280px;
+  height: 220px;
+  margin: 6px auto 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.onboard-illustration img{ width: 100%; height: 100%; object-fit: contain; }
+.onboard-slide h2{
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 21px;
+  margin: 0 0 10px;
+  background: var(--grad-text);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.onboard-slide p{
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--color-text-soft);
+  margin: 0;
+  max-width: 300px;
+}
+.onboard-dots{
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin: 22px 0 18px;
+}
+.dot{
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--color-input-border);
+  cursor: pointer;
+  transition: all .2s ease;
+}
+.dot.active{
+  width: 22px;
+  border-radius: 5px;
+  background: var(--grad-button);
+}
+.onboard-footer{
+  padding: 0 2px;
+}
+.btn-arrow{ display: inline-flex; }
+
+/* =========================================================
+   OTP boxes
+   ========================================================= */
+.otp-row{
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin: 8px 0 6px;
+}
+.otp-row input{
+  width: 46px;
+  height: 56px;
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-text);
+  background: var(--color-input-bg);
+  border: 1.5px solid var(--color-input-border);
+  border-radius: var(--radius-input);
+  box-shadow: var(--shadow-input);
+  outline: none;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.otp-row input:focus{
+  border-color: var(--color-input-border-focus);
+  box-shadow: 0 6px 18px rgba(139, 61, 255, 0.14);
+}
+.otp-row.error input{
+  border-color: var(--color-pink);
+  box-shadow: 0 6px 18px rgba(255, 61, 119, 0.18);
+}
+.resend-row{
+  text-align: center;
+  margin: 18px 0 26px;
+  font-size: 13.5px;
+  color: var(--color-text-soft);
+}
+.resend-row #resendBtn{
+  background: none;
+  border: none;
+  color: var(--color-purple);
+  font-weight: 700;
+  font-size: 13.5px;
+  cursor: pointer;
+  padding: 0;
+}
+
+/* =========================================================
+   Success / validation state panel (Reset Password)
+   ========================================================= */
+.success-panel{
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 20px 6px;
+}
+.success-icon{
+  width: 78px; height: 78px;
+  border-radius: 50%;
+  background: var(--grad-button);
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 20px;
+  box-shadow: var(--shadow-btn);
+}
+.success-icon svg{ width: 34px; height: 34px; color: #fff; }
+.success-panel h2{
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 20px;
+  margin: 0 0 8px;
+}
+.success-panel p{
+  font-size: 14px;
+  color: var(--color-text-soft);
+  margin: 0 0 26px;
+  max-width: 280px;
+  line-height: 1.6;
+}
+
+/* =========================================================
+   Centered screen helper (splash)
+   ========================================================= */
+.screen-center{
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}

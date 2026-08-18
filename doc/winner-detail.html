@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Artable — Winner Detail</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div class="device-wrap">
+    <div class="device-frame">
+      <div class="app-screen app-shell">
+
+        <div class="screen-scroll app-scroll">
+
+          <div class="winner-hero">
+            <img data-field="avatarUrl" src="" alt="Winner" onerror="imgFallback(this)">
+            <button class="back-btn" type="button" onclick="history.back()" aria-label="Go back">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+            <span class="winner-hero__rank" id="winnerRankSlot"></span>
+            <div class="winner-hero__info">
+              <img class="winner-hero__avatar" data-field="avatarUrl" src="" alt="" onerror="imgFallback(this)">
+              <div class="winner-hero__text">
+                <strong data-field="name"></strong>
+                <span data-field="handle"></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="app-content">
+
+            <div class="winner-prize-card">
+              <span class="winner-prize-card__icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0Z"/><path d="M7 6H4a3 3 0 0 0 3 5M17 6h3a3 3 0 0 1-3 5"/></svg>
+              </span>
+              <div class="winner-prize-card__body">
+                <span data-field="challengeTitle"></span>
+                <strong data-field="prize"></strong>
+              </div>
+            </div>
+
+            <div class="profile-section-title" style="margin-top:20px;">
+              <h3>Winning Entry</h3>
+            </div>
+            <div class="winning-video-card" id="winningVideoCard"></div>
+            <button class="btn-gradient" type="button" id="watchWinningVideoBtn" style="margin-top:14px;">
+              <span>Watch Winning Video</span>
+            </button>
+
+            <div class="winner-stats-row">
+              <div class="winner-stat-chip">
+                <strong data-field="finalPosition"></strong>
+                <span>Position</span>
+              </div>
+              <div class="winner-stat-chip">
+                <strong data-field="avgRating"></strong>
+                <span>Avg Rating</span>
+              </div>
+              <div class="winner-stat-chip">
+                <strong data-field="totalVotes"></strong>
+                <span>Total Votes</span>
+              </div>
+            </div>
+
+            <div class="info-note-card" style="margin-top:16px;">
+              <span class="info-note-card__icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M16 3v4M8 3v4M3 10h18"/></svg>
+              </span>
+              <div class="info-note-card__text">
+                <strong>Won on <span data-field="winDate"></span></strong>
+                <span>Talent Score: <span data-field="talentScore"></span> / 10</span>
+              </div>
+            </div>
+
+            <button class="btn-secondary-outline" type="button" id="viewWinnerProfileBtn" style="margin-top:14px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="4"/><path d="M5.5 21a6.5 6.5 0 0 1 13 0"/></svg>
+              <span>View Profile</span>
+            </button>
+
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    hydrateWinnerDetail();
+  </script>
+</body>
+</html>
