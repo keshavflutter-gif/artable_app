@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:artable_app/core/network/api_client.dart';
 import 'package:artable_app/core/network/api_config.dart';
+import 'package:artable_app/core/storage/auth_storage_service.dart';
 import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
 import 'package:artable_app/features/auth/data/models/forgot_password_request.dart';
 import 'package:artable_app/features/auth/data/models/login_request.dart';
@@ -613,6 +614,112 @@ void main() {
       );
 
       expect(success, isTrue);
+    });
+
+    test('10. POST /auth/logout sends auth headers, clears stored session, and parses response', () async {
+      final mockClient = MockClient((request) async {
+        expect(request.url.toString(), '${ApiConfig.baseUrl}/auth/logout');
+        expect(request.method, 'POST');
+        expect(request.headers['Authorization'], 'Bearer mock_session_token_123');
+        expect(request.headers['Refresh-Token'], 'mock_refresh_token_456');
+
+        return http.Response(
+          jsonEncode({
+            'success': true,
+            'message': 'Logged out successfully',
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+
+      final apiClient = ApiClient(client: mockClient);
+      final repo = AuthRepository(apiClient: apiClient);
+
+      // Pre-save session to test storage clearing
+      final storage = AuthStorageService();
+      await storage.saveSession(
+        sessionToken: 'mock_session_token_123',
+        refreshToken: 'mock_refresh_token_456',
+        userId: 'usr_abc',
+        displayName: 'Test User',
+      );
+      expect(await storage.getSessionToken(), 'mock_session_token_123');
+
+      final response = await repo.logout(
+        sessionToken: 'mock_session_token_123',
+        refreshToken: 'mock_refresh_token_456',
+      );
+
+      expect(response.success, isTrue);
+      expect(response.message, 'Logged out successfully');
+
+      // Verify session was cleared
+      expect(await storage.getSessionToken(), isNull);
+      expect(await storage.getRefreshToken(), isNull);
+      expect(await storage.getUserId(), isNull);
+    });
+
+    test('11. AuthCubit.logout() calls API, resets auth state, and clears user session', () async {
+      var logoutCalled = false;
+      final mockClient = MockClient((request) async {
+        if (request.url.path == '/auth/login') {
+          return http.Response(
+            jsonEncode({
+              'sessionToken': 'tok_1',
+              'refreshToken': 'ref_1',
+              'userInfo': {
+                'id': 'usr_1',
+                'username': 'logout_user',
+                'firstName': 'Logout',
+                'lastName': 'Tester',
+              },
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        } else if (request.url.path == '/user/usr_1') {
+          return http.Response(
+            jsonEncode({
+              'data': {
+                'id': 'usr_1',
+                'username': 'logout_user',
+                'firstName': 'Logout',
+                'lastName': 'Tester',
+              },
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        } else if (request.url.path == '/auth/logout' && request.method == 'POST') {
+          logoutCalled = true;
+          expect(request.headers['Authorization'], 'Bearer tok_1');
+          return http.Response(
+            jsonEncode({
+              'success': true,
+              'message': 'Logged out successfully',
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return http.Response('Not Found', 404);
+      });
+
+      final apiClient = ApiClient(client: mockClient);
+      final repo = AuthRepository(apiClient: apiClient);
+      final cubit = AuthCubit(authRepository: repo);
+
+      await cubit.login('test@test.com', 'password');
+      expect(cubit.isLoggedIn, isTrue);
+
+      final logoutResponse = await cubit.logout();
+      expect(logoutCalled, isTrue);
+      expect(logoutResponse?.success, isTrue);
+      expect(logoutResponse?.message, 'Logged out successfully');
+      expect(cubit.isLoggedIn, isFalse);
+      expect(cubit.sessionToken, isNull);
+      expect(cubit.refreshToken, isNull);
     });
   });
 }

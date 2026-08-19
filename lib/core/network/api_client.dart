@@ -15,6 +15,7 @@ import 'loggers/forgot_password_api_debug_logger.dart';
 import 'loggers/home_api_debug_logger.dart';
 import 'loggers/leaderboard_api_debug_logger.dart';
 import 'loggers/login_api_debug_logger.dart';
+import 'loggers/logout_api_debug_logger.dart';
 import 'loggers/register_api_debug_logger.dart';
 import 'loggers/resend_otp_api_debug_logger.dart';
 import 'loggers/reset_password_api_debug_logger.dart';
@@ -287,6 +288,16 @@ class ApiClient {
       );
       return;
     }
+    if (path == '/auth/logout') {
+      AuthApiDebugLogger.logRequest(
+        method: method,
+        url: fullUrl,
+        headers: headers,
+        body: body,
+        apiLabel: 'LOGOUT',
+      );
+      return;
+    }
     if (path.startsWith('/user/')) {
       AuthApiDebugLogger.logRequest(
         method: method,
@@ -364,7 +375,8 @@ class ApiClient {
         path == '/auth/resend-otp' ||
         path == '/auth/forgot-password' ||
         path == '/auth/reset-password/token-verify' ||
-        path == '/auth/reset-password') {
+        path == '/auth/reset-password' ||
+        path == '/auth/logout') {
       return 'POST';
     }
     if (path == '/user' && body != null) {
@@ -549,6 +561,31 @@ class ApiClient {
         responseData: responseData,
       );
       ResetPasswordApiDebugLogger.logResponse(
+        statusCode: response.statusCode,
+        responseBody: response.body,
+        url: fullUrl,
+        responseData: responseData,
+      );
+    } else if (path == '/auth/logout') {
+      Map<String, dynamic>? responseData;
+      if (response.body.isNotEmpty) {
+        try {
+          final raw = jsonDecode(response.body);
+          if (raw is Map<String, dynamic>) {
+            responseData = raw;
+          } else if (raw is Map) {
+            responseData = Map<String, dynamic>.from(raw);
+          }
+        } catch (_) {}
+      }
+      AuthApiDebugLogger.logResponse(
+        apiLabel: 'LOGOUT',
+        statusCode: response.statusCode,
+        responseBody: response.body,
+        url: fullUrl,
+        responseData: responseData,
+      );
+      LogoutApiDebugLogger.logResponse(
         statusCode: response.statusCode,
         responseBody: response.body,
         url: fullUrl,

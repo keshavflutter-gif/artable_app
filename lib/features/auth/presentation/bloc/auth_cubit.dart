@@ -7,6 +7,7 @@ import 'package:artable_app/features/auth/data/models/change_password_request.da
 import 'package:artable_app/features/auth/data/models/forgot_password_request.dart';
 import 'package:artable_app/features/auth/data/models/forgot_password_response.dart';
 import 'package:artable_app/features/auth/data/models/login_request.dart';
+import 'package:artable_app/features/auth/data/models/logout_response.dart';
 import 'package:artable_app/features/auth/data/models/register_request.dart';
 import 'package:artable_app/features/auth/data/models/register_response.dart';
 import 'package:artable_app/features/auth/data/models/resend_otp_request.dart';
@@ -556,15 +557,69 @@ class AuthCubit extends Cubit<AuthState> {
     }
   }
 
-  Future<void> logout() async {
-    await _authRepository.clearStoredSession();
-    final clearedUser = Map<String, dynamic>.from(state.currentUser);
-    clearedUser['isLoggedIn'] = false;
-    emit(state.copyWith(
-      clearSession: true,
-      currentUser: clearedUser,
-      clearError: true,
-    ));
+  Future<LogoutResponse?> logout() async {
+    emit(state.copyWith(isLoading: true, clearError: true));
+
+    try {
+      final response = await _authRepository.logout(
+        sessionToken: state.sessionToken,
+        refreshToken: state.refreshToken,
+      );
+
+      final clearedUser = Map<String, dynamic>.from(state.currentUser);
+      clearedUser['isLoggedIn'] = false;
+      clearedUser['name'] = '';
+      clearedUser['fullName'] = '';
+      clearedUser['handle'] = '';
+      clearedUser['username'] = '';
+      clearedUser['avatarUrl'] = '';
+      clearedUser['bio'] = '';
+
+      emit(state.copyWith(
+        isLoading: false,
+        clearSession: true,
+        currentUser: clearedUser,
+        clearError: true,
+      ));
+
+      return response;
+    } on ApiException catch (e) {
+      debugPrint('=== LOGOUT API EXCEPTION ===: ${e.message}');
+      final clearedUser = Map<String, dynamic>.from(state.currentUser);
+      clearedUser['isLoggedIn'] = false;
+      clearedUser['name'] = '';
+      clearedUser['fullName'] = '';
+      clearedUser['handle'] = '';
+      clearedUser['username'] = '';
+      clearedUser['avatarUrl'] = '';
+      clearedUser['bio'] = '';
+
+      emit(state.copyWith(
+        isLoading: false,
+        clearSession: true,
+        currentUser: clearedUser,
+        errorMessage: e.message,
+      ));
+      return null;
+    } catch (e) {
+      debugPrint('=== LOGOUT ERROR ===: $e');
+      final clearedUser = Map<String, dynamic>.from(state.currentUser);
+      clearedUser['isLoggedIn'] = false;
+      clearedUser['name'] = '';
+      clearedUser['fullName'] = '';
+      clearedUser['handle'] = '';
+      clearedUser['username'] = '';
+      clearedUser['avatarUrl'] = '';
+      clearedUser['bio'] = '';
+
+      emit(state.copyWith(
+        isLoading: false,
+        clearSession: true,
+        currentUser: clearedUser,
+        clearError: true,
+      ));
+      return null;
+    }
   }
 
   Future<bool> saveProfile({

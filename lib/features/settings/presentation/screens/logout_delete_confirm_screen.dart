@@ -6,6 +6,7 @@ import 'package:artable_app/app/theme/app_gradients.dart';
 import 'package:artable_app/core/widgets/app_back_header.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
 import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
+import 'package:artable_app/features/auth/presentation/bloc/auth_state.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
 
 class LogoutDeleteConfirmScreen extends StatelessWidget {
@@ -85,47 +86,66 @@ class LogoutDeleteConfirmScreen extends StatelessWidget {
                   const SizedBox(height: 36),
 
                   // Action Button (Gradient/Solid)
-                  Container(
-                    height: 54,
-                    width: double.infinity,
-                    decoration: BoxDecoration(
-                      gradient: isDelete ? null : AppGradients.button,
-                      color: isDelete ? const Color(0xFFFF3D77) : null,
-                      borderRadius: BorderRadius.circular(27),
-                      boxShadow: [
-                        BoxShadow(
-                          color: (isDelete ? const Color(0xFFFF3D77) : const Color(0xFFFF5487))
-                              .withValues(alpha: 0.35),
-                          blurRadius: 16,
-                          offset: const Offset(0, 8),
+                  BlocBuilder<AuthCubit, AuthState>(
+                    builder: (context, state) {
+                      final isLoggingOut = !isDelete && state.isLoading;
+                      return Container(
+                        height: 54,
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          gradient: isDelete ? null : AppGradients.button,
+                          color: isDelete ? const Color(0xFFFF3D77) : null,
+                          borderRadius: BorderRadius.circular(27),
+                          boxShadow: [
+                            BoxShadow(
+                              color: (isDelete
+                                      ? const Color(0xFFFF3D77)
+                                      : const Color(0xFFFF5487))
+                                  .withValues(alpha: 0.35),
+                              blurRadius: 16,
+                              offset: const Offset(0, 8),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: () async {
-                          if (!isDelete) {
-                            await context.read<AuthCubit>().logout();
-                          }
-                          if (context.mounted) {
-                            context.go(AppRoutes.login);
-                          }
-                        },
-                        borderRadius: BorderRadius.circular(27),
-                        child: Center(
-                          child: Text(
-                            primaryButtonLabel,
-                            style: const TextStyle(
-                              fontFamily: 'Poppins',
-                              color: Colors.white,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 15,
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: isLoggingOut
+                                ? null
+                                : () async {
+                                    if (!isDelete) {
+                                      await context.read<AuthCubit>().logout();
+                                    }
+                                    if (context.mounted) {
+                                      context.go(AppRoutes.login);
+                                    }
+                                  },
+                            borderRadius: BorderRadius.circular(27),
+                            child: Center(
+                              child: isLoggingOut
+                                  ? const SizedBox(
+                                      width: 22,
+                                      height: 22,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2.5,
+                                        valueColor: AlwaysStoppedAnimation<Color>(
+                                            Colors.white),
+                                      ),
+                                    )
+                                  : Text(
+                                      primaryButtonLabel,
+                                      style: const TextStyle(
+                                        fontFamily: 'Poppins',
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 15,
+                                      ),
+                                    ),
                             ),
                           ),
                         ),
-                      ),
-                    ),
+                      );
+                    },
                   ),
                   const SizedBox(height: 12),
 

@@ -13,6 +13,7 @@ class ApiConstants {
   static const String forgotPassword = '/auth/forgot-password';
   static const String resetPassword = '/auth/reset-password';
   static const String tokenVerify = '/auth/token-verify';
+  static const String logout = '/auth/logout';
   static const String user = '/user';
   static const String changePassword = '/user/change-password';
   static const String home = '/app/home';

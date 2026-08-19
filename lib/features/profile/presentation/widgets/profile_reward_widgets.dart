@@ -391,10 +391,13 @@ class RewardCard extends StatelessWidget {
   final Map<String, dynamic> reward;
 
   Color get _typeColor {
-    switch (reward['type']) {
+    final t = (reward['type'] as String? ?? 'cash').toLowerCase();
+    switch (t) {
       case 'voucher':
+      case 'vouchers':
         return AppColors.blue;
       case 'product':
+      case 'products':
         return AppColors.orange;
       case 'sponsor':
         return AppColors.pink;
@@ -405,13 +408,15 @@ class RewardCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final status = reward['status'] as String;
-    final locked = status == 'locked';
+    final status = (reward['status'] as String? ?? 'available').toLowerCase();
+    final isClaimed = status == 'claimed' || reward['isClaimed'] == true;
+    final isAvailable = (status == 'available' || reward['isAvailable'] == true) && !isClaimed;
+    final locked = status == 'locked' || (!isClaimed && !isAvailable);
     final typeStr = reward['type'] as String? ?? 'cash';
-    final actionLabel = status == 'available'
-        ? 'Claim ›'
-        : status == 'claimed'
-            ? 'View ›'
+    final actionLabel = isClaimed
+        ? 'View ›'
+        : isAvailable
+            ? 'Claim ›'
             : 'Locked ›';
 
     return GestureDetector(
@@ -439,7 +444,7 @@ class RewardCard extends StatelessWidget {
             Stack(
               children: [
                 AppImage(
-                  url: reward['imageUrl'] as String,
+                  url: reward['imageUrl'] as String? ?? '',
                   height: 105,
                   width: double.infinity,
                   fit: BoxFit.cover,
@@ -476,7 +481,7 @@ class RewardCard extends StatelessWidget {
                   SizedBox(
                     height: 32,
                     child: Text(
-                      reward['title'] as String,
+                      reward['title'] as String? ?? '',
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -493,7 +498,7 @@ class RewardCard extends StatelessWidget {
                     children: [
                       Expanded(
                         child: Text(
-                          reward['value'] as String,
+                          reward['value'] as String? ?? '₹0',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
@@ -544,7 +549,8 @@ class _StatusBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (status == 'claimed') {
+    final s = status.toLowerCase();
+    if (s == 'claimed') {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3.5),
         decoration: BoxDecoration(
@@ -563,7 +569,7 @@ class _StatusBadge extends StatelessWidget {
         ),
       );
     }
-    if (status == 'locked') {
+    if (s == 'locked') {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3.5),
         decoration: BoxDecoration(

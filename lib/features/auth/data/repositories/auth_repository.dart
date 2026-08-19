@@ -1,3 +1,4 @@
+import 'package:artable_app/core/constants/api_constants.dart';
 import 'package:artable_app/core/network/api_auth_headers.dart';
 import 'package:artable_app/core/network/api_client.dart';
 import 'package:artable_app/core/network/api_exception.dart';
@@ -9,6 +10,7 @@ import '../models/forgot_password_request.dart';
 import '../models/forgot_password_response.dart';
 import '../models/login_request.dart';
 import '../models/login_response.dart';
+import '../models/logout_response.dart';
 import '../models/register_request.dart';
 import '../models/register_response.dart';
 import '../models/resend_otp_request.dart';
@@ -191,6 +193,39 @@ class AuthRepository {
       ),
     );
     return ChangePasswordResponse.fromJson(data);
+  }
+
+  Future<LogoutResponse> logout({
+    String? sessionToken,
+    String? refreshToken,
+  }) async {
+    final effectiveSessionToken =
+        (sessionToken != null && sessionToken.isNotEmpty)
+            ? sessionToken
+            : await _storageService.getSessionToken();
+    final effectiveRefreshToken =
+        (refreshToken != null && refreshToken.isNotEmpty)
+            ? refreshToken
+            : await _storageService.getRefreshToken();
+
+    try {
+      if (effectiveSessionToken != null && effectiveSessionToken.isNotEmpty) {
+        final data = await _apiClient.post(
+          ApiConstants.logout,
+          headers: ApiAuthHeaders.authenticated(
+            sessionToken: effectiveSessionToken,
+            refreshToken: effectiveRefreshToken ?? '',
+          ),
+        );
+        return LogoutResponse.fromJson(data);
+      }
+      return const LogoutResponse(
+        success: true,
+        message: 'Logged out successfully',
+      );
+    } finally {
+      await clearStoredSession();
+    }
   }
 
   Future<void> clearStoredSession() => _storageService.clearSession();
