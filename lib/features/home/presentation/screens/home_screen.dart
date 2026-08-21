@@ -98,6 +98,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         SectionHeader(
                           title: '🔥 Trending Reels',
                           viewAllLabel: 'View All',
+                          viewAllRoute: AppRoutes.trendingVideos,
                           marginTop: 18,
                         ),
                         _ReelGrid(reels: trendingReels),

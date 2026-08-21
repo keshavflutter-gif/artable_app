@@ -18,6 +18,7 @@ class AuthInput extends StatefulWidget {
     this.textInputAction = TextInputAction.next,
     this.autofillHints,
     this.onSubmitted,
+    this.hasError = false,
   });
 
   final TextEditingController controller;
@@ -28,6 +29,7 @@ class AuthInput extends StatefulWidget {
   final TextInputAction textInputAction;
   final Iterable<String>? autofillHints;
   final ValueChanged<String>? onSubmitted;
+  final bool hasError;
 
   @override
   State<AuthInput> createState() => _AuthInputState();
@@ -83,7 +85,7 @@ class _AuthInputState extends State<AuthInput> {
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          if (_focused)
+          if (_focused && !widget.hasError)
             Positioned(
               left: -3.5,
               right: -3.5,
@@ -105,7 +107,9 @@ class _AuthInputState extends State<AuthInput> {
               color: AppColors.white,
               borderRadius: BorderRadius.circular(AppRadii.input),
               border: Border.all(
-                color: _focused ? Colors.transparent : AppColors.inputBorder,
+                color: widget.hasError
+                    ? const Color(0xFFFF3D77)
+                    : (_focused ? Colors.transparent : AppColors.inputBorder),
                 width: 1.5,
               ),
               boxShadow: _focused ? null : AppShadows.authInput,

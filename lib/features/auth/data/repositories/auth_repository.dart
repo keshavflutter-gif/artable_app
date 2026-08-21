@@ -71,13 +71,21 @@ class AuthRepository {
     required String sessionToken,
     required String refreshToken,
   }) async {
-    final data = await _apiClient.get(
-      '/user/$userId',
-      headers: ApiAuthHeaders.authenticated(
-        sessionToken: sessionToken,
-        refreshToken: refreshToken,
-      ),
+    final headers = ApiAuthHeaders.authenticated(
+      sessionToken: sessionToken,
+      refreshToken: refreshToken,
     );
+
+    Map<String, dynamic> data;
+    try {
+      if (userId.isNotEmpty) {
+        data = await _apiClient.get('/user/$userId', headers: headers);
+      } else {
+        data = await _apiClient.get('/user', headers: headers);
+      }
+    } catch (_) {
+      data = await _apiClient.get('/user', headers: headers);
+    }
 
     final userInfo = UserInfo.fromApiResponse(data);
     await _persistUserProfile(userInfo);

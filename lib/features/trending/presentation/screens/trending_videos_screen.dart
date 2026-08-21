@@ -24,7 +24,7 @@ class _TrendingVideosScreenState extends State<TrendingVideosScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        context.read<TrendingVideosCubit>().loadTrendingVideos();
+        context.read<TrendingVideosCubit>().loadTrendingVideos(forceRefresh: true);
       }
     });
   }
@@ -34,8 +34,6 @@ class _TrendingVideosScreenState extends State<TrendingVideosScreen> {
     final trendingProvider = context.watch<TrendingVideosCubit>();
     final hero = trendingProvider.hero;
     final videos = trendingProvider.videos;
-    final fallbackHeroList = trendingProvider.heroAsUiMap;
-    final fallbackGridList = trendingProvider.gridVideosAsUiMaps;
     final isLoading = trendingProvider.isLoading && !trendingProvider.hasLoaded;
 
     return AppScreen(
@@ -64,73 +62,67 @@ class _TrendingVideosScreenState extends State<TrendingVideosScreen> {
                       const _LoadingSkeleton()
                     else ...[
                       // Hero Featured Video Card
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 22),
-                        child: _FeaturedHeroCard(
-                          hero: hero,
-                          fallbackMap: fallbackHeroList.firstOrNull,
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-
-                      // Section Header: More Trending Talent
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 22),
-                        child: Text(
-                          'More Trending Talent',
-                          style: AppTextStyles.displayBold.copyWith(
-                            fontSize: 16.5,
-                            color: AppColors.text,
-                            letterSpacing: -0.2,
+                      if (hero != null) ...[
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 22),
+                          child: _FeaturedHeroCard(
+                            hero: hero,
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 12),
+                        const SizedBox(height: 20),
+                      ],
 
-                      // 2-Column Grid of Trending Videos
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 22),
-                        child: videos.isNotEmpty
-                            ? GridView.builder(
-                                shrinkWrap: true,
-                                physics: const NeverScrollableScrollPhysics(),
-                                gridDelegate:
-                                    const SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount: 2,
-                                  crossAxisSpacing: 12,
-                                  mainAxisSpacing: 12,
-                                  childAspectRatio: 0.62,
-                                ),
-                                itemCount: videos.length,
-                                itemBuilder: (context, index) {
-                                  final item = videos[index];
-                                  return _TrendingVideoItemCard(
-                                    video: item,
-                                    onTap: () => _navigateToVideo(item.id),
-                                  );
-                                },
-                              )
-                            : GridView.builder(
-                                shrinkWrap: true,
-                                physics: const NeverScrollableScrollPhysics(),
-                                gridDelegate:
-                                    const SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount: 2,
-                                  crossAxisSpacing: 12,
-                                  mainAxisSpacing: 12,
-                                  childAspectRatio: 0.62,
-                                ),
-                                itemCount: fallbackGridList.length,
-                                itemBuilder: (context, index) {
-                                  final item = fallbackGridList[index];
-                                  return _TrendingVideoFallbackCard(
-                                    item: item,
-                                    onTap: () => _navigateToVideo(
-                                        item['id']?.toString() ?? ''),
-                                  );
-                                },
+                      // Section Header: More Trending Talent
+                      if (videos.isNotEmpty) ...[
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 22),
+                          child: Text(
+                            'More Trending Talent',
+                            style: AppTextStyles.displayBold.copyWith(
+                              fontSize: 16.5,
+                              color: AppColors.text,
+                              letterSpacing: -0.2,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 22),
+                          child: GridView.builder(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            gridDelegate:
+                                const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 2,
+                              crossAxisSpacing: 12,
+                              mainAxisSpacing: 12,
+                              childAspectRatio: 0.62,
+                            ),
+                            itemCount: videos.length,
+                            itemBuilder: (context, index) {
+                              final item = videos[index];
+                              return _TrendingVideoItemCard(
+                                video: item,
+                                onTap: () => _navigateToVideo(item.id),
+                              );
+                            },
+                          ),
+                        ),
+                      ] else if (hero == null) ...[
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 22, vertical: 40),
+                          child: Center(
+                            child: Text(
+                              'No trending videos available.',
+                              style: TextStyle(
+                                fontFamily: 'Inter',
+                                color: Color(0xFF8B849C),
+                                fontSize: 14,
                               ),
-                      ),
+                            ),
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 28),
                     ],
                   ],
@@ -174,37 +166,23 @@ Color _getCategoryBadgeColor(String category) {
 /// Hero Featured Video Card
 class _FeaturedHeroCard extends StatelessWidget {
   const _FeaturedHeroCard({
-    this.hero,
-    this.fallbackMap,
+    required this.hero,
   });
 
-  final TrendingVideoItem? hero;
-  final Map<String, dynamic>? fallbackMap;
+  final TrendingVideoItem hero;
 
   @override
   Widget build(BuildContext context) {
-    final id = hero?.id ?? fallbackMap?['id']?.toString() ?? '';
-    final imageUrl = hero?.displayThumbnail ??
-        fallbackMap?['imageUrl']?.toString() ??
-        'https://images.unsplash.com/photo-1518834107812-67b0b7c58434?w=800&q=80';
-    final category = hero?.displayCategoryName ??
-        fallbackMap?['category']?.toString() ??
-        'FITNESS';
-    final rating = hero?.displayRating ??
-        fallbackMap?['rating']?.toString() ??
-        '9.8';
-    final views = hero?.displayViews ??
-        fallbackMap?['views']?.toString() ??
-        '1.5M';
-    final handle = hero?.displayHandle ??
-        fallbackMap?['handle']?.toString() ??
-        '@fit_beat';
-    final avatarUrl = hero?.displayAvatar ??
-        fallbackMap?['avatarUrl']?.toString() ??
-        'https://i.pravatar.cc/100?u=fit_beat';
-    final isVerified = hero?.isVerifiedUser ??
-        fallbackMap?['isBlueTick'] == true ||
-        fallbackMap?['verified'] == true;
+    final id = hero.id;
+    final imageUrl = hero.displayThumbnail;
+    final category = hero.displayCategoryName.isNotEmpty
+        ? hero.displayCategoryName
+        : 'TALENT';
+    final rating = hero.displayRating;
+    final views = hero.displayViews;
+    final handle = hero.displayHandle;
+    final avatarUrl = hero.displayAvatar;
+    final isVerified = hero.isVerifiedUser;
 
     final badgeColor = _getCategoryBadgeColor(category);
 
@@ -637,219 +615,7 @@ class _TrendingVideoItemCard extends StatelessWidget {
   }
 }
 
-/// Fallback card when using `Map<String, dynamic>`
-class _TrendingVideoFallbackCard extends StatelessWidget {
-  const _TrendingVideoFallbackCard({
-    required this.item,
-    required this.onTap,
-  });
 
-  final Map<String, dynamic> item;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final imageUrl = item['imageUrl']?.toString() ?? '';
-    final category = item['category']?.toString() ?? 'DANCE';
-    final views = item['views']?.toString() ?? '0';
-    final handle = item['handle']?.toString() ?? '@creator';
-    final avatarUrl = item['avatarUrl']?.toString() ??
-        'https://i.pravatar.cc/100?u=${item['id']}';
-    final rating = item['rating']?.toString() ??
-        (item['talentScore'] != null
-            ? item['talentScore'].toString()
-            : '8.5');
-    final isVerified =
-        item['isBlueTick'] == true || item['verified'] == true;
-
-    final badgeColor = _getCategoryBadgeColor(category);
-
-    return GestureDetector(
-      onTap: onTap,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          decoration: BoxDecoration(
-            color: const Color(0xFF1E1B2E),
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              AppImage(
-                url: imageUrl,
-                fit: BoxFit.cover,
-              ),
-
-              // Gradient Overlay
-              Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.black.withValues(alpha: 0.3),
-                      Colors.transparent,
-                      Colors.black.withValues(alpha: 0.8),
-                    ],
-                    stops: const [0.0, 0.45, 1.0],
-                  ),
-                ),
-              ),
-
-              // Top Left Category Badge
-              Positioned(
-                top: 10,
-                left: 10,
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 7, vertical: 3.5),
-                  decoration: BoxDecoration(
-                    color: badgeColor,
-                    borderRadius: BorderRadius.circular(5),
-                  ),
-                  child: Text(
-                    category.toUpperCase(),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 8.5,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 0.4,
-                    ),
-                  ),
-                ),
-              ),
-
-              // Top Right Play Icon & Rating
-              Positioned(
-                top: 10,
-                right: 10,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Container(
-                      width: 22,
-                      height: 22,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.black.withValues(alpha: 0.45),
-                      ),
-                      child: const Icon(
-                        Icons.play_arrow_rounded,
-                        color: Colors.white,
-                        size: 14,
-                      ),
-                    ),
-                    const SizedBox(height: 5),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 5.5, vertical: 2.5),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.55),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(
-                            Icons.star_rounded,
-                            color: Color(0xFFFFB800),
-                            size: 11,
-                          ),
-                          const SizedBox(width: 2),
-                          Text(
-                            rating,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 9.5,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              // Bottom Left: Views and Creator Info
-              Positioned(
-                left: 10,
-                right: 10,
-                bottom: 10,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(
-                          Icons.visibility_outlined,
-                          color: Colors.white,
-                          size: 11.5,
-                        ),
-                        const SizedBox(width: 3.5),
-                        Text(
-                          views,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        Container(
-                          width: 17,
-                          height: 17,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white, width: 0.8),
-                          ),
-                          child: ClipOval(
-                            child: AppImage(
-                              url: avatarUrl,
-                              fit: BoxFit.cover,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 5),
-                        Flexible(
-                          child: Text(
-                            handle,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w700,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        if (isVerified) ...[
-                          const SizedBox(width: 3),
-                          const Icon(
-                            Icons.check_circle_rounded,
-                            color: Color(0xFF3897F0),
-                            size: 12,
-                          ),
-                        ],
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 /// Loading skeleton placeholder
 class _LoadingSkeleton extends StatelessWidget {

@@ -180,27 +180,13 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                     hintText: 'Email Address',
                     icon: Icons.mail_outline_rounded,
                     keyboardType: TextInputType.emailAddress,
+                    errorText: _errorHint,
                     onChanged: (_) {
                       if (_errorHint != null) {
                         setState(() => _errorHint = null);
                       }
                     },
                   ),
-
-                  if (_errorHint != null) ...[
-                    const SizedBox(height: 8),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        _errorHint!,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: Colors.redAccent,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  ],
 
                   const SizedBox(height: 20),
 
@@ -301,6 +287,7 @@ class _CustomAuthInput extends StatelessWidget {
     required this.hintText,
     required this.icon,
     this.keyboardType,
+    this.errorText,
     this.onChanged,
   });
 
@@ -308,67 +295,88 @@ class _CustomAuthInput extends StatelessWidget {
   final String hintText;
   final IconData icon;
   final TextInputType? keyboardType;
+  final String? errorText;
   final ValueChanged<String>? onChanged;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 50,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: const Color(0xFFEFEBF7),
-          width: 1.2,
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              color: const Color(0xFFF6F3FC),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(
-              icon,
-              size: 18,
-              color: const Color(0xFF9B51E0),
+    final hasError = errorText != null && errorText!.isNotEmpty;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          height: 50,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: hasError ? const Color(0xFFFF3D77) : const Color(0xFFEFEBF7),
+              width: hasError ? 1.5 : 1.2,
             ),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: TextField(
-              controller: controller,
-              keyboardType: keyboardType,
-              onChanged: onChanged,
+          child: Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF6F3FC),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  icon,
+                  size: 18,
+                  color: const Color(0xFF9B51E0),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: TextField(
+                  controller: controller,
+                  keyboardType: keyboardType,
+                  onChanged: onChanged,
+                  style: const TextStyle(
+                    fontSize: 13.5,
+                    color: Color(0xFF1E1633),
+                    fontWeight: FontWeight.w500,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: hintText,
+                    hintStyle: const TextStyle(
+                      fontSize: 13.5,
+                      color: Color(0xFFB3A9C9),
+                      fontWeight: FontWeight.w400,
+                    ),
+                    filled: false,
+                    fillColor: Colors.transparent,
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    disabledBorder: InputBorder.none,
+                    isDense: true,
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (hasError)
+          Padding(
+            padding: const EdgeInsets.only(top: 4, left: 4),
+            child: Text(
+              errorText!,
               style: const TextStyle(
-                fontSize: 13.5,
-                color: Color(0xFF1E1633),
+                fontSize: 12,
+                color: Color(0xFFFF3D77),
                 fontWeight: FontWeight.w500,
               ),
-              decoration: InputDecoration(
-                hintText: hintText,
-                hintStyle: const TextStyle(
-                  fontSize: 13.5,
-                  color: Color(0xFFB3A9C9),
-                  fontWeight: FontWeight.w400,
-                ),
-                filled: false,
-                fillColor: Colors.transparent,
-                border: InputBorder.none,
-                enabledBorder: InputBorder.none,
-                focusedBorder: InputBorder.none,
-                disabledBorder: InputBorder.none,
-                isDense: true,
-                contentPadding: EdgeInsets.zero,
-              ),
             ),
           ),
-        ],
-      ),
+      ],
     );
   }
 }

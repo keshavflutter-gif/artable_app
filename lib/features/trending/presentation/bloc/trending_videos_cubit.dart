@@ -50,7 +50,7 @@ class TrendingVideosCubit extends Cubit<TrendingVideosState> {
 
     final apiTab = isStandardTab ? targetTab.toLowerCase() : 'trending';
     final apiCategory = !isStandardTab ? targetTab : category;
-    final apiCategoryId = categoryId ?? state.selectedCategoryId;
+    final apiCategoryId = categoryId;
 
     emit(state.copyWith(
       isLoading: true,
@@ -77,13 +77,7 @@ class TrendingVideosCubit extends Cubit<TrendingVideosState> {
 
       if (res.data != null) {
         if (res.data!.tabs.isNotEmpty) {
-          final merged = <String>[...res.data!.tabs];
-          for (final dTab in TrendingVideosState.defaultTabs) {
-            if (!merged.contains(dTab)) {
-              merged.add(dTab);
-            }
-          }
-          tabs = merged;
+          tabs = res.data!.tabs;
         }
         categories = res.data!.categories;
       }

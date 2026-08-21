@@ -25,6 +25,7 @@ import 'loggers/token_verify_api_debug_logger.dart';
 import 'loggers/trending_videos_api_debug_logger.dart';
 import 'loggers/user_detail_api_debug_logger.dart';
 import 'loggers/verify_otp_api_debug_logger.dart';
+import 'loggers/winners_api_debug_logger.dart';
 
 class ApiClient {
   ApiClient({
@@ -352,6 +353,14 @@ class ApiClient {
     }
     if (path.startsWith('/app/rewards')) {
       RewardsApiDebugLogger.logRequest(
+        method: method,
+        url: fullUrl,
+        headers: headers,
+      );
+      return;
+    }
+    if (path.startsWith('/app/winners')) {
+      WinnersApiDebugLogger.logRequest(
         method: method,
         url: fullUrl,
         headers: headers,
@@ -697,6 +706,12 @@ class ApiClient {
       );
     } else if (path.startsWith('/app/rewards')) {
       RewardsApiDebugLogger.logResponse(
+        statusCode: response.statusCode,
+        responseBody: response.body,
+        url: fullUrl,
+      );
+    } else if (path.startsWith('/app/winners')) {
+      WinnersApiDebugLogger.logResponse(
         statusCode: response.statusCode,
         responseBody: response.body,
         url: fullUrl,

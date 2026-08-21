@@ -196,8 +196,7 @@ class TrendingVideoItem {
 
   String get displayThumbnail {
     if (thumbnailUrl != null &&
-        thumbnailUrl!.trim().isNotEmpty &&
-        thumbnailUrl!.startsWith('http')) {
+        thumbnailUrl!.trim().isNotEmpty) {
       return thumbnailUrl!.trim();
     }
     if (challenge?.bannerUrl != null &&
@@ -207,7 +206,7 @@ class TrendingVideoItem {
     if (category?.imageUrl != null && category!.imageUrl!.trim().isNotEmpty) {
       return category!.imageUrl!.trim();
     }
-    return 'https://images.unsplash.com/photo-1518834107812-67b0b7c58434?w=600&q=80';
+    return '';
   }
 
   String get displayCategoryName {
@@ -217,7 +216,7 @@ class TrendingVideoItem {
     if (category?.name != null && category!.name.trim().isNotEmpty) {
       return category!.name.trim();
     }
-    return 'Talent';
+    return '';
   }
 
   String get displayRating {
@@ -233,7 +232,7 @@ class TrendingVideoItem {
     if (averageRating != null && averageRating!.trim().isNotEmpty) {
       return averageRating!.trim();
     }
-    return '8.5';
+    return '0.0';
   }
 
   String get displayViews {
@@ -260,7 +259,7 @@ class TrendingVideoItem {
     if (uname != null && uname.isNotEmpty) {
       return uname.startsWith('@') ? uname : '@$uname';
     }
-    return '@creator';
+    return '';
   }
 
   String get displayCreatorName {
@@ -270,7 +269,7 @@ class TrendingVideoItem {
     if (user?.username != null && user!.username!.trim().isNotEmpty) {
       return user!.username!.trim();
     }
-    return 'Creator';
+    return '';
   }
 
   String get displayAvatar {
@@ -278,7 +277,7 @@ class TrendingVideoItem {
         user!.profilePhotoUrl!.trim().isNotEmpty) {
       return user!.profilePhotoUrl!.trim();
     }
-    return 'https://i.pravatar.cc/100?u=$id';
+    return '';
   }
 
   bool get isVerifiedUser =>
@@ -297,7 +296,7 @@ class TrendingVideoItem {
       'avatarUrl': displayAvatar,
       'handle': displayHandle,
       'creator': displayCreatorName,
-      'talentScore': talentScore ?? 8.5,
+      'talentScore': talentScore ?? 0.0,
       'rating': displayRating,
       'isBlueTick': isVerifiedUser,
       'verified': isVerifiedUser,

@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:artable_app/app/theme/app_gradients.dart';
-import 'package:artable_app/core/utils/mock_helpers.dart';
 import 'package:artable_app/core/widgets/app_back_header.dart';
 import 'package:artable_app/core/widgets/app_image.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
-import 'package:artable_app/data/datasources/mock_data.dart';
+import 'package:artable_app/features/winners/data/models/winners_response.dart';
+import 'package:artable_app/features/winners/presentation/bloc/winners_cubit.dart';
+import 'package:artable_app/features/winners/presentation/bloc/winners_state.dart';
 
 class WinnersScreen extends StatefulWidget {
   const WinnersScreen({super.key});
@@ -16,128 +18,221 @@ class WinnersScreen extends StatefulWidget {
 }
 
 class _WinnersScreenState extends State<WinnersScreen> {
-  static const _periods = ['Challenge', 'Weekly', 'Monthly'];
-  var _period = 'Challenge';
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final cubit = context.read<WinnersCubit>();
+      if (!cubit.hasLoaded) {
+        cubit.loadWinners();
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    // Filter winners based on active period selection
-    final winnersList = MockData.WINNERS.where((w) {
-      final p = (w['period'] as String);
-      return _period.toLowerCase() == p;
-    }).toList();
-
-    // Sort: Rank 1 first, then 2, then 3 etc.
-    winnersList.sort((a, b) => (a['rank'] as int).compareTo(b['rank'] as int));
-
-    final featuredWinner = winnersList.isNotEmpty ? winnersList.first : null;
-    final otherWinners = winnersList.length > 1 ? winnersList.sublist(1) : <Map<String, dynamic>>[];
-
     return AppScreen(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const AppBackHeader(title: 'Winners'),
           Expanded(
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const SizedBox(height: 12),
-                  // Filter Pills Row
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: _periods.map((p) {
-                        final isSelected = _period == p;
-                        return Expanded(
-                          child: GestureDetector(
-                            onTap: () => setState(() => _period = p),
-                            child: Container(
-                              margin: const EdgeInsets.symmetric(horizontal: 4),
-                              height: 40,
-                              decoration: BoxDecoration(
-                                gradient: isSelected ? AppGradients.button : null,
-                                color: isSelected ? null : Colors.white,
-                                borderRadius: BorderRadius.circular(20),
-                                border: isSelected ? null : Border.all(color: const Color(0xFFECE8F5), width: 1.2),
-                                boxShadow: isSelected
-                                    ? [
-                                        BoxShadow(
-                                          color: const Color(0xFFFF5487).withValues(alpha: 0.2),
-                                          blurRadius: 10,
-                                          offset: const Offset(0, 4),
+            child: BlocBuilder<WinnersCubit, WinnersState>(
+              builder: (context, state) {
+                final cubit = context.read<WinnersCubit>();
+                final tabs = state.availableTabs;
+
+                WinnerItem? featured = state.featuredWinner;
+                List<WinnerItem> winnerList = state.winners;
+                List<WinnerItem> moreList = state.moreWinners;
+
+                final combined = <WinnerItem>[
+                  ...winnerList,
+                  ...moreList,
+                ];
+
+                if (featured == null && combined.isNotEmpty) {
+                  featured = combined.first;
+                }
+
+                final nonFeaturedList = <WinnerItem>[];
+                for (final item in combined) {
+                  if (featured != null && item.id == featured.id) {
+                    continue;
+                  }
+                  if (!nonFeaturedList.any((e) => e.id == item.id)) {
+                    nonFeaturedList.add(item);
+                  }
+                }
+
+                nonFeaturedList.sort((a, b) => a.rank.compareTo(b.rank));
+
+                return RefreshIndicator(
+                  onRefresh: () => cubit.loadWinners(forceRefresh: true),
+                  color: const Color(0xFFFF5487),
+                  child: SingleChildScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const SizedBox(height: 12),
+                        // Filter Pills Row
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: tabs.map((p) {
+                              final isSelected = state.selectedTab.toLowerCase() == p.toLowerCase();
+                              return Expanded(
+                                child: GestureDetector(
+                                  onTap: () => cubit.selectTab(p),
+                                  child: Container(
+                                    margin: const EdgeInsets.symmetric(horizontal: 4),
+                                    height: 40,
+                                    decoration: BoxDecoration(
+                                      gradient: isSelected ? AppGradients.button : null,
+                                      color: isSelected ? null : Colors.white,
+                                      borderRadius: BorderRadius.circular(20),
+                                      border: isSelected
+                                          ? null
+                                          : Border.all(color: const Color(0xFFECE8F5), width: 1.2),
+                                      boxShadow: isSelected
+                                          ? [
+                                              BoxShadow(
+                                                color: const Color(0xFFFF5487).withValues(alpha: 0.2),
+                                                blurRadius: 10,
+                                                offset: const Offset(0, 4),
+                                              ),
+                                            ]
+                                          : null,
+                                    ),
+                                    child: Center(
+                                      child: Text(
+                                        p,
+                                        style: TextStyle(
+                                          fontFamily: 'Poppins',
+                                          color: isSelected ? Colors.white : const Color(0xFF8B849C),
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 13,
                                         ),
-                                      ]
-                                    : null,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+
+                        // Error Banner
+                        if (state.errorMessage != null && !state.isLoading)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                            child: Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFFF0F3),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(color: const Color(0xFFFF4D6D).withValues(alpha: 0.3)),
                               ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.info_outline, color: Color(0xFFFF4D6D), size: 20),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      state.errorMessage!,
+                                      style: const TextStyle(
+                                        fontFamily: 'Inter',
+                                        color: Color(0xFFFF4D6D),
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+                                  TextButton(
+                                    onPressed: () => cubit.loadWinners(forceRefresh: true),
+                                    child: const Text(
+                                      'Retry',
+                                      style: TextStyle(
+                                        fontFamily: 'Poppins',
+                                        color: Color(0xFFFF4D6D),
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+
+                        // Loading Indicator
+                        if (state.isLoading && !state.hasLoaded)
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 60),
+                            child: Center(
+                              child: CircularProgressIndicator(
+                                color: Color(0xFFFF5487),
+                              ),
+                            ),
+                          )
+                        else ...[
+                          // Featured Winner Banner
+                          if (featured != null)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 20),
+                              child: _FeaturedWinnerCard(winnerItem: featured),
+                            ),
+
+                          const SizedBox(height: 24),
+
+                          // "More Winners" Section
+                          const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 20),
+                            child: Text(
+                              'More Winners',
+                              style: TextStyle(
+                                fontFamily: 'Poppins',
+                                color: Color(0xFF241E38),
+                                fontWeight: FontWeight.w800,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+
+                          if (nonFeaturedList.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 20),
+                              child: Column(
+                                children: nonFeaturedList
+                                    .map((w) => _WinnerRowCard(winnerItem: w))
+                                    .toList(),
+                              ),
+                            )
+                          else
+                            const Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 20, vertical: 24),
                               child: Center(
                                 child: Text(
-                                  p,
+                                  'No more winners',
                                   style: TextStyle(
-                                    fontFamily: 'Poppins',
-                                    color: isSelected ? Colors.white : const Color(0xFF8B849C),
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 13,
+                                    fontFamily: 'Inter',
+                                    color: Color(0xFF8B849C),
+                                    fontWeight: FontWeight.w500,
+                                    fontSize: 14,
                                   ),
                                 ),
                               ),
                             ),
-                          ),
-                        );
-                      }).toList(),
+                        ],
+                        const SizedBox(height: 40),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 20),
-
-                  // Featured Winner Banner
-                  if (featuredWinner != null)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: _FeaturedWinnerCard(winner: featuredWinner),
-                    ),
-
-                  const SizedBox(height: 24),
-
-                  // "More Winners" Section
-                  if (otherWinners.isNotEmpty) ...[
-                    const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 20),
-                      child: Text(
-                        'More Winners',
-                        style: TextStyle(
-                          fontFamily: 'Poppins',
-                          color: Color(0xFF241E38),
-                          fontWeight: FontWeight.w800,
-                          fontSize: 16,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: Column(
-                        children: otherWinners.map((w) => _WinnerRowCard(winner: w)).toList(),
-                      ),
-                    ),
-                  ] else if (featuredWinner == null)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 20, vertical: 40),
-                      child: Center(
-                        child: Text(
-                          'No winners in this category yet.',
-                          style: TextStyle(
-                            fontFamily: 'Inter',
-                            color: Color(0xFF8B849C),
-                            fontSize: 14,
-                          ),
-                        ),
-                      ),
-                    ),
-                  const SizedBox(height: 40),
-                ],
-              ),
+                );
+              },
             ),
           ),
         ],
@@ -147,27 +242,29 @@ class _WinnersScreenState extends State<WinnersScreen> {
 }
 
 class _FeaturedWinnerCard extends StatelessWidget {
-  const _FeaturedWinnerCard({required this.winner});
+  const _FeaturedWinnerCard({required this.winnerItem});
 
-  final Map<String, dynamic> winner;
+  final WinnerItem winnerItem;
 
   @override
   Widget build(BuildContext context) {
-    final user = MockHelpers.creatorById(winner['userId'] as String);
-    final challenge = MockHelpers.challengeById(winner['challengeId'] as String);
+    final uiMap = winnerItem.toUiMap();
+    final winnerId = uiMap['id']?.toString() ?? winnerItem.id;
 
-    final userName = user?['name'] as String? ?? 'Theo B.';
-    final userHandle = user?['handle'] as String? ?? '@funny_banda';
-    final userAvatar = user?['avatarUrl'] as String? ?? 'https://i.pravatar.cc/120?u=funny_banda';
-    final rating = (winner['talentScore'] as num? ?? 8.7).toStringAsFixed(1);
+    final userName = winnerItem.displayName.isNotEmpty ? winnerItem.displayName : (uiMap['userName']?.toString() ?? 'Winner');
+    final userHandle = winnerItem.displayHandle.isNotEmpty ? winnerItem.displayHandle : (uiMap['userHandle']?.toString() ?? '');
+    final userAvatar = winnerItem.displayAvatar.isNotEmpty ? winnerItem.displayAvatar : (uiMap['userAvatar']?.toString() ?? '');
+    final rating = winnerItem.displayRating;
 
-    final challengeTitle = challenge?['title'] as String? ?? 'Stand-Up Spotlight';
-    final prizeText = winner['prize'] as String? ?? '₹1,500 + Rising Star Badge';
+    final challengeTitle = winnerItem.challengeTitle ?? uiMap['challengeTitle']?.toString() ?? '';
+    final prizeText = winnerItem.displayPrize.isNotEmpty ? winnerItem.displayPrize : (uiMap['prize']?.toString() ?? '');
 
-    const backgroundUrl = 'https://images.unsplash.com/photo-1517486808906-6ca8b3f04846?w=600&auto=format&fit=crop&q=80';
+
+    final backgroundUrl = winnerItem.displayBannerUrl;
+    final rankBadgeText = winnerItem.displayRankLabel;
 
     return GestureDetector(
-      onTap: () => context.push('/winner-detail?id=${winner['id']}'),
+      onTap: () => context.push('/winner-detail?id=$winnerId'),
       child: Container(
         height: 220,
         decoration: BoxDecoration(
@@ -192,7 +289,7 @@ class _FeaturedWinnerCard extends StatelessWidget {
                   0.2126, 0.7152, 0.0722, 0, 0,
                   0,      0,      0,      1, 0,
                 ]),
-                child: const AppImage(
+                child: AppImage(
                   url: backgroundUrl,
                   fit: BoxFit.cover,
                 ),
@@ -220,7 +317,7 @@ class _FeaturedWinnerCard extends StatelessWidget {
                     border: Border.all(color: Colors.white.withValues(alpha: 0.4), width: 1),
                   ),
                   child: Text(
-                    '#${winner['rank']}',
+                    rankBadgeText,
                     style: const TextStyle(
                       fontFamily: 'Poppins',
                       color: Colors.white,
@@ -360,21 +457,22 @@ class _FeaturedWinnerCard extends StatelessWidget {
 }
 
 class _WinnerRowCard extends StatelessWidget {
-  const _WinnerRowCard({required this.winner});
+  const _WinnerRowCard({required this.winnerItem});
 
-  final Map<String, dynamic> winner;
+  final WinnerItem winnerItem;
 
   @override
   Widget build(BuildContext context) {
-    final user = MockHelpers.creatorById(winner['userId'] as String);
-    final challenge = MockHelpers.challengeById(winner['challengeId'] as String);
+    final uiMap = winnerItem.toUiMap();
+    final winnerId = uiMap['id']?.toString() ?? winnerItem.id;
 
-    final userName = user?['name'] as String? ?? 'Kofi A.';
-    final userAvatar = user?['avatarUrl'] as String? ?? 'https://i.pravatar.cc/120?u=kofi_streets';
-    final rating = (winner['talentScore'] as num? ?? 7.0).toStringAsFixed(1);
+    final userName = winnerItem.displayName.isNotEmpty ? winnerItem.displayName : (uiMap['userName']?.toString() ?? 'Winner');
+    final userAvatar = winnerItem.displayAvatar.isNotEmpty ? winnerItem.displayAvatar : (uiMap['userAvatar']?.toString() ?? '');
+    final rating = winnerItem.displayRating;
     
-    final challengeTitle = challenge?['title'] as String? ?? 'Street Sports Showdown';
-    final prizeText = winner['prize'] as String? ?? 'Nike Sponsor Kit';
+    final challengeTitle = winnerItem.challengeTitle ?? uiMap['challengeTitle']?.toString() ?? '';
+    final prizeText = winnerItem.displayPrize.isNotEmpty ? winnerItem.displayPrize : (uiMap['prize']?.toString() ?? '');
+
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -417,7 +515,7 @@ class _WinnerRowCard extends StatelessWidget {
                   ),
                   child: Center(
                     child: Text(
-                      '#${winner['rank']}',
+                      winnerItem.displayRankLabel,
                       style: const TextStyle(
                         fontFamily: 'Poppins',
                         color: Colors.white,
@@ -492,7 +590,7 @@ class _WinnerRowCard extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               GestureDetector(
-                onTap: () => context.push('/winner-detail?id=${winner['id']}'),
+                onTap: () => context.push('/winner-detail?id=$winnerId'),
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
                   decoration: BoxDecoration(

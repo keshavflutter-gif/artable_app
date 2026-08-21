@@ -77,27 +77,31 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     final pass = _newPasswordController.text;
     final confirm = _confirmController.text;
 
-    if (pass.length < 8) {
-      setState(() {
-        _newHint = 'Password must be at least 8 characters';
-        _newHintType = FieldHintType.error;
-        _confirmHint = null;
-      });
-      return;
+    String? newErr;
+    String? confirmErr;
+
+    if (pass.isEmpty) {
+      newErr = 'Password is required';
+    } else if (pass.length < 8) {
+      newErr = 'Password must be at least 8 characters';
     }
-    if (pass != confirm) {
-      setState(() {
-        _confirmHint = 'Passwords do not match';
-        _confirmHintType = FieldHintType.error;
-        _newHint = null;
-      });
-      return;
+
+    if (confirm.isEmpty) {
+      confirmErr = 'Confirm password is required';
+    } else if (pass.isNotEmpty && pass != confirm) {
+      confirmErr = 'Passwords do not match';
     }
 
     setState(() {
-      _newHint = null;
-      _confirmHint = null;
+      _newHint = newErr;
+      _newHintType = newErr != null ? FieldHintType.error : FieldHintType.normal;
+      _confirmHint = confirmErr;
+      _confirmHintType = confirmErr != null ? FieldHintType.error : FieldHintType.normal;
     });
+
+    if (newErr != null || confirmErr != null) {
+      return;
+    }
 
     final auth = context.read<AuthCubit>();
     if (auth.isResettingPassword) return;
@@ -183,6 +187,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
             placeholder: 'New Password',
             icon: AppIcons.lock(),
             obscureText: true,
+            hasError: _newHint != null && _newHintType == FieldHintType.error,
             autofillHints: const [AutofillHints.newPassword],
           ),
         ),
@@ -194,6 +199,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
             placeholder: 'Confirm New Password',
             icon: AppIcons.lock(),
             obscureText: true,
+            hasError: _confirmHint != null && _confirmHintType == FieldHintType.error,
             textInputAction: TextInputAction.done,
             autofillHints: const [AutofillHints.newPassword],
           ),

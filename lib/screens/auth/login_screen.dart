@@ -17,15 +17,32 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
+  String? _emailError;
+  String? _passwordError;
   
   Future<void> _submitLogin() async {
     final email = _emailController.text.trim();
     final password = _passwordController.text;
 
-    if (email.isEmpty || password.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter email and password.')),
-      );
+    String? emailErr;
+    String? passErr;
+
+    if (email.isEmpty) {
+      emailErr = 'Email address is required';
+    } else if (!RegExp(r'^[a-zA-Z0-9.+_-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$').hasMatch(email)) {
+      emailErr = 'Please enter a valid email address';
+    }
+
+    if (password.isEmpty) {
+      passErr = 'Password is required';
+    }
+
+    setState(() {
+      _emailError = emailErr;
+      _passwordError = passErr;
+    });
+
+    if (emailErr != null || passErr != null) {
       return;
     }
 
@@ -40,9 +57,14 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(auth.errorMessage ?? 'Unable to log in.')),
-    );
+    final apiMsg = auth.errorMessage ?? 'Unable to log in.';
+    setState(() {
+      if (apiMsg.toLowerCase().contains('email') || apiMsg.toLowerCase().contains('user')) {
+        _emailError = apiMsg;
+      } else {
+        _passwordError = apiMsg;
+      }
+    });
   }
 
   @override
@@ -157,6 +179,10 @@ class _LoginScreenState extends State<LoginScreen> {
                     hintText: 'Email Address',
                     icon: Icons.mail_outline_rounded,
                     keyboardType: TextInputType.emailAddress,
+                    errorText: _emailError,
+                    onChanged: (_) {
+                      if (_emailError != null) setState(() => _emailError = null);
+                    },
                   ),
 
                   const SizedBox(height: 12),
@@ -167,6 +193,10 @@ class _LoginScreenState extends State<LoginScreen> {
                     hintText: 'Password',
                     icon: Icons.lock_outline_rounded,
                     obscureText: _obscurePassword,
+                    errorText: _passwordError,
+                    onChanged: (_) {
+                      if (_passwordError != null) setState(() => _passwordError = null);
+                    },
                     suffixIcon: IconButton(
                       onPressed: () =>
                           setState(() => _obscurePassword = !_obscurePassword),
@@ -352,6 +382,8 @@ class _CustomAuthInput extends StatelessWidget {
     this.obscureText = false,
     this.keyboardType,
     this.suffixIcon,
+    this.errorText,
+    this.onChanged,
   });
 
   final TextEditingController controller;
@@ -360,67 +392,90 @@ class _CustomAuthInput extends StatelessWidget {
   final bool obscureText;
   final TextInputType? keyboardType;
   final Widget? suffixIcon;
+  final String? errorText;
+  final ValueChanged<String>? onChanged;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 50,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: const Color(0xFFEFEBF7),
-          width: 1.2,
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              color: const Color(0xFFF6F3FC),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(
-              icon,
-              size: 18,
-              color: const Color(0xFF9B51E0),
+    final hasError = errorText != null && errorText!.isNotEmpty;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          height: 50,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: hasError ? const Color(0xFFFF3D77) : const Color(0xFFEFEBF7),
+              width: hasError ? 1.5 : 1.2,
             ),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: TextField(
-              controller: controller,
-              obscureText: obscureText,
-              keyboardType: keyboardType,
+          child: Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF6F3FC),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  icon,
+                  size: 18,
+                  color: const Color(0xFF9B51E0),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: TextField(
+                  controller: controller,
+                  obscureText: obscureText,
+                  keyboardType: keyboardType,
+                  onChanged: onChanged,
+                  style: const TextStyle(
+                    fontSize: 13.5,
+                    color: Color(0xFF1E1633),
+                    fontWeight: FontWeight.w500,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: hintText,
+                    hintStyle: const TextStyle(
+                      fontSize: 13.5,
+                      color: Color(0xFFB3A9C9),
+                      fontWeight: FontWeight.w400,
+                    ),
+                    filled: false,
+                    fillColor: Colors.transparent,
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    disabledBorder: InputBorder.none,
+                    isDense: true,
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+              ),
+              ?suffixIcon,
+            ],
+          ),
+        ),
+        if (hasError)
+          Padding(
+            padding: const EdgeInsets.only(top: 4, left: 4),
+            child: Text(
+              errorText!,
               style: const TextStyle(
-                fontSize: 13.5,
-                color: Color(0xFF1E1633),
+                fontSize: 12,
+                color: Colors.redAccent,
                 fontWeight: FontWeight.w500,
               ),
-              decoration: InputDecoration(
-                hintText: hintText,
-                hintStyle: const TextStyle(
-                  fontSize: 13.5,
-                  color: Color(0xFFB3A9C9),
-                  fontWeight: FontWeight.w400,
-                ),
-                filled: false,
-                fillColor: Colors.transparent,
-                border: InputBorder.none,
-                enabledBorder: InputBorder.none,
-                focusedBorder: InputBorder.none,
-                disabledBorder: InputBorder.none,
-                isDense: true,
-                contentPadding: EdgeInsets.zero,
-              ),
             ),
           ),
-          ?suffixIcon,
-        ],
-      ),
+      ],
     );
   }
 }

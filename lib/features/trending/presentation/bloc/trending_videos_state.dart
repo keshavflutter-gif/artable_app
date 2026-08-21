@@ -1,4 +1,3 @@
-import 'package:artable_app/data/datasources/mock_data.dart';
 import 'package:artable_app/features/trending/data/models/trending_videos_response.dart';
 
 class TrendingVideosState {
@@ -46,35 +45,14 @@ class TrendingVideosState {
     if (hero != null) {
       return [hero!.toUiMap()];
     }
-    final sorted = [...MockData.REELS]
-      ..sort((a, b) => (b['talentScore'] as num).compareTo(a['talentScore'] as num));
-    return sorted.take(1).toList();
+    return const [];
   }
 
   List<Map<String, dynamic>> get gridVideosAsUiMaps {
     if (videos.isNotEmpty) {
       return videos.map((v) => v.toUiMap()).toList();
     }
-    final featured = heroAsUiMap.firstOrNull;
-    var list = MockData.REELS.where((r) => r['id'] != featured?['id']).toList();
-    switch (selectedTab) {
-      case 'Popular':
-        list.sort((a, b) {
-          final al = double.tryParse((a['likes'] as String).replaceAll('K', '')) ?? 0;
-          final bl = double.tryParse((b['likes'] as String).replaceAll('K', '')) ?? 0;
-          return bl.compareTo(al);
-        });
-      case 'Newest':
-        list = list.reversed.toList();
-      default:
-        if (selectedTab != 'Trending') {
-          final filtered = list.where((r) => r['category'] == selectedTab).toList();
-          if (filtered.isNotEmpty) {
-            list = filtered;
-          }
-        }
-    }
-    return list;
+    return const [];
   }
 
   TrendingVideosState copyWith({

@@ -10,12 +10,14 @@ class SectionHeader extends StatelessWidget {
     required this.title,
     this.viewAllLabel,
     this.viewAllRoute,
+    this.onViewAll,
     this.marginTop = 26,
   });
 
   final String title;
   final String? viewAllLabel;
   final String? viewAllRoute;
+  final VoidCallback? onViewAll;
   final double marginTop;
 
   @override
@@ -38,7 +40,8 @@ class SectionHeader extends StatelessWidget {
           ),
           if (viewAllLabel != null)
             GestureDetector(
-              onTap: viewAllRoute != null ? () => context.go(viewAllRoute!) : null,
+              onTap: onViewAll ??
+                  (viewAllRoute != null ? () => context.push(viewAllRoute!) : null),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -47,17 +50,13 @@ class SectionHeader extends StatelessWidget {
                     style: AppTypography.body(
                       fontSize: 12.5,
                       fontWeight: FontWeight.w700,
-                      color: viewAllRoute != null
-                          ? const Color(0xFFE31668)
-                          : AppColors.purple,
+                      color: AppColors.purple,
                     ),
                   ),
-                  Icon(
+                  const Icon(
                     Icons.chevron_right,
                     size: 13,
-                    color: viewAllRoute != null
-                        ? const Color(0xFFE31668)
-                        : AppColors.purple,
+                    color: AppColors.purple,
                   ),
                 ],
               ),
@@ -67,3 +66,4 @@ class SectionHeader extends StatelessWidget {
     );
   }
 }
+

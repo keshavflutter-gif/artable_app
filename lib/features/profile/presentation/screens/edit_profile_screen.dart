@@ -22,9 +22,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late final TextEditingController _bio;
   late final TextEditingController _category;
   late final TextEditingController _social;
-  String _coverUrl =
-      'https://images.unsplash.com/photo-1504609773096-104ff2c73ba4?w=800&h=360&q=80&auto=format&fit=crop';
-  String _avatarUrl = 'https://i.pravatar.cc/120?u=you_create';
+  String _coverUrl = '';
+  String _avatarUrl = '';
   var _saved = false;
 
   @override

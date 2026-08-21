@@ -74,7 +74,17 @@ abstract final class AppRouter {
         ),
         GoRoute(
           path: AppRoutes.login,
-          builder: (context, state) => const LoginScreen(),
+          builder: (context, state) {
+            final extraMap = state.extra is Map ? (state.extra as Map) : null;
+            final email = state.uri.queryParameters['email'] ??
+                extraMap?['email']?.toString();
+            final password = state.uri.queryParameters['password'] ??
+                extraMap?['password']?.toString();
+            return LoginScreen(
+              initialEmail: email,
+              initialPassword: password,
+            );
+          },
         ),
         GoRoute(
           path: AppRoutes.signup,

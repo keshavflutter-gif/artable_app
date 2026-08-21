@@ -3,11 +3,11 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:artable_app/app/theme/app_colors.dart';
-import 'package:artable_app/core/utils/mock_helpers.dart';
 import 'package:artable_app/core/widgets/app_image.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
 import 'package:artable_app/features/shell/presentation/widgets/bottom_nav_layout.dart';
 import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
+import 'package:artable_app/features/profile/presentation/bloc/stats_cubit.dart';
 import 'package:artable_app/data/datasources/mock_data.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
 
@@ -38,27 +38,32 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
     final authUsername = auth.username;
     final userName = auth.userName;
     final currentUser = auth.currentUser;
-    final u = MockHelpers.currentUser;
     final name = fullName.isNotEmpty
         ? fullName
-        : (authUsername.isNotEmpty ? authUsername : (userName.isNotEmpty ? userName : 'Creator'));
+        : (authUsername.isNotEmpty
+            ? authUsername
+            : (userName.isNotEmpty ? userName : ''));
     final handle = authUsername.isNotEmpty
         ? '@$authUsername'
         : ((currentUser['handle'] as String?)?.isNotEmpty == true
             ? currentUser['handle'] as String
-            : '');
-    final bio = auth.bio.isNotEmpty ? auth.bio : ((currentUser['bio'] as String?)?.trim() ?? '');
-    final category = auth.category.isNotEmpty ? auth.category : ((currentUser['category'] as String?)?.trim() ?? '');
+            : (userName.isNotEmpty ? '@$userName' : ''));
+    final bio = auth.bio.isNotEmpty
+        ? auth.bio
+        : ((currentUser['bio'] as String?)?.trim() ?? '');
+    final category = auth.category.isNotEmpty
+        ? auth.category
+        : ((currentUser['category'] as String?)?.trim() ?? '');
     final coverUrl = auth.coverUrl.isNotEmpty
         ? auth.coverUrl
         : ((currentUser['coverUrl'] as String?)?.isNotEmpty == true
             ? currentUser['coverUrl'] as String
-            : 'https://images.unsplash.com/photo-1504609773096-104ff2c73ba4?w=800&h=360&q=80&auto=format&fit=crop');
+            : '');
     final avatarUrl = auth.avatarUrl.isNotEmpty
         ? auth.avatarUrl
         : ((currentUser['avatarUrl'] as String?)?.isNotEmpty == true
             ? currentUser['avatarUrl'] as String
-            : 'https://i.pravatar.cc/120?u=you_create');
+            : '');
 
     final dynamic socialSource = auth.socialLinks ?? currentUser['socialLinks'];
     String socialLabel = 'Website';
@@ -258,7 +263,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
                   const SizedBox(height: 18),
 
                   // 3. Stats Grid (4 Cards Row)
-                  _buildStatsRow(u),
+                  _buildStatsRow(context),
                   const SizedBox(height: 18),
 
                   // 4. Edit Profile Button (Vibrant Coral to Purple Gradient Pill)
@@ -412,11 +417,15 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
   }
 
   // --- 2. Stats Grid (4 Cards Row) ---
-  Widget _buildStatsRow(Map<String, dynamic> u) {
-    final videos = u['videos'] ?? 9;
-    final likes = u['likes'] ?? '89K';
-    final talentScore = (u['talentScore'] as num?)?.toStringAsFixed(1) ?? '7.6';
-    final challengesWon = u['challengesWon'] ?? 1;
+  Widget _buildStatsRow(BuildContext context) {
+    final data = context.watch<StatsCubit>().data;
+    final videos = data?.stats.totalVideos ?? 0;
+    final likes = data?.stats.totalLikes ?? 0;
+    final talentScore = (data?.overallTalentScoreLabel != null &&
+            data!.overallTalentScoreLabel.isNotEmpty)
+        ? data.overallTalentScoreLabel
+        : (data?.stats.talentScore.toStringAsFixed(1) ?? '0.0');
+    final wins = data?.stats.wins ?? 0;
 
     return Row(
       children: [
@@ -426,7 +435,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
         const SizedBox(width: 8),
         _buildStatCard(talentScore, 'TALENT SCORE'),
         const SizedBox(width: 8),
-        _buildStatCard('$challengesWon', 'WON'),
+        _buildStatCard('$wins', 'WON'),
       ],
     );
   }

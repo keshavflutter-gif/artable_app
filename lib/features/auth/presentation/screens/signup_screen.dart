@@ -24,7 +24,11 @@ class _SignupScreenState extends State<SignupScreen> {
 
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
-  String? _errorHint;
+  String? _nameError;
+  String? _emailError;
+  String? _phoneError;
+  String? _passwordError;
+  String? _confirmError;
 
   @override
   void dispose() {
@@ -43,28 +47,58 @@ class _SignupScreenState extends State<SignupScreen> {
     final pass = _passwordController.text;
     final confirm = _confirmController.text;
 
-    if (name.isEmpty || email.isEmpty || pass.isEmpty || confirm.isEmpty) {
-      setState(() {
-        _errorHint = 'Please fill in all required fields';
-      });
-      return;
+    String? nameErr;
+    String? emailErr;
+    String? phoneErr;
+    String? passErr;
+    String? confirmErr;
+
+    if (name.isEmpty) {
+      nameErr = 'Full name is required';
     }
 
-    if (phone.isNotEmpty && phone.length != 10) {
-      setState(() {
-        _errorHint = 'Phone number must be exactly 10 digits';
-      });
-      return;
+    final emailRegExp = RegExp(
+      r'^[a-zA-Z0-9.+_-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
+    );
+    if (email.isEmpty) {
+      emailErr = 'Email address is required';
+    } else if (!emailRegExp.hasMatch(email)) {
+      emailErr = 'Please enter a valid email address';
     }
 
-    if (pass != confirm) {
-      setState(() {
-        _errorHint = 'Passwords do not match';
-      });
-      return;
+    if (phone.isEmpty) {
+      phoneErr = 'Phone number is required';
+    } else if (phone.length != 10) {
+      phoneErr = 'Please enter a valid phone number';
     }
 
-    setState(() => _errorHint = null);
+    if (pass.isEmpty) {
+      passErr = 'Password is required';
+    } else if (pass.length < 6) {
+      passErr = 'Password must be at least 6 characters long';
+    }
+
+    if (confirm.isEmpty) {
+      confirmErr = 'Confirm password is required';
+    } else if (pass.isNotEmpty && pass != confirm) {
+      confirmErr = 'Passwords do not match';
+    }
+
+    setState(() {
+      _nameError = nameErr;
+      _emailError = emailErr;
+      _phoneError = phoneErr;
+      _passwordError = passErr;
+      _confirmError = confirmErr;
+    });
+
+    if (nameErr != null ||
+        emailErr != null ||
+        phoneErr != null ||
+        passErr != null ||
+        confirmErr != null) {
+      return;
+    }
 
     final auth = context.read<AuthCubit>();
     if (auth.isLoading) return;
@@ -113,9 +147,9 @@ class _SignupScreenState extends State<SignupScreen> {
       return;
     }
 
+    final apiMsg = auth.errorMessage ?? response?.message ?? 'Unable to create account. Please try again.';
     setState(() {
-      _errorHint =
-          auth.errorMessage ?? response?.message ?? 'Unable to create account. Please try again.';
+      _emailError = apiMsg;
     });
   }
 
@@ -227,6 +261,10 @@ class _SignupScreenState extends State<SignupScreen> {
                     hintText: 'Full Name',
                     icon: Icons.person_outline_rounded,
                     keyboardType: TextInputType.name,
+                    errorText: _nameError,
+                    onChanged: (_) {
+                      if (_nameError != null) setState(() => _nameError = null);
+                    },
                   ),
 
                   const SizedBox(height: 10),
@@ -237,6 +275,10 @@ class _SignupScreenState extends State<SignupScreen> {
                     hintText: 'Email Address',
                     icon: Icons.mail_outline_rounded,
                     keyboardType: TextInputType.emailAddress,
+                    errorText: _emailError,
+                    onChanged: (_) {
+                      if (_emailError != null) setState(() => _emailError = null);
+                    },
                   ),
 
                   const SizedBox(height: 10),
@@ -251,6 +293,10 @@ class _SignupScreenState extends State<SignupScreen> {
                       FilteringTextInputFormatter.digitsOnly,
                       LengthLimitingTextInputFormatter(10),
                     ],
+                    errorText: _phoneError,
+                    onChanged: (_) {
+                      if (_phoneError != null) setState(() => _phoneError = null);
+                    },
                   ),
 
                   const SizedBox(height: 10),
@@ -261,6 +307,10 @@ class _SignupScreenState extends State<SignupScreen> {
                     hintText: 'Password',
                     icon: Icons.lock_outline_rounded,
                     obscureText: _obscurePassword,
+                    errorText: _passwordError,
+                    onChanged: (_) {
+                      if (_passwordError != null) setState(() => _passwordError = null);
+                    },
                     suffixIcon: IconButton(
                       onPressed: () =>
                           setState(() => _obscurePassword = !_obscurePassword),
@@ -282,6 +332,10 @@ class _SignupScreenState extends State<SignupScreen> {
                     hintText: 'Confirm Password',
                     icon: Icons.lock_outline_rounded,
                     obscureText: _obscureConfirmPassword,
+                    errorText: _confirmError,
+                    onChanged: (_) {
+                      if (_confirmError != null) setState(() => _confirmError = null);
+                    },
                     suffixIcon: IconButton(
                       onPressed: () => setState(
                           () => _obscureConfirmPassword = !_obscureConfirmPassword),
@@ -294,18 +348,6 @@ class _SignupScreenState extends State<SignupScreen> {
                       ),
                     ),
                   ),
-
-                  if (_errorHint != null) ...[
-                    const SizedBox(height: 6),
-                    Text(
-                      _errorHint!,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Colors.redAccent,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
 
                   const SizedBox(height: 16),
 
@@ -462,6 +504,8 @@ class _CustomAuthInput extends StatelessWidget {
     this.keyboardType,
     this.suffixIcon,
     this.inputFormatters,
+    this.errorText,
+    this.onChanged,
   });
 
   final TextEditingController controller;
@@ -471,68 +515,91 @@ class _CustomAuthInput extends StatelessWidget {
   final TextInputType? keyboardType;
   final Widget? suffixIcon;
   final List<TextInputFormatter>? inputFormatters;
+  final String? errorText;
+  final ValueChanged<String>? onChanged;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 48,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: const Color(0xFFEFEBF7),
-          width: 1.2,
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 32,
-            height: 32,
-            decoration: BoxDecoration(
-              color: const Color(0xFFF6F3FC),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(
-              icon,
-              size: 17,
-              color: const Color(0xFF9B51E0),
+    final hasError = errorText != null && errorText!.isNotEmpty;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          height: 48,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: hasError ? const Color(0xFFFF3D77) : const Color(0xFFEFEBF7),
+              width: hasError ? 1.5 : 1.2,
             ),
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: TextField(
-              controller: controller,
-              obscureText: obscureText,
-              keyboardType: keyboardType,
-              inputFormatters: inputFormatters,
+          child: Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF6F3FC),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  icon,
+                  size: 17,
+                  color: const Color(0xFF9B51E0),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  controller: controller,
+                  obscureText: obscureText,
+                  keyboardType: keyboardType,
+                  inputFormatters: inputFormatters,
+                  onChanged: onChanged,
+                  style: const TextStyle(
+                    fontSize: 13.5,
+                    color: Color(0xFF1E1633),
+                    fontWeight: FontWeight.w500,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: hintText,
+                    hintStyle: const TextStyle(
+                      fontSize: 13.5,
+                      color: Color(0xFFB3A9C9),
+                      fontWeight: FontWeight.w400,
+                    ),
+                    filled: false,
+                    fillColor: Colors.transparent,
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    disabledBorder: InputBorder.none,
+                    isDense: true,
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+              ),
+              ?suffixIcon,
+            ],
+          ),
+        ),
+        if (hasError)
+          Padding(
+            padding: const EdgeInsets.only(top: 4, left: 4),
+            child: Text(
+              errorText!,
               style: const TextStyle(
-                fontSize: 13.5,
-                color: Color(0xFF1E1633),
+                fontSize: 12,
+                color: Colors.redAccent,
                 fontWeight: FontWeight.w500,
               ),
-              decoration: InputDecoration(
-                hintText: hintText,
-                hintStyle: const TextStyle(
-                  fontSize: 13.5,
-                  color: Color(0xFFB3A9C9),
-                  fontWeight: FontWeight.w400,
-                ),
-                filled: false,
-                fillColor: Colors.transparent,
-                border: InputBorder.none,
-                enabledBorder: InputBorder.none,
-                focusedBorder: InputBorder.none,
-                disabledBorder: InputBorder.none,
-                isDense: true,
-                contentPadding: EdgeInsets.zero,
-              ),
             ),
           ),
-          ?suffixIcon,
-        ],
-      ),
+      ],
     );
   }
 }
