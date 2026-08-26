@@ -7,8 +7,8 @@ import 'package:artable_app/core/widgets/app_image.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
 import 'package:artable_app/features/shell/presentation/widgets/bottom_nav_layout.dart';
 import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
-import 'package:artable_app/features/profile/presentation/bloc/stats_cubit.dart';
-import 'package:artable_app/data/datasources/mock_data.dart';
+import 'package:artable_app/features/profile/presentation/bloc/profile_cubit.dart';
+import 'package:artable_app/features/profile/data/models/my_videos_response.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
 
 class MyProfileScreen extends StatefulWidget {
@@ -26,6 +26,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
+        context.read<ProfileCubit>().loadProfile(forceRefresh: true);
         context.read<AuthCubit>().fetchUserDetails();
       }
     });
@@ -33,39 +34,52 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final profileState = context.watch<ProfileCubit>();
     final auth = context.watch<AuthCubit>();
-    final fullName = auth.fullName;
-    final authUsername = auth.username;
+    final user = profileState.user;
+
+    final fullName = user?.fullName ?? auth.fullName;
+    final authUsername = user?.username ?? auth.username;
     final userName = auth.userName;
     final currentUser = auth.currentUser;
     final name = fullName.isNotEmpty
         ? fullName
         : (authUsername.isNotEmpty
             ? authUsername
-            : (userName.isNotEmpty ? userName : ''));
+            : (userName.isNotEmpty ? userName : 'User'));
     final handle = authUsername.isNotEmpty
         ? '@$authUsername'
         : ((currentUser['handle'] as String?)?.isNotEmpty == true
             ? currentUser['handle'] as String
             : (userName.isNotEmpty ? '@$userName' : ''));
-    final bio = auth.bio.isNotEmpty
-        ? auth.bio
-        : ((currentUser['bio'] as String?)?.trim() ?? '');
-    final category = auth.category.isNotEmpty
-        ? auth.category
-        : ((currentUser['category'] as String?)?.trim() ?? '');
-    final coverUrl = auth.coverUrl.isNotEmpty
-        ? auth.coverUrl
-        : ((currentUser['coverUrl'] as String?)?.isNotEmpty == true
-            ? currentUser['coverUrl'] as String
-            : '');
-    final avatarUrl = auth.avatarUrl.isNotEmpty
-        ? auth.avatarUrl
-        : ((currentUser['avatarUrl'] as String?)?.isNotEmpty == true
-            ? currentUser['avatarUrl'] as String
-            : '');
+    final bio = (user?.bio != null && user!.bio!.isNotEmpty)
+        ? user.bio!
+        : (auth.bio.isNotEmpty
+            ? auth.bio
+            : ((currentUser['bio'] as String?)?.trim() ?? ''));
+    final category = (user?.talentCategory != null && user!.talentCategory!.isNotEmpty)
+        ? user.talentCategory!
+        : (auth.category.isNotEmpty
+            ? auth.category
+            : ((currentUser['category'] as String?)?.trim() ?? ''));
+    final coverUrl = (user?.coverImageUrl != null && user!.coverImageUrl!.isNotEmpty)
+        ? user.coverImageUrl!
+        : (auth.coverUrl.isNotEmpty
+            ? auth.coverUrl
+            : ((currentUser['coverUrl'] as String?)?.isNotEmpty == true
+                ? currentUser['coverUrl'] as String
+                : ''));
+    final avatarUrl = (user?.profilePhotoUrl != null && user!.profilePhotoUrl!.isNotEmpty)
+        ? user.profilePhotoUrl!
+        : (auth.avatarUrl.isNotEmpty
+            ? auth.avatarUrl
+            : ((currentUser['avatarUrl'] as String?)?.isNotEmpty == true
+                ? currentUser['avatarUrl'] as String
+                : ''));
 
-    final dynamic socialSource = auth.socialLinks ?? currentUser['socialLinks'];
+    final isPrime = user?.isPrime ?? false;
+
+    final dynamic socialSource = user?.socialLinks ?? auth.socialLinks ?? currentUser['socialLinks'];
     String socialLabel = 'Website';
     String? socialUrl;
     if (socialSource is List && socialSource.isNotEmpty) {
@@ -104,10 +118,17 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
       }
     }
 
+    final recentVideosTitle = profileState.data?.recentVideosTitle ?? 'Recent Videos';
+
     return AppScreen(
       bottomNav: AppBottomNav(current: AppRoutes.myProfile),
       child: RefreshIndicator(
-        onRefresh: () => context.read<AuthCubit>().fetchUserDetails(),
+        onRefresh: () async {
+          await Future.wait([
+            context.read<ProfileCubit>().loadProfile(forceRefresh: true),
+            context.read<AuthCubit>().fetchUserDetails(),
+          ]);
+        },
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.only(bottom: 100),
@@ -119,239 +140,241 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
 
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Column(
-                children: [
-                  const SizedBox(height: 12),
+                child: Column(
+                  children: [
+                    const SizedBox(height: 12),
 
-                  // 2. Name & ★ PRIME Badge
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
+                    // 2. Name & ★ PRIME Badge
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          name,
+                          style: const TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.text,
+                          ),
+                        ),
+                        if (isPrime) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3.5),
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFFFF3D77), Color(0xFF8B3DFF)],
+                              ),
+                              borderRadius: BorderRadius.circular(20),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: const Color(0xFFFF3D77).withValues(alpha: 0.35),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ],
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.star, size: 10, color: Colors.white),
+                                SizedBox(width: 3),
+                                Text(
+                                  'PRIME',
+                                  style: TextStyle(
+                                    fontFamily: 'Poppins',
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.white,
+                                    letterSpacing: 0.4,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+
+                    // Handle
+                    if (handle.isNotEmpty)
                       Text(
-                        name,
+                        handle,
                         style: const TextStyle(
-                          fontFamily: 'Poppins',
-                          fontSize: 20,
-                          fontWeight: FontWeight.w800,
-                          color: AppColors.text,
+                          fontFamily: 'Inter',
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: AppColors.textSoft,
                         ),
                       ),
-                      const SizedBox(width: 8),
+                    const SizedBox(height: 6),
+
+                    // Bio Text
+                    if (bio.isNotEmpty) ...[
+                      Text(
+                        bio,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w400,
+                          color: Color(0xFF4A435A),
+                          height: 1.35,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+
+                    // Category Pill
+                    if (category.isNotEmpty) ...[
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3.5),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3.5),
                         decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFFFF3D77), Color(0xFF8B3DFF)],
+                          color: const Color(0xFFF6F3FC),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: const Color(0xFFECE8F5), width: 1),
+                        ),
+                        child: Text(
+                          category.toUpperCase(),
+                          style: const TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.purple,
+                            letterSpacing: 0.6,
                           ),
-                          borderRadius: BorderRadius.circular(20),
-                          boxShadow: [
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+
+                    // Social Link Pill Button
+                    if (socialUrl != null && socialUrl.isNotEmpty) ...[
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 7.5),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(24),
+                          border: Border.all(color: const Color(0xFFECE8F5), width: 1.2),
+                          boxShadow: const [
                             BoxShadow(
-                              color: const Color(0xFFFF3D77).withValues(alpha: 0.35),
-                              blurRadius: 8,
-                              offset: const Offset(0, 2),
+                              color: Color(0x0815083C),
+                              blurRadius: 10,
+                              offset: Offset(0, 3),
                             ),
                           ],
                         ),
-                        child: const Row(
+                        child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.star, size: 10, color: Colors.white),
-                            SizedBox(width: 3),
+                            const Icon(Icons.link_rounded, size: 17, color: Color(0xFF8B3DFF)),
+                            const SizedBox(width: 6),
                             Text(
-                              'PRIME',
-                              style: TextStyle(
-                                fontFamily: 'Poppins',
-                                fontSize: 9.5,
+                              socialLabel,
+                              style: const TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 13,
                                 fontWeight: FontWeight.w800,
-                                color: Colors.white,
-                                letterSpacing: 0.4,
+                                color: Color(0xFF1B132C),
                               ),
                             ),
                           ],
                         ),
                       ),
                     ],
-                  ),
-                  const SizedBox(height: 3),
+                    const SizedBox(height: 18),
 
-                  // Handle
-                  Text(
-                    handle,
-                    style: const TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                      color: AppColors.textSoft,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
+                    // 3. Stats Grid (4 Cards Row)
+                    _buildStatsRow(context),
+                    const SizedBox(height: 18),
 
-                  // Bio Text
-                  // Bio Text
-                  if (bio.isNotEmpty) ...[
-                    Text(
-                      bio,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w400,
-                        color: Color(0xFF4A435A),
-                        height: 1.35,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                  ],
+                    // 4. Edit Profile Button
+                    _buildEditProfileButton(context),
+                    const SizedBox(height: 16),
 
-                  // Category Pill
-                  if (category.isNotEmpty) ...[
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3.5),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF6F3FC),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: const Color(0xFFECE8F5), width: 1),
-                      ),
-                      child: Text(
-                        category.toUpperCase(),
-                        style: const TextStyle(
-                          fontFamily: 'Poppins',
-                          fontSize: 10,
-                          fontWeight: FontWeight.w800,
-                          color: AppColors.purple,
-                          letterSpacing: 0.6,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                  ],
+                    // 5. Quick Links (Wallet, Stats, Settings)
+                    _buildQuickActionCards(context),
+                    const SizedBox(height: 22),
 
-                  // Social Link Pill Button (Dynamic: Instagram, YouTube, Website)
-                  if (socialUrl != null && socialUrl.isNotEmpty) ...[
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 7.5),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(24),
-                        border: Border.all(color: const Color(0xFFECE8F5), width: 1.2),
-                        boxShadow: const [
-                          BoxShadow(
-                            color: Color(0x0815083C),
-                            blurRadius: 10,
-                            offset: Offset(0, 3),
+                    // 6. Tab Selector Pills
+                    _buildSegmentedTabs(),
+                    const SizedBox(height: 22),
+
+                    // 7. Recent Videos Section Header
+                    Row(
+                      children: [
+                        Text(
+                          recentVideosTitle,
+                          style: const TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.text,
                           ),
-                        ],
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.link_rounded, size: 17, color: Color(0xFF8B3DFF)),
-                          const SizedBox(width: 6),
-                          Text(
-                            socialLabel,
-                            style: const TextStyle(
+                        ),
+                        const Spacer(),
+                        GestureDetector(
+                          onTap: () => context.push('/my-videos'),
+                          child: const Text(
+                            'See All',
+                            style: TextStyle(
                               fontFamily: 'Inter',
-                              fontSize: 13,
-                              fontWeight: FontWeight.w800,
-                              color: Color(0xFF1B132C),
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.purple,
                             ),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
+                    const SizedBox(height: 12),
+
+                    // 8. 2-Column Grid of Recent Videos
+                    _buildRecentVideosGrid(context),
+                    const SizedBox(height: 26),
+
+                    // 9. Badges Section Header
+                    Row(
+                      children: [
+                        const Text(
+                          'Badges',
+                          style: TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.text,
+                          ),
+                        ),
+                        const Spacer(),
+                        GestureDetector(
+                          onTap: () => context.push('/achievements'),
+                          child: const Text(
+                            'See All',
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.purple,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+
+                    // 10. Horizontal Badges Row
+                    _buildBadgesRow(context),
+                    const SizedBox(height: 20),
                   ],
-                  const SizedBox(height: 18),
-
-                  // 3. Stats Grid (4 Cards Row)
-                  _buildStatsRow(context),
-                  const SizedBox(height: 18),
-
-                  // 4. Edit Profile Button (Vibrant Coral to Purple Gradient Pill)
-                  _buildEditProfileButton(context),
-                  const SizedBox(height: 16),
-
-                  // 5. Quick Links (Wallet, Stats, Settings)
-                  _buildQuickActionCards(context),
-                  const SizedBox(height: 22),
-
-                  // 6. Tab Selector Pills (Videos, Achievements, Stats)
-                  _buildSegmentedTabs(),
-                  const SizedBox(height: 22),
-
-                  // 7. Recent Videos Section Header
-                  Row(
-                    children: [
-                      const Text(
-                        'Recent Videos',
-                        style: TextStyle(
-                          fontFamily: 'Poppins',
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                          color: AppColors.text,
-                        ),
-                      ),
-                      const Spacer(),
-                      GestureDetector(
-                        onTap: () => context.push('/my-videos'),
-                        child: const Text(
-                          'See All',
-                          style: TextStyle(
-                            fontFamily: 'Inter',
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.purple,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-
-                  // 8. 2-Column Grid of Recent Videos
-                  _buildRecentVideosGrid(context),
-                  const SizedBox(height: 26),
-
-                  // 9. Badges Section Header
-                  Row(
-                    children: [
-                      const Text(
-                        'Badges',
-                        style: TextStyle(
-                          fontFamily: 'Poppins',
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                          color: AppColors.text,
-                        ),
-                      ),
-                      const Spacer(),
-                      GestureDetector(
-                        onTap: () => context.push('/achievements'),
-                        child: const Text(
-                          'See All',
-                          style: TextStyle(
-                            fontFamily: 'Inter',
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.purple,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-
-                  // 10. Horizontal Badges Row
-                  _buildBadgesRow(context),
-                  const SizedBox(height: 20),
-                ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
-    ),
-  );
-}
+    );
+  }
 
   // --- 1. Cover and Circular Avatar Header ---
   Widget _buildCoverAndAvatar(String coverUrl, String avatarUrl) {
@@ -416,16 +439,24 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
     );
   }
 
-  // --- 2. Stats Grid (4 Cards Row) ---
+  // --- 2. Stats Grid ---
   Widget _buildStatsRow(BuildContext context) {
-    final data = context.watch<StatsCubit>().data;
-    final videos = data?.stats.totalVideos ?? 0;
-    final likes = data?.stats.totalLikes ?? 0;
-    final talentScore = (data?.overallTalentScoreLabel != null &&
-            data!.overallTalentScoreLabel.isNotEmpty)
-        ? data.overallTalentScoreLabel
-        : (data?.stats.talentScore.toStringAsFixed(1) ?? '0.0');
-    final wins = data?.stats.wins ?? 0;
+    final profileState = context.watch<ProfileCubit>();
+    final statCards = profileState.statCards;
+    final stats = profileState.stats;
+
+    if (statCards.isNotEmpty) {
+      return Row(
+        children: statCards.map((card) {
+          return _buildStatCard(card.displayValue, card.label.toUpperCase());
+        }).toList(),
+      );
+    }
+
+    final videos = stats?.totalVideos ?? 0;
+    final likes = stats?.totalLikes ?? 0;
+    final talentScore = stats?.talentScore.toStringAsFixed(1) ?? '0.0';
+    final wins = stats?.wins ?? 0;
 
     return Row(
       children: [
@@ -489,6 +520,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
       onTap: () async {
         await context.push('/edit-profile');
         if (context.mounted) {
+          context.read<ProfileCubit>().loadProfile(forceRefresh: true);
           context.read<AuthCubit>().fetchUserDetails();
         }
       },
@@ -663,9 +695,56 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
     );
   }
 
-  // --- 6. Recent Videos Grid (2 Columns, Exact Figma Layout) ---
+  // --- 6. Recent Videos Grid ---
   Widget _buildRecentVideosGrid(BuildContext context) {
-    final videos = MockData.MY_VIDEOS.take(4).toList();
+    final profileState = context.watch<ProfileCubit>();
+    final videos = profileState.recentVideos;
+
+    if (profileState.isLoading && videos.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 40),
+        child: Center(
+          child: CircularProgressIndicator(color: AppColors.purple),
+        ),
+      );
+    }
+
+    if (videos.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 30, horizontal: 20),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF9F8FC),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFECE8F5), width: 1.2),
+        ),
+        child: const Column(
+          children: [
+            Icon(Icons.video_library_outlined, size: 36, color: AppColors.textSoft),
+            SizedBox(height: 8),
+            Text(
+              'No Recent Videos',
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: AppColors.text,
+              ),
+            ),
+            SizedBox(height: 4),
+            Text(
+              'Your uploaded videos will appear here.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 12,
+                color: AppColors.textSoft,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
 
     return GridView.builder(
       shrinkWrap: true,
@@ -683,33 +762,34 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
     );
   }
 
-  Widget _buildFigmaVideoCard(BuildContext context, Map<String, dynamic> video) {
-    final status = (video['status'] as String? ?? 'live').toLowerCase();
-    final title = video['challengeTitle'] as String? ?? 'Challenge Video';
-    final thumbnailUrl = video['thumbnailUrl'] as String? ??
-        'https://images.unsplash.com/photo-1598963561591-3a14d9ba6a7b?w=320&h=420&q=80&auto=format&fit=crop';
-    final views = video['views'] as String? ?? '—';
-    final likes = video['likes'] as String? ?? '—';
-    final date = video['date'] as String? ?? 'Jul 18, 2026';
-    final rejectReason = video['rejectReason'] as String? ??
-        'Video did not meet the content guidelines.';
+  Widget _buildFigmaVideoCard(BuildContext context, MyVideoItem video) {
+    final status = video.status.toLowerCase();
+    final title = video.title.isNotEmpty ? video.title : 'Challenge Video';
+    final thumbnailUrl = video.thumbnailUrl;
+    final views = video.viewsLabel;
+    final likes = video.likesLabel;
+    final date = video.dateLabel;
+    final rejectReason = video.rejectionReason ?? 'Video did not meet content guidelines.';
 
-    // Status badge configuration
     Color badgeColor;
-    String badgeLabel;
-    if (status == 'live') {
+    String badgeLabel = video.statusLabel ?? video.statusBadge?.label ?? video.status;
+
+    if (status == 'approved' || status == 'live' || video.isLive) {
       badgeColor = const Color(0xFF00C853);
-      badgeLabel = 'LIVE';
-    } else if (status == 'under_review') {
+      badgeLabel = badgeLabel.isNotEmpty ? badgeLabel.toUpperCase() : 'LIVE';
+    } else if (status == 'pending_review' || status == 'under_review') {
       badgeColor = const Color(0xFFFF9800);
-      badgeLabel = 'UNDER REVIEW';
+      badgeLabel = badgeLabel.isNotEmpty ? badgeLabel.toUpperCase() : 'UNDER REVIEW';
     } else if (status == 'draft') {
       badgeColor = const Color(0xFF5E2EAA);
-      badgeLabel = 'DRAFT';
+      badgeLabel = badgeLabel.isNotEmpty ? badgeLabel.toUpperCase() : 'DRAFT';
     } else {
       badgeColor = const Color(0xFFFF3B30);
-      badgeLabel = 'REJECTED';
+      badgeLabel = badgeLabel.isNotEmpty ? badgeLabel.toUpperCase() : 'REJECTED';
     }
+
+    final challengeObj = video.challenge;
+    final challengeId = challengeObj?['id']?.toString() ?? '';
 
     return Container(
       decoration: BoxDecoration(
@@ -851,7 +931,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
                   const Spacer(),
 
                   // Bottom Action Buttons
-                  if (status == 'draft')
+                  if (status == 'draft' || video.canContinueDraft)
                     Row(
                       children: [
                         Expanded(
@@ -880,17 +960,22 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
                           child: _buildSmallActionButton(
                             icon: Icons.remove_red_eye_outlined,
                             label: 'View',
-                            onTap: () => context.push('/video-detail?id=${video['challengeId']}'),
+                            onTap: () {
+                              final routeId = challengeId.isNotEmpty ? challengeId : video.id;
+                              context.push('/video-detail?id=$routeId');
+                            },
                           ),
                         ),
-                        const SizedBox(width: 5),
-                        Expanded(
-                          child: _buildSmallActionButton(
-                            icon: Icons.share_outlined,
-                            label: 'Share',
-                            onTap: () {},
+                        if (video.canShare) ...[
+                          const SizedBox(width: 5),
+                          Expanded(
+                            child: _buildSmallActionButton(
+                              icon: Icons.share_outlined,
+                              label: 'Share',
+                              onTap: () {},
+                            ),
                           ),
-                        ),
+                        ],
                       ],
                     ),
                 ],
@@ -940,31 +1025,38 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
     );
   }
 
-  // --- 7. Badges Horizontal Row (Exact Figma Match) ---
+  // --- 7. Badges Horizontal Row ---
   Widget _buildBadgesRow(BuildContext context) {
-    const badges = [
-      {
-        'title': 'First\nUpload',
-        'icon': Icons.file_upload_outlined,
-      },
-      {
-        'title': 'Challenge\nStarter',
-        'icon': Icons.local_fire_department_rounded,
-      },
-      {
-        'title': 'Weekly\nChampion',
-        'icon': Icons.emoji_events_rounded,
-      },
-      {
-        'title': 'Top 3\nFinisher',
-        'icon': Icons.military_tech_rounded,
-      },
-    ];
+    final profileState = context.watch<ProfileCubit>();
+    final badges = profileState.data?.badges ?? [];
+
+    if (badges.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF9F8FC),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFECE8F5), width: 1.2),
+        ),
+        child: const Center(
+          child: Text(
+            'No badges earned yet',
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textSoft,
+            ),
+          ),
+        ),
+      );
+    }
 
     return Row(
-      children: badges.map((b) {
-        final title = b['title'] as String;
-        final icon = b['icon'] as IconData;
+      children: badges.map((badge) {
+        final title = badge.title;
+        const iconData = Icons.military_tech_rounded;
 
         return Expanded(
           child: GestureDetector(
@@ -1010,7 +1102,9 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
                         ),
                       ],
                     ),
-                    child: Icon(icon, size: 22, color: Colors.white),
+                    child: badge.badgeUrl != null && badge.badgeUrl!.isNotEmpty
+                        ? AppImage(url: badge.badgeUrl!, width: 22, height: 22)
+                        : const Icon(iconData, size: 22, color: Colors.white),
                   ),
                   const SizedBox(height: 12),
                   Text(

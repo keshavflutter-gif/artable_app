@@ -23,5 +23,6 @@ class ApiConstants {
   static const String trendingVideos = '/app/videos/trending';
   static const String profileStats = '/app/profile/stats';
   static const String achievements = '/app/profile/achievements';
+  static const String profile = '/app/profile';
   static const String rewards = '/app/rewards';
 }

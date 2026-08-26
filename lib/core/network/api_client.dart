@@ -27,6 +27,7 @@ import 'loggers/create_video_api_debug_logger.dart';
 import 'loggers/user_detail_api_debug_logger.dart';
 import 'loggers/verify_otp_api_debug_logger.dart';
 import 'loggers/winners_api_debug_logger.dart';
+import 'loggers/profile_api_debug_logger.dart';
 
 class ApiClient {
   ApiClient({
@@ -369,6 +370,14 @@ class ApiClient {
       );
       return;
     }
+    if (path.startsWith('/app/profile')) {
+      ProfileApiDebugLogger.logRequest(
+        method: method,
+        url: fullUrl,
+        headers: headers,
+      );
+      return;
+    }
     if (path.startsWith('/app/winners')) {
       WinnersApiDebugLogger.logRequest(
         method: method,
@@ -686,6 +695,12 @@ class ApiClient {
       );
     } else if (path == '/app/profile/stats') {
       StatsApiDebugLogger.logResponse(
+        statusCode: response.statusCode,
+        responseBody: response.body,
+        url: fullUrl,
+      );
+    } else if (path == '/app/profile') {
+      ProfileApiDebugLogger.logResponse(
         statusCode: response.statusCode,
         responseBody: response.body,
         url: fullUrl,
