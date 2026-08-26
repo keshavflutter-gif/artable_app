@@ -12,7 +12,37 @@ class StudioCubit extends Cubit<StudioState> {
 
   String get recordedDuration => state.recordedDuration;
   String? get recordedVideoPath => state.recordedVideoPath;
+  String? get selectedThumbnailPath => state.selectedThumbnailPath;
+  String? get videoTitle => state.videoTitle;
+  String? get videoDescription => state.videoDescription;
+  String? get videoCategoryId => state.videoCategoryId;
+  String? get videoHashtags => state.videoHashtags;
+  String? get videoChallengeId => state.videoChallengeId;
   VideoPlayerController? get activeVideoController => state.activeVideoController;
+
+  void setSelectedThumbnailPath(String? path) {
+    if (path == null) {
+      emit(state.copyWith(clearSelectedThumbnailPath: true));
+    } else {
+      emit(state.copyWith(selectedThumbnailPath: path));
+    }
+  }
+
+  void setVideoSubmissionDetails({
+    required String title,
+    String? description,
+    String? categoryId,
+    String? hashtags,
+    String? challengeId,
+  }) {
+    emit(state.copyWith(
+      videoTitle: title,
+      videoDescription: description,
+      videoCategoryId: categoryId,
+      videoHashtags: hashtags,
+      videoChallengeId: challengeId,
+    ));
+  }
   String? get selectedMusic => state.selectedMusic;
   FreeToUseTrack? get selectedTrack => state.selectedTrack;
   double get musicStartSeconds => state.musicStartSeconds;

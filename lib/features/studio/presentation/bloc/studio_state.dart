@@ -8,6 +8,12 @@ class StudioState {
   StudioState({
     this.recordedDuration = '0:42',
     this.recordedVideoPath,
+    this.selectedThumbnailPath,
+    this.videoTitle,
+    this.videoDescription,
+    this.videoCategoryId,
+    this.videoHashtags,
+    this.videoChallengeId,
     this.activeVideoController,
     this.selectedMusic,
     this.selectedTrack,
@@ -26,6 +32,12 @@ class StudioState {
 
   final String recordedDuration;
   final String? recordedVideoPath;
+  final String? selectedThumbnailPath;
+  final String? videoTitle;
+  final String? videoDescription;
+  final String? videoCategoryId;
+  final String? videoHashtags;
+  final String? videoChallengeId;
   final VideoPlayerController? activeVideoController;
 
   final String? selectedMusic;
@@ -57,6 +69,12 @@ class StudioState {
   StudioState copyWith({
     String? recordedDuration,
     String? recordedVideoPath,
+    String? selectedThumbnailPath,
+    String? videoTitle,
+    String? videoDescription,
+    String? videoCategoryId,
+    String? videoHashtags,
+    String? videoChallengeId,
     VideoPlayerController? activeVideoController,
     String? selectedMusic,
     FreeToUseTrack? selectedTrack,
@@ -72,12 +90,19 @@ class StudioState {
     double? recordingBeautyIntensity,
     List<Map<String, dynamic>>? drafts,
     bool clearRecordedVideoPath = false,
+    bool clearSelectedThumbnailPath = false,
     bool clearSelectedMusic = false,
     bool clearActiveVideoController = false,
   }) {
     return StudioState(
       recordedDuration: recordedDuration ?? this.recordedDuration,
       recordedVideoPath: clearRecordedVideoPath ? null : (recordedVideoPath ?? this.recordedVideoPath),
+      selectedThumbnailPath: clearSelectedThumbnailPath ? null : (selectedThumbnailPath ?? this.selectedThumbnailPath),
+      videoTitle: videoTitle ?? this.videoTitle,
+      videoDescription: videoDescription ?? this.videoDescription,
+      videoCategoryId: videoCategoryId ?? this.videoCategoryId,
+      videoHashtags: videoHashtags ?? this.videoHashtags,
+      videoChallengeId: videoChallengeId ?? this.videoChallengeId,
       activeVideoController: clearActiveVideoController ? null : (activeVideoController ?? this.activeVideoController),
       selectedMusic: clearSelectedMusic ? null : (selectedMusic ?? this.selectedMusic),
       selectedTrack: clearSelectedMusic ? null : (selectedTrack ?? this.selectedTrack),

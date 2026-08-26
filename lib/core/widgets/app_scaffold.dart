@@ -177,7 +177,7 @@ class AppScreen extends StatelessWidget {
         child: Column(
           children: [
             Expanded(child: child),
-            ?effectiveBottomNav,
+            if (effectiveBottomNav != null) effectiveBottomNav,
           ],
         ),
       ),

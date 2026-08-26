@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:artable_app/app/theme/app_colors.dart';
@@ -6,6 +7,8 @@ import 'package:artable_app/app/theme/app_gradients.dart';
 import 'package:artable_app/core/widgets/app_back_header.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
 import 'package:artable_app/data/datasources/mock_data.dart';
+import 'package:artable_app/features/home/presentation/bloc/home_cubit.dart';
+import 'package:artable_app/features/trending/presentation/bloc/trending_videos_cubit.dart';
 
 class MembershipPlanScreen extends StatelessWidget {
   const MembershipPlanScreen({super.key});
@@ -1240,7 +1243,15 @@ class SubscriptionSuccessScreen extends StatelessWidget {
                       child: Material(
                         color: Colors.transparent,
                         child: InkWell(
-                          onTap: () => context.go('/home'),
+                          onTap: () {
+                            try {
+                              context.read<HomeCubit>().loadHomeDashboard(forceRefresh: true);
+                            } catch (_) {}
+                            try {
+                              context.read<TrendingVideosCubit>().loadTrendingVideos(forceRefresh: true);
+                            } catch (_) {}
+                            context.go('/home');
+                          },
                           borderRadius: BorderRadius.circular(28),
                           child: Container(
                             height: 52,

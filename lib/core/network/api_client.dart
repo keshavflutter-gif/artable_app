@@ -23,6 +23,7 @@ import 'loggers/rewards_api_debug_logger.dart';
 import 'loggers/stats_api_debug_logger.dart';
 import 'loggers/token_verify_api_debug_logger.dart';
 import 'loggers/trending_videos_api_debug_logger.dart';
+import 'loggers/create_video_api_debug_logger.dart';
 import 'loggers/user_detail_api_debug_logger.dart';
 import 'loggers/verify_otp_api_debug_logger.dart';
 import 'loggers/winners_api_debug_logger.dart';
@@ -335,11 +336,20 @@ class ApiClient {
       );
       return;
     }
-    if (path.startsWith('/app/videos')) {
+    if (path.startsWith('/app/videos/trending')) {
       TrendingVideosApiDebugLogger.logRequest(
         method: method,
         url: fullUrl,
         headers: headers,
+      );
+      return;
+    }
+    if (path.startsWith('/app/videos')) {
+      CreateVideoApiDebugLogger.logRequest(
+        method: method,
+        url: fullUrl,
+        headers: headers,
+        body: body,
       );
       return;
     }
@@ -692,8 +702,14 @@ class ApiClient {
         responseBody: response.body,
         url: fullUrl,
       );
-    } else if (path.startsWith('/app/videos')) {
+    } else if (path.startsWith('/app/videos/trending')) {
       TrendingVideosApiDebugLogger.logResponse(
+        statusCode: response.statusCode,
+        responseBody: response.body,
+        url: fullUrl,
+      );
+    } else if (path.startsWith('/app/videos')) {
+      CreateVideoApiDebugLogger.logResponse(
         statusCode: response.statusCode,
         responseBody: response.body,
         url: fullUrl,

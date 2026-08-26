@@ -1,6 +1,6 @@
 import 'dart:async';
-
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:artable_app/app/theme/app_colors.dart';
@@ -8,6 +8,11 @@ import 'package:artable_app/app/theme/app_text_styles.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/core/utils/reel_helpers.dart';
 import 'package:artable_app/core/widgets/app_screen_header.dart';
+import 'package:artable_app/features/studio/presentation/bloc/studio_cubit.dart';
+import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
+import 'package:artable_app/features/home/presentation/bloc/home_cubit.dart';
+import 'package:artable_app/features/trending/presentation/bloc/trending_videos_cubit.dart';
+import 'package:artable_app/features/trending/data/repositories/videos_repository.dart';
 
 class StudioUploadScreen extends StatefulWidget {
   const StudioUploadScreen({super.key, this.challengeId});
@@ -29,6 +34,58 @@ class _StudioUploadScreenState extends State<StudioUploadScreen> {
   int _percent = 0;
   int _stepIndex = 0;
   Timer? _timer;
+  bool _apiCalled = false;
+
+  void _triggerCreateVideoApi() {
+    if (_apiCalled) return;
+    _apiCalled = true;
+
+    final studioCubit = context.read<StudioCubit>();
+    final authCubit = context.read<AuthCubit>();
+    final videosRepo = VideosRepository();
+
+    final videoPath = studioCubit.recordedVideoPath ??
+        'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
+    final manualThumbnail = studioCubit.selectedThumbnailPath;
+
+    final title =
+        (studioCubit.videoTitle != null && studioCubit.videoTitle!.trim().isNotEmpty)
+            ? studioCubit.videoTitle!.trim()
+            : 'Talent Performance Entry';
+    final description = studioCubit.videoDescription;
+    final categoryId = studioCubit.videoCategoryId;
+    final hashtags =
+        (studioCubit.videoHashtags != null && studioCubit.videoHashtags!.trim().isNotEmpty)
+            ? studioCubit.videoHashtags!
+            : '#dance #talent #artable';
+    final challengeId = studioCubit.videoChallengeId ?? widget.challengeId ?? 'c1';
+
+    videosRepo
+        .createVideo(
+      title: title,
+      videoPathOrUrl: videoPath,
+      manualSelectedThumbnailPath: manualThumbnail,
+      description: description,
+      categoryId: categoryId,
+      hashtags: hashtags,
+      challengeId: challengeId,
+      sessionToken: authCubit.sessionToken,
+      refreshToken: authCubit.refreshToken,
+    )
+        .then((res) {
+      debugPrint('Create Video API success: $res');
+      if (mounted) {
+        try {
+          context.read<HomeCubit>().loadHomeDashboard(forceRefresh: true);
+        } catch (_) {}
+        try {
+          context.read<TrendingVideosCubit>().loadTrendingVideos(forceRefresh: true);
+        } catch (_) {}
+      }
+    }).catchError((err) {
+      debugPrint('Create Video API error: $err');
+    });
+  }
 
   @override
   void initState() {
@@ -39,6 +96,9 @@ class _StudioUploadScreenState extends State<StudioUploadScreen> {
         _percent = (_percent + 4).clamp(0, 100);
         _stepIndex = ((_percent / 100) * _steps.length).floor().clamp(0, _steps.length - 1);
       });
+      if (_stepIndex == 1) {
+        _triggerCreateVideoApi();
+      }
       if (_percent >= 100) {
         _timer?.cancel();
         Future.delayed(const Duration(milliseconds: 500), () {

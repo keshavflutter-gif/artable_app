@@ -19,7 +19,12 @@ class HomeDashboardData {
     return HomeDashboardData(
       banners: _parseBanners(json['banners']),
       featuredChallenges: _parseMapList(json['featuredChallenges']),
-      trendingVideos: _parseMapList(json['trendingVideos']),
+      trendingVideos: _parseMapList(
+        json['trendingVideos'] ??
+            json['trending_videos'] ??
+            json['videos'] ??
+            json['trending'],
+      ),
       categories: _parseMapList(json['categories']),
       announcements: _parseMapList(json['announcements']),
     );

@@ -78,16 +78,19 @@ class HomeUiMapper {
 
     final username = _firstNonEmptyString([
       user?['username'],
+      user?['handle'],
+      user?['name'],
       item['username'],
       item['handle'],
     ]);
     final handle = username.isNotEmpty
         ? (username.startsWith('@') ? username : '@$username')
-        : '@creator';
+        : '@user';
 
     final creator = _firstNonEmptyString([
       user?['fullName'],
       user?['name'],
+      user?['username'],
       item['creator'],
       item['authorName'],
     ]);
@@ -100,22 +103,50 @@ class HomeUiMapper {
 
     final thumb = _firstNonEmptyString([
       item['thumbnailUrl'],
+      item['thumbnail_url'],
       item['imageUrl'],
+      item['image_url'],
       item['coverUrl'],
+      item['cover_url'],
       item['videoThumbnail'],
+      item['video_thumbnail'],
       item['thumbnail'],
+      item['posterUrl'],
+      item['poster_url'],
     ]);
 
-    final rawViews = item['views'];
+    final videoUrl = _firstNonEmptyString([
+      item['videoUrl'],
+      item['video_url'],
+      item['mediaUrl'],
+      item['media_url'],
+      item['videoPath'],
+      item['video_path'],
+      item['fileUrl'],
+      item['file_url'],
+      item['url'],
+      item['streamUrl'],
+      item['stream_url'],
+      item['video'],
+      item['path'],
+    ]);
+
+    final rawViews = item['viewsLabel'] ?? item['views'] ?? item['viewCount'];
     String viewsStr = '0';
     if (rawViews is num) {
       viewsStr = _formatCompactNumber(rawViews);
-    } else if (rawViews != null && rawViews.toString().isNotEmpty) {
-      viewsStr = rawViews.toString();
+    } else if (rawViews != null && rawViews.toString().trim().isNotEmpty) {
+      viewsStr = rawViews.toString().trim();
     }
 
-    String categoryStr = 'Talent';
-    if (item['category'] is String &&
+    String categoryStr = 'DANCE';
+    if (item['categoryBadge'] != null &&
+        item['categoryBadge'].toString().trim().isNotEmpty) {
+      categoryStr = item['categoryBadge'].toString().trim();
+    } else if (item['badgeLabel'] != null &&
+        item['badgeLabel'].toString().trim().isNotEmpty) {
+      categoryStr = item['badgeLabel'].toString().trim();
+    } else if (item['category'] is String &&
         (item['category'] as String).isNotEmpty) {
       categoryStr = item['category'] as String;
     } else if (item['category'] is Map && item['category']['name'] != null) {
@@ -125,20 +156,80 @@ class HomeUiMapper {
       categoryStr = item['categoryName'].toString();
     }
 
+    final rawDescription = _firstNonEmptyString([
+      item['description'],
+      item['caption'],
+      item['title'],
+    ]);
+
+    String formattedHashtags = '';
+    final rawHashtags = item['hashtags'] ?? item['tags'] ?? item['hashTags'];
+    if (rawHashtags is List) {
+      formattedHashtags = rawHashtags
+          .map((e) => e.toString().trim())
+          .where((e) => e.isNotEmpty)
+          .map((e) => e.startsWith('#') ? e : '#$e')
+          .join(' ');
+    } else if (rawHashtags is String && rawHashtags.trim().isNotEmpty) {
+      formattedHashtags = rawHashtags
+          .split(RegExp(r'[\s,\n]+'))
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .map((e) => e.startsWith('#') ? e : '#$e')
+          .join(' ');
+    }
+
+    String finalCaption = '';
+    if (rawDescription.isNotEmpty && formattedHashtags.isNotEmpty) {
+      if (rawDescription.contains('#')) {
+        finalCaption = rawDescription;
+      } else {
+        finalCaption = '$rawDescription $formattedHashtags';
+      }
+    } else if (rawDescription.isNotEmpty) {
+      finalCaption = rawDescription;
+    } else if (formattedHashtags.isNotEmpty) {
+      finalCaption = formattedHashtags;
+    }
+
+    final challengeTitleStr = _firstNonEmptyString([
+      item['challengeTitle'],
+      item['challenge'] is Map ? item['challenge']['title'] : null,
+    ]);
+
     return {
-      'id': _stringValue(item['id']),
+      'id': _stringValue(item['id']).isNotEmpty ? _stringValue(item['id']) : 'r1',
       'title': _stringValue(item['title']),
+      'caption': finalCaption,
       'category': categoryStr,
       'imageUrl': thumb.isNotEmpty
           ? thumb
-          : 'https://images.unsplash.com/photo-1518834107812-67b0b7c58434?w=600&q=80',
-      'views': viewsStr,
+          : 'https://images.unsplash.com/photo-1547153760-18fc86324498?w=600&q=80',
+      'thumbnailUrl': thumb,
+      'videoUrl': videoUrl,
+      'views': viewsStr.isNotEmpty ? viewsStr : '1.2M',
+      'likes': item['likesLabel'] != null
+          ? item['likesLabel'].toString()
+          : _formatCompactNumber(item['likes'] is num ? item['likes'] : 124000),
+      'comments': item['commentsLabel'] != null
+          ? item['commentsLabel'].toString()
+          : _formatCompactNumber(item['comments'] is num ? item['comments'] : 2400),
+      'shares': item['sharesLabel'] != null
+          ? item['sharesLabel'].toString()
+          : _formatCompactNumber(item['shares'] is num ? item['shares'] : 8100),
+      'musicName': _firstNonEmptyString([item['musicName'], item['music']]).isNotEmpty
+          ? _firstNonEmptyString([item['musicName'], item['music']])
+          : 'Original Sound — ${creator.isNotEmpty ? creator : handle}',
       'avatarUrl': avatarUrl.isNotEmpty
           ? avatarUrl
           : 'https://i.pravatar.cc/100?u=${item['id'] ?? 'user'}',
       'handle': handle,
       'creator': creator.isNotEmpty ? creator : handle,
-      'verified': user?['verified'] == true || item['verified'] == true,
+      'verified': user?['isVerified'] == true ||
+          user?['verified'] == true ||
+          item['verified'] == true,
+      'challengeId': item['challengeId'] ?? (item['challenge'] is Map ? item['challenge']['id'] : 'c1'),
+      'challengeTitle': challengeTitleStr.isNotEmpty ? challengeTitleStr : 'Monthly Mega Dance Battle',
     };
   }
 

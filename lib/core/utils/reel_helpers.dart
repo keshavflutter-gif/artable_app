@@ -3,9 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:artable_app/data/datasources/mock_data.dart';
 
 abstract final class ReelHelpers {
-  static Map<String, dynamic>? reelById(String id) {
+  static Map<String, dynamic>? reelById(String id, {List<Map<String, dynamic>>? availableReels}) {
+    if (availableReels != null && availableReels.isNotEmpty) {
+      for (final r in availableReels) {
+        if (r['id']?.toString() == id.toString()) return r;
+      }
+    }
     for (final r in MockData.REELS) {
-      if (r['id'] == id) return r;
+      if (r['id']?.toString() == id.toString()) return r;
     }
     return MockData.REELS.isNotEmpty ? MockData.REELS.first : null;
   }

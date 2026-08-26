@@ -62,7 +62,7 @@ class CreatorInfoRow extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                        if (reel['verified'] == true) ...[
+                        if (reel['verified'] == true || reel['isBlueTick'] == true) ...[
                           const SizedBox(width: 4),
                           const Icon(Icons.verified, size: 14, color: Color(0xFF3B9DFF)),
                         ],

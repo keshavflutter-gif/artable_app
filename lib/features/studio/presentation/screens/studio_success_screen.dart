@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:artable_app/app/theme/app_colors.dart';
@@ -8,6 +9,8 @@ import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/core/utils/reel_helpers.dart';
 import 'package:artable_app/core/widgets/gradient_button.dart';
 import 'package:artable_app/core/widgets/secondary_outline_button.dart';
+import 'package:artable_app/features/home/presentation/bloc/home_cubit.dart';
+import 'package:artable_app/features/trending/presentation/bloc/trending_videos_cubit.dart';
 import 'package:artable_app/features/studio/presentation/widgets/studio_shared_widgets.dart';
 
 class StudioSuccessScreen extends StatelessWidget {
@@ -73,7 +76,15 @@ class StudioSuccessScreen extends StatelessWidget {
               SecondaryOutlineButton(
                 label: 'Back to Home',
                 height: 50,
-                onPressed: () => context.push(AppRoutes.home),
+                onPressed: () {
+                  try {
+                    context.read<HomeCubit>().loadHomeDashboard(forceRefresh: true);
+                  } catch (_) {}
+                  try {
+                    context.read<TrendingVideosCubit>().loadTrendingVideos(forceRefresh: true);
+                  } catch (_) {}
+                  context.go(AppRoutes.home);
+                },
               ),
               const SizedBox(height: 16),
               Row(

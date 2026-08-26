@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:artable_app/app/theme/app_colors.dart';
@@ -9,6 +10,8 @@ import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/features/shell/presentation/widgets/app_shell.dart';
 import 'package:artable_app/features/challenges/presentation/widgets/challenge_card.dart';
 import 'package:artable_app/core/widgets/network_image_widget.dart';
+import 'package:artable_app/features/challenges/presentation/bloc/challenges_cubit.dart';
+import 'package:artable_app/features/studio/presentation/bloc/studio_cubit.dart';
 
 class SubmitEntryScreen extends StatefulWidget {
   const SubmitEntryScreen({super.key, this.challengeId});
@@ -93,7 +96,34 @@ class _SubmitEntryScreenState extends State<SubmitEntryScreen> {
                         GradientButton(
                           label: 'Record Video in App Studio',
                           icon: const Icon(Icons.videocam_outlined, size: 18, color: Colors.white),
-                          onTap: () => context.push('${AppRoutes.studioStart}?id=${challenge['id']}'),
+                          onTap: () {
+                            final cId = widget.challengeId ?? challenge['id']?.toString() ?? '';
+                            final challengesCubit = context.read<ChallengesCubit>();
+                            final detail = challengesCubit.getChallengeDetail(cId);
+
+                            final realChallengeId = (detail?.id != null && detail!.id.isNotEmpty)
+                                ? detail.id
+                                : cId;
+                            String? realCategoryId;
+                            if (detail?.category?.id != null && detail!.category!.id.isNotEmpty) {
+                              realCategoryId = detail.category!.id;
+                            } else if (challenge['categoryId'] != null &&
+                                challenge['categoryId'].toString() != realChallengeId) {
+                              realCategoryId = challenge['categoryId'].toString();
+                            }
+                            if (realCategoryId == realChallengeId) {
+                              realCategoryId = null;
+                            }
+
+                            final studioCubit = context.read<StudioCubit>();
+                            studioCubit.setVideoSubmissionDetails(
+                              title: '',
+                              challengeId: realChallengeId,
+                              categoryId: realCategoryId,
+                            );
+
+                            context.push('${AppRoutes.studioStart}?id=$realChallengeId');
+                          },
                         ),
                         const SizedBox(height: 10),
                         OutlinedButton.icon(

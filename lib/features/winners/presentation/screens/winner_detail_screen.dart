@@ -36,7 +36,7 @@ class WinnerDetailScreen extends StatelessWidget {
     final talentScore = (w['talentScore'] as num? ?? 9.4).toStringAsFixed(1);
 
     final viewsCount = reel?['views'] as String? ?? '1.2M';
-    final likesCount = reel?['likes'] as String? ?? '124K';
+    final likesCount = reel?['likes'] as String? ?? '0';
     final videoThumbnail = reel?['imageUrl'] as String? ?? 'https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=480&q=80';
 
     return Scaffold(

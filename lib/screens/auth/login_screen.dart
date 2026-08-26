@@ -459,7 +459,7 @@ class _CustomAuthInput extends StatelessWidget {
                   ),
                 ),
               ),
-              ?suffixIcon,
+              if (suffixIcon case final icon?) icon,
             ],
           ),
         ),

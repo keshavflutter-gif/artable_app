@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:video_player/video_player.dart';
 
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_text_styles.dart';
@@ -9,6 +11,8 @@ import 'package:artable_app/core/widgets/app_scaffold.dart';
 import 'package:artable_app/data/datasources/mock_data.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/core/utils/reel_helpers.dart';
+import 'package:artable_app/features/home/presentation/bloc/home_cubit.dart';
+import 'package:artable_app/features/trending/presentation/bloc/trending_videos_cubit.dart';
 
 class VideoDetailScreen extends StatefulWidget {
   const VideoDetailScreen({super.key, this.reelId});
@@ -20,11 +24,105 @@ class VideoDetailScreen extends StatefulWidget {
 }
 
 class _VideoDetailScreenState extends State<VideoDetailScreen> {
+  VideoPlayerController? _videoController;
+  bool _isVideoInitialized = false;
   bool _isPlaying = false;
   bool _isLiked = false;
 
   Map<String, dynamic> get _reel {
-    return ReelHelpers.reelById(widget.reelId ?? 'r1') ?? MockData.REELS.first;
+    final trendingCubit = context.read<TrendingVideosCubit>();
+    final homeCubit = context.read<HomeCubit>();
+    final available = [
+      ...trendingCubit.videos.map((v) => v.toUiMap()),
+      ...homeCubit.trendingReels,
+    ];
+    return ReelHelpers.reelById(widget.reelId ?? 'r1', availableReels: available) ??
+        MockData.REELS.first;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    final reelMap = _reel;
+    final rawVideoUrl = reelMap['videoUrl'] as String? ?? '';
+    final rawThumbUrl = reelMap['thumbnailUrl'] as String? ?? (reelMap['imageUrl'] as String? ?? '');
+
+    debugPrint('=== TRENDING REEL VIDEO ===');
+    debugPrint('Video URL: $rawVideoUrl');
+    debugPrint('Thumbnail URL: $rawThumbUrl');
+
+    final resolvedVideoUrl = _resolvePlayableUrl(rawVideoUrl);
+    if (resolvedVideoUrl != null && resolvedVideoUrl.isNotEmpty) {
+      debugPrint('Initializing video with videoUrl only');
+      _initVideoPlayer(resolvedVideoUrl);
+    }
+  }
+
+  String? _resolvePlayableUrl(String rawUrl) {
+    final clean = rawUrl.trim();
+    if (clean.isEmpty || clean == 'null') {
+      return null;
+    }
+    final lower = clean.toLowerCase();
+    if (lower.endsWith('.jpg') ||
+        lower.endsWith('.jpeg') ||
+        lower.endsWith('.png') ||
+        lower.endsWith('.webp') ||
+        lower.endsWith('.gif')) {
+      return null;
+    }
+
+    String fullUrl;
+    if (clean.startsWith('http://') || clean.startsWith('https://') || clean.startsWith('file://')) {
+      fullUrl = clean;
+    } else if (clean.startsWith('/')) {
+      fullUrl = 'http://server.keshavinfotechdemo2.com:3055$clean';
+    } else {
+      fullUrl = 'http://server.keshavinfotechdemo2.com:3055/$clean';
+    }
+    try {
+      return Uri.encodeFull(fullUrl);
+    } catch (_) {
+      return fullUrl;
+    }
+  }
+
+  Future<void> _initVideoPlayer(String videoUrl) async {
+    try {
+      final controller = VideoPlayerController.networkUrl(Uri.parse(videoUrl));
+      _videoController = controller;
+      await controller.initialize();
+      if (!mounted) return;
+      controller.setLooping(true);
+      controller.setVolume(1.0);
+      await controller.play();
+      setState(() {
+        _isVideoInitialized = true;
+        _isPlaying = true;
+      });
+    } catch (e) {
+      debugPrint('VideoDetailScreen video player error: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    _videoController?.dispose();
+    super.dispose();
+  }
+
+  void _togglePlayPause() {
+    if (_videoController != null && _isVideoInitialized) {
+      setState(() {
+        if (_videoController!.value.isPlaying) {
+          _videoController!.pause();
+          _isPlaying = false;
+        } else {
+          _videoController!.play();
+          _isPlaying = true;
+        }
+      });
+    }
   }
 
   Color _categoryBadgeColor(String category) {
@@ -178,6 +276,17 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                 fit: BoxFit.cover,
               ),
 
+              if (_isVideoInitialized && _videoController != null && _videoController!.value.isInitialized)
+                FittedBox(
+                  fit: BoxFit.cover,
+                  clipBehavior: Clip.hardEdge,
+                  child: SizedBox(
+                    width: _videoController!.value.size.width > 0 ? _videoController!.value.size.width : 360,
+                    height: _videoController!.value.size.height > 0 ? _videoController!.value.size.height : 640,
+                    child: VideoPlayer(_videoController!),
+                  ),
+                ),
+
               // Category Badge (Top-Left)
               Positioned(
                 top: 12,
@@ -208,7 +317,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
               // Center Frosted Glass Play / Pause Button
               Center(
                 child: GestureDetector(
-                  onTap: () => setState(() => _isPlaying = !_isPlaying),
+                  onTap: _togglePlayPause,
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 200),
                     width: 58,
@@ -357,7 +466,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
         _buildStatItem(
           icon: _isLiked ? Icons.favorite : Icons.favorite_border,
           iconColor: _isLiked ? const Color(0xFFFF3D77) : const Color(0xFF8B3DFF),
-          value: reel['likes'] as String? ?? '124K',
+          value: reel['likes'] as String? ?? '0',
           label: 'Likes',
           onTap: () => setState(() => _isLiked = !_isLiked),
         ),

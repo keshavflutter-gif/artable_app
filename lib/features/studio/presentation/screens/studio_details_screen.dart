@@ -15,6 +15,7 @@ import 'package:artable_app/core/widgets/gradient_button.dart';
 import 'package:artable_app/core/widgets/secondary_outline_button.dart';
 import 'package:artable_app/features/studio/presentation/widgets/recorded_video_preview.dart';
 import 'package:artable_app/features/studio/presentation/widgets/studio_shared_widgets.dart';
+import 'package:artable_app/features/challenges/presentation/bloc/challenges_cubit.dart';
 
 class StudioDetailsScreen extends StatefulWidget {
   const StudioDetailsScreen({
@@ -52,16 +53,44 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
   @override
   void initState() {
     super.initState();
+    final studio = context.read<StudioCubit>();
+    final challengesCubit = context.read<ChallengesCubit>();
     final draft = _draft;
-    _challengeId = draft != null
-        ? draft['challengeId'] as String
-        : widget.challengeId ?? 'c1';
-    final challenge = ReelHelpers.challengeById(_challengeId)!;
-    _categoryId = MockData.CATEGORIES
-        .firstWhere(
-          (c) => c['name'] == challenge['category'],
-          orElse: () => MockData.CATEGORIES.first,
-        )['id'] as String;
+
+    _challengeId = (studio.videoChallengeId != null && studio.videoChallengeId!.isNotEmpty)
+        ? studio.videoChallengeId!
+        : (draft != null
+            ? draft['challengeId'] as String
+            : widget.challengeId ?? 'c1');
+
+    if (_challengeId.isNotEmpty && !_challengeId.startsWith('c')) {
+      final detail = challengesCubit.getChallengeDetail(_challengeId);
+      if (detail == null) {
+        challengesCubit.loadChallengeDetail(_challengeId).then((loadedDetail) {
+          if (mounted && loadedDetail != null && loadedDetail.category?.id != null && loadedDetail.category!.id.isNotEmpty) {
+            setState(() {
+              _categoryId = loadedDetail.category!.id;
+            });
+          }
+        });
+      }
+    }
+
+    String? catId = studio.videoCategoryId;
+    if (catId == _challengeId) {
+      catId = null;
+    }
+
+    if (catId != null && catId.isNotEmpty) {
+      _categoryId = catId;
+    } else {
+      final detail = challengesCubit.getChallengeDetail(_challengeId);
+      if (detail?.category?.id != null && detail!.category!.id.isNotEmpty) {
+        _categoryId = detail.category!.id;
+      } else {
+        _categoryId = '';
+      }
+    }
     _hashtagsController.addListener(() => setState(() {}));
     _titleController.addListener(() => setState(() {}));
     if (draft != null) {
@@ -160,6 +189,107 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
     setState(() => _categoryId = match['id'] as String);
   }
 
+  List<DropdownMenuItem<String>> _buildCategoryDropdownItems(
+    BuildContext context,
+    String? currentSelectedId,
+  ) {
+    final Map<String, String> categoryMap = {};
+
+    try {
+      final challengesCubit = context.read<ChallengesCubit>();
+      if (!challengesCubit.hasLoadedCategories && !challengesCubit.isLoadingCategories) {
+        challengesCubit.loadCategories();
+      }
+
+      final apiCats = challengesCubit.categoriesResponse?.data ?? [];
+      for (final c in apiCats) {
+        if (c.id.isNotEmpty && c.name.isNotEmpty) {
+          categoryMap[c.id] = c.name;
+        }
+      }
+
+      if (currentSelectedId != null &&
+          currentSelectedId.isNotEmpty &&
+          !categoryMap.containsKey(currentSelectedId)) {
+        final detail = challengesCubit.getChallengeDetail(_challengeId);
+        if (detail != null) {
+          if (detail.category?.id == currentSelectedId &&
+              detail.category?.name != null &&
+              detail.category!.name.isNotEmpty) {
+            categoryMap[currentSelectedId] = detail.category!.name;
+          } else if (detail.categoryName.isNotEmpty) {
+            categoryMap[currentSelectedId] = detail.categoryName;
+          }
+        }
+      }
+    } catch (_) {}
+
+    if (currentSelectedId != null &&
+        currentSelectedId.isNotEmpty &&
+        !categoryMap.containsKey(currentSelectedId)) {
+      try {
+        final detail = context.read<ChallengesCubit>().getChallengeDetail(_challengeId);
+        final name = (detail?.categoryName != null && detail!.categoryName.isNotEmpty)
+            ? detail.categoryName
+            : 'Dance';
+        categoryMap[currentSelectedId] = name;
+      } catch (_) {
+        categoryMap[currentSelectedId] = 'Dance';
+      }
+    }
+
+    return categoryMap.entries
+        .map((e) => DropdownMenuItem<String>(
+              value: e.key,
+              child: Text(e.value),
+            ))
+        .toList();
+  }
+
+  List<DropdownMenuItem<String>> _buildChallengeDropdownItems(
+    BuildContext context,
+    String? currentSelectedId,
+  ) {
+    final Map<String, String> challengeMap = {};
+
+    try {
+      final challengesCubit = context.read<ChallengesCubit>();
+      for (final c in challengesCubit.challenges) {
+        final id = c['id']?.toString() ?? '';
+        final title = c['title']?.toString() ?? '';
+        if (id.isNotEmpty && title.isNotEmpty) challengeMap[id] = title;
+      }
+
+      if (currentSelectedId != null && currentSelectedId.isNotEmpty) {
+        final detail = challengesCubit.getChallengeDetail(currentSelectedId);
+        if (detail != null && detail.title.isNotEmpty) {
+          challengeMap[currentSelectedId] = detail.title;
+        }
+      }
+    } catch (_) {}
+
+    if (currentSelectedId != null &&
+        currentSelectedId.isNotEmpty &&
+        !challengeMap.containsKey(currentSelectedId)) {
+      try {
+        final detail = context.read<ChallengesCubit>().getChallengeDetail(currentSelectedId);
+        final title = (detail?.title != null && detail!.title.isNotEmpty)
+            ? detail.title
+            : 'Monthly Mega Dance Battle';
+        challengeMap[currentSelectedId] = title;
+      } catch (_) {
+        challengeMap[currentSelectedId] = 'Monthly Mega Dance Battle';
+      }
+    }
+
+    return challengeMap.entries
+        .map((e) => DropdownMenuItem<String>(
+              value: e.key,
+              child: Text(e.value),
+            ))
+        .toList();
+  }
+
   @override
   Widget build(BuildContext context) {
     final studio = context.watch<StudioCubit>();
@@ -167,6 +297,19 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
     final music = studio.selectedMusic;
     final duration = _getDuration(studio);
     final isFrontCamera = studio.isFrontCamera;
+
+    final categoryItems = _buildCategoryDropdownItems(context, _categoryId);
+    final challengeItems = _buildChallengeDropdownItems(context, _challengeId);
+
+    final selectedCategoryValue =
+        categoryItems.any((item) => item.value == _categoryId)
+            ? _categoryId
+            : (categoryItems.isNotEmpty ? categoryItems.first.value : null);
+
+    final selectedChallengeValue =
+        challengeItems.any((item) => item.value == _challengeId)
+            ? _challengeId
+            : (challengeItems.isNotEmpty ? challengeItems.first.value : null);
 
     return Scaffold(
       backgroundColor: AppColors.bg,
@@ -273,16 +416,9 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
                     _AuthInput(
                       child: DropdownButtonHideUnderline(
                         child: DropdownButton<String>(
-                          value: _categoryId,
+                          value: selectedCategoryValue,
                           isExpanded: true,
-                          items: MockData.CATEGORIES
-                              .map(
-                                (c) => DropdownMenuItem(
-                                  value: c['id'] as String,
-                                  child: Text(c['name'] as String),
-                                ),
-                              )
-                              .toList(),
+                          items: categoryItems,
                           onChanged: (v) {
                             if (v != null) setState(() => _categoryId = v);
                           },
@@ -340,16 +476,9 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
                     _AuthInput(
                       child: DropdownButtonHideUnderline(
                         child: DropdownButton<String>(
-                          value: _challengeId,
+                          value: selectedChallengeValue,
                           isExpanded: true,
-                          items: MockData.CHALLENGES
-                              .map(
-                                (c) => DropdownMenuItem(
-                                  value: c['id'] as String,
-                                  child: Text(c['title'] as String),
-                                ),
-                              )
-                              .toList(),
+                          items: challengeItems,
                           onChanged: (v) {
                             if (v != null) {
                               setState(() => _challengeId = v);
@@ -453,9 +582,30 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
                             child: GradientButton(
                               label: 'Submit Entry',
                               onPressed: _canSubmit
-                                  ? () => context.push(
+                                  ? () {
+                                      final rawHashtags =
+                                          _hashtagsController.text.trim();
+                                      final effectiveHashtags =
+                                          rawHashtags.isNotEmpty
+                                              ? rawHashtags
+                                              : (_hashtagChips.isNotEmpty
+                                                  ? _hashtagChips.join(' ')
+                                                  : '#dance #talent #artable');
+
+                                      context
+                                          .read<StudioCubit>()
+                                          .setVideoSubmissionDetails(
+                                            title: _titleController.text.trim(),
+                                            description:
+                                                _descriptionController.text.trim(),
+                                            categoryId: _categoryId,
+                                            hashtags: effectiveHashtags,
+                                            challengeId: _challengeId,
+                                          );
+                                      context.push(
                                         '${AppRoutes.studioUpload}?id=$_challengeId',
-                                      )
+                                      );
+                                    }
                                   : null,
                             ),
                           ),

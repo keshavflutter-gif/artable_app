@@ -9,6 +9,7 @@ import 'package:artable_app/features/profile/presentation/bloc/achievements_cubi
 import 'package:artable_app/features/reels/presentation/bloc/reels_cubit.dart';
 import 'package:artable_app/features/rewards/presentation/bloc/rewards_cubit.dart';
 import 'package:artable_app/features/studio/presentation/bloc/studio_cubit.dart';
+import 'package:artable_app/features/profile/presentation/bloc/my_videos_cubit.dart';
 import 'package:artable_app/features/winners/presentation/bloc/winners_cubit.dart';
 
 class AppBlocs {
@@ -30,6 +31,11 @@ class AppBlocs {
         ),
         BlocProvider<StatsCubit>(
           create: (context) => StatsCubit(
+            authCubit: context.read<AuthCubit>(),
+          ),
+        ),
+        BlocProvider<MyVideosCubit>(
+          create: (context) => MyVideosCubit(
             authCubit: context.read<AuthCubit>(),
           ),
         ),

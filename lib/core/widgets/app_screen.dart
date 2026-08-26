@@ -47,7 +47,7 @@ class AppScreen extends StatelessWidget {
         children: [
           BgDecoration(assetName: bgAsset),
           SafeArea(child: content),
-          ?bottomOverlay,
+          if (bottomOverlay != null) bottomOverlay!,
         ],
       ),
     );

@@ -583,7 +583,7 @@ class _CustomAuthInput extends StatelessWidget {
                   ),
                 ),
               ),
-              ?suffixIcon,
+              if (suffixIcon != null) suffixIcon!,
             ],
           ),
         ),

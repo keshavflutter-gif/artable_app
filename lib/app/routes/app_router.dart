@@ -236,7 +236,9 @@ abstract final class AppRouter {
         ),
         GoRoute(
           path: AppRoutes.reelsFeed,
-          builder: (context, state) => const ReelsFeedScreen(),
+          builder: (context, state) => ReelsFeedScreen(
+            initialReelId: state.uri.queryParameters['id'],
+          ),
         ),
         GoRoute(
           path: AppRoutes.talentRating,

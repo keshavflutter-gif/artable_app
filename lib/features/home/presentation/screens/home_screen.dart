@@ -6,6 +6,7 @@ import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_gradients.dart';
 import 'package:artable_app/app/theme/app_typography.dart';
 import 'package:artable_app/features/home/presentation/bloc/home_cubit.dart';
+import 'package:artable_app/features/trending/presentation/bloc/trending_videos_cubit.dart';
 import 'package:artable_app/data/datasources/mock_data.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/features/shell/presentation/widgets/app_shell.dart';
@@ -30,7 +31,9 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      context.read<HomeCubit>().loadHomeDashboard();
+      context.read<HomeCubit>().loadHomeDashboard(forceRefresh: true);
+      final trendingCubit = context.read<TrendingVideosCubit>();
+      trendingCubit.loadTrendingVideos(forceRefresh: true);
     });
   }
 
@@ -51,9 +54,30 @@ class _HomeScreenState extends State<HomeScreen> {
     final activeChallenges = context.select<HomeCubit, List<Map<String, dynamic>>>(
       (vm) => vm.activeChallenges,
     );
-    final trendingReels = context.select<HomeCubit, List<Map<String, dynamic>>>(
+    final trendingCubit = context.watch<TrendingVideosCubit>();
+    final apiTrendingVideos = trendingCubit.videos;
+    final homeCubitTrendingReels = context.select<HomeCubit, List<Map<String, dynamic>>>(
       (vm) => vm.trendingReels,
     );
+    final List<Map<String, dynamic>> trendingReels = [];
+    final Set<String> seenIds = {};
+
+    for (final item in homeCubitTrendingReels) {
+      final id = item['id']?.toString() ?? '';
+      if (id.isNotEmpty && !seenIds.contains(id)) {
+        seenIds.add(id);
+        trendingReels.add(item);
+      }
+    }
+
+    for (final v in apiTrendingVideos) {
+      final item = v.toUiMap();
+      final id = item['id']?.toString() ?? '';
+      if (id.isNotEmpty && !seenIds.contains(id)) {
+        seenIds.add(id);
+        trendingReels.add(item);
+      }
+    }
     final isLoading = context.select<HomeCubit, bool>((vm) => vm.isLoading);
     final hasLoaded = context.select<HomeCubit, bool>((vm) => vm.hasLoaded);
     final quickActions = [
@@ -1149,7 +1173,10 @@ class _ReelGrid extends StatelessWidget {
         }[reel['category'] as String?] ?? AppColors.purple;
 
         return GestureDetector(
-          onTap: () => context.push(AppRoutes.reelsFeed),
+          onTap: () {
+            final reelId = reel['id']?.toString() ?? 'r1';
+            context.push('${AppRoutes.reelsFeed}?id=$reelId');
+          },
           child: Container(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(18),
