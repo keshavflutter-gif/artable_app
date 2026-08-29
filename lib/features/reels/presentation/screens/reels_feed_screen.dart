@@ -5,6 +5,7 @@ import 'package:video_player/video_player.dart';
 
 import 'package:artable_app/app/theme/app_gradients.dart';
 import 'package:artable_app/features/reels/presentation/bloc/reels_cubit.dart';
+import 'package:artable_app/features/trending/data/models/trending_videos_response.dart';
 import 'package:artable_app/features/trending/presentation/bloc/trending_videos_cubit.dart';
 import 'package:artable_app/features/home/presentation/bloc/home_cubit.dart';
 import 'package:artable_app/data/datasources/mock_data.dart';
@@ -30,6 +31,8 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
   bool _ratingSuccess = false;
   double _ratingValue = 5;
 
+  bool _hasScrolledToInitial = false;
+
   List<_FeedItem> _getItems(BuildContext context, {bool listen = true}) {
     final trendingCubit = listen
         ? context.watch<TrendingVideosCubit>()
@@ -41,12 +44,16 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
         : context.read<HomeCubit>();
     final homeTrendingReels = homeCubit.trendingReels;
 
+    final reelsCubit = listen
+        ? context.watch<ReelsCubit>()
+        : context.read<ReelsCubit>();
+
     final Set<String> seenIds = {};
     final List<Map<String, dynamic>> rawList = [];
 
     void addReels(List<Map<String, dynamic>> list) {
       for (final r in list) {
-        final id = r['id']?.toString() ?? '';
+        final id = r['id']?.toString() ?? r['_id']?.toString() ?? '';
         if (id.isNotEmpty && !seenIds.contains(id)) {
           seenIds.add(id);
           rawList.add(r);
@@ -54,14 +61,35 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
       }
     }
 
+    if (trendingCubit.hero != null) {
+      addReels([trendingCubit.hero!.toUiMap()]);
+    }
     if (apiTrendingVideos.isNotEmpty) {
       addReels(apiTrendingVideos.map((v) => v.toUiMap()).toList());
     }
     if (homeTrendingReels.isNotEmpty) {
       addReels(homeTrendingReels);
     }
+    if (reelsCubit.videos.isNotEmpty) {
+      addReels(reelsCubit.videos);
+    }
     if (rawList.isEmpty) {
       addReels(List<Map<String, dynamic>>.from(MockData.REELS));
+    }
+
+    final targetId = widget.initialReelId?.trim();
+    if (targetId != null && targetId.isNotEmpty && !seenIds.contains(targetId)) {
+      final singleItem = trendingCubit.getVideoById(targetId);
+      if (singleItem != null) {
+        rawList.insert(0, singleItem.toUiMap());
+        seenIds.add(targetId);
+      } else {
+        final helperMatch = ReelHelpers.reelById(targetId, availableReels: rawList);
+        if (helperMatch != null) {
+          rawList.insert(0, helperMatch);
+          seenIds.add(targetId);
+        }
+      }
     }
 
     final cards = rawList.map(_FeedItem.reel).toList();
@@ -69,6 +97,49 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
       cards.insert(3, const _FeedItem.ad());
     }
     return cards;
+  }
+
+  void _fetchCommentsForPage(int page) {
+    final items = _getItems(context, listen: false);
+    if (page >= 0 && page < items.length) {
+      final item = items[page];
+      if (!item.isAd && item.reel != null) {
+        final rId = item.reel!['id']?.toString() ?? item.reel!['_id']?.toString() ?? '';
+        if (rId.isNotEmpty) {
+          context.read<ReelsCubit>().fetchComments(rId);
+        }
+      }
+    }
+  }
+
+  void _scrollToInitialIfNeeded(List<_FeedItem> items) {
+    if (_hasScrolledToInitial) return;
+    final targetId = widget.initialReelId?.trim();
+    if (targetId == null || targetId.isEmpty) {
+      _hasScrolledToInitial = true;
+      _fetchCommentsForPage(_currentPage);
+      return;
+    }
+    final found = items.indexWhere(
+      (item) =>
+          !item.isAd &&
+          (item.reel?['id']?.toString() == targetId ||
+           item.reel?['_id']?.toString() == targetId),
+    );
+    if (found != -1) {
+      _hasScrolledToInitial = true;
+      _fetchCommentsForPage(found);
+      if (found != _currentPage) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _pageController.hasClients) {
+            _pageController.jumpToPage(found);
+            setState(() {
+              _currentPage = found;
+            });
+          }
+        });
+      }
+    }
   }
 
   @override
@@ -80,16 +151,19 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
         if (!trendingCubit.hasLoaded && !trendingCubit.isLoading) {
           trendingCubit.loadTrendingVideos();
         }
+        _fetchCommentsForPage(_currentPage);
       }
     });
 
     int initialIndex = 0;
-    if (widget.initialReelId != null && widget.initialReelId!.isNotEmpty) {
+    if (widget.initialReelId != null && widget.initialReelId!.trim().isNotEmpty) {
+      final targetId = widget.initialReelId!.trim();
       final items = _getItems(context, listen: false);
       final found = items.indexWhere(
         (item) =>
             !item.isAd &&
-            item.reel?['id']?.toString() == widget.initialReelId?.toString(),
+            (item.reel?['id']?.toString() == targetId ||
+             item.reel?['_id']?.toString() == targetId),
       );
       if (found != -1) {
         initialIndex = found;
@@ -105,11 +179,38 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
     super.dispose();
   }
 
-  void _openRating(String reelId) {
+  void _openRating(String reelId, [Map<String, dynamic>? reelMap]) {
+    final reelsCubit = context.read<ReelsCubit>();
+    final userRating = reelsCubit.getUserRating(reelId);
+    final video = reelsCubit.getVideo(reelId) ?? reelMap;
+
+    double initialRating = userRating ?? 5.0;
+    if (userRating == null && video != null) {
+      if (video['userRating'] != null) {
+        initialRating = double.tryParse(video['userRating'].toString()) ?? 5.0;
+      } else if (video['score'] != null) {
+        initialRating = double.tryParse(video['score'].toString()) ?? 5.0;
+      } else if (video['rating'] != null) {
+        initialRating = double.tryParse(video['rating'].toString()) ?? 5.0;
+      } else if (video['talentScore'] is num) {
+        initialRating = (video['talentScore'] as num).toDouble();
+      } else if (video['ratings'] is List && (video['ratings'] as List).isNotEmpty) {
+        for (final item in (video['ratings'] as List)) {
+          if (item is Map && item['score'] != null) {
+            final parsed = double.tryParse(item['score'].toString());
+            if (parsed != null && parsed > 0) {
+              initialRating = parsed;
+              break;
+            }
+          }
+        }
+      }
+    }
+
     setState(() {
       _ratingReelId = reelId;
       _ratingSuccess = false;
-      _ratingValue = 5;
+      _ratingValue = initialRating.clamp(0.0, 10.0);
     });
   }
 
@@ -124,6 +225,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
   Widget build(BuildContext context) {
     final reelsProvider = context.watch<ReelsCubit>();
     final items = _getItems(context);
+    _scrollToInitialIfNeeded(items);
 
     return Scaffold(
       backgroundColor: const Color(0xFF0B0714),
@@ -135,20 +237,53 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
               setState(() {
                 _currentPage = page;
               });
+              _fetchCommentsForPage(page);
             },
             scrollDirection: Axis.vertical,
             itemCount: items.length,
             itemBuilder: (context, index) {
               final item = items[index];
               if (item.isAd) return const _AdReelCard();
-              final reel = item.reel!;
+              final rawReel = item.reel!;
+              final reelId = rawReel['id']?.toString() ?? rawReel['_id']?.toString() ?? '';
+              final reel = reelsProvider.getVideo(reelId) ?? rawReel;
               final challenge = ReelHelpers.challengeForReel(reel);
-              final liked = reelsProvider.isLiked(reel['id'] as String);
-              final saved = reelsProvider.isBookmarked(reel['id'] as String);
+              final liked = reelsProvider.isLiked(reelId, fallbackVideo: reel);
+              final saved = reelsProvider.isBookmarked(reelId);
               final videoUrl = reel['videoUrl'] as String? ??
-                  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
-              final imageUrl = reel['imageUrl'] as String? ?? '';
+                  'https://flutter.github.io/assets-for-api-docs/assets/videos/butterfly.mp4';
+              final imageUrl = reel['imageUrl'] as String? ?? reel['thumbnailUrl'] as String? ?? '';
               final isActive = index == _currentPage;
+
+              final int rawLikes = TrendingVideoItem.parseCount(reel['likesCount'] ?? reel['likes']);
+              final String likesText = TrendingVideoItem.formatCount(rawLikes);
+
+              final int rawComments = reel['commentsCount'] is int
+                  ? reel['commentsCount'] as int
+                  : (int.tryParse(reel['comments']?.toString() ?? '') ?? 0);
+              final int displayCommentsVal = reelsProvider.getCommentsCount(reelId, rawComments);
+              final String commentsText = _formatCount(displayCommentsVal);
+
+              final int rawShares = reel['sharesCount'] is int
+                  ? reel['sharesCount'] as int
+                  : (int.tryParse(reel['shares']?.toString() ?? '') ?? 0);
+              final String sharesText = (reel['shares'] as String?)?.isNotEmpty == true
+                  ? reel['shares'] as String
+                  : _formatCount(rawShares);
+
+              final String viewsText = (reel['views'] as String?)?.isNotEmpty == true
+                  ? reel['views'] as String
+                  : _formatCount(reel['viewsCount'] is int ? reel['viewsCount'] as int : 0);
+
+              final String? categoryName = (reel['category'] as String?)?.trim();
+              final String? challengeTitle = (reel['challengeTitle'] as String?)?.trim() ??
+                  (challenge?['title'] as String?)?.trim();
+              final String? musicName = (reel['musicName'] as String?)?.trim();
+              final String creatorName = (reel['creator'] as String?)?.trim() ??
+                  (reel['handle'] as String?)?.trim() ?? '';
+              final String soundText = (musicName != null && musicName.isNotEmpty)
+                  ? musicName
+                  : (creatorName.isNotEmpty ? 'Original Sound — $creatorName' : 'Original Sound');
 
               return Stack(
                 fit: StackFit.expand,
@@ -268,37 +403,36 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
                       ],
                     ),
                   ),
-                  Positioned(
-                    top: 92,
-                    left: 18,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 11, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: ReelHelpers.categoryTint(
-                            reel['category'] as String? ?? ''),
-                        borderRadius: BorderRadius.circular(999),
-                        boxShadow: [
-                          BoxShadow(
-                            color: ReelHelpers.categoryTint(
-                                    reel['category'] as String? ?? '')
-                                .withValues(alpha: 0.4),
-                            blurRadius: 8,
-                            offset: const Offset(0, 3),
+                  if (categoryName != null && categoryName.isNotEmpty)
+                    Positioned(
+                      top: 92,
+                      left: 18,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 11, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: ReelHelpers.categoryTint(categoryName),
+                          borderRadius: BorderRadius.circular(999),
+                          boxShadow: [
+                            BoxShadow(
+                              color: ReelHelpers.categoryTint(categoryName)
+                                  .withValues(alpha: 0.4),
+                              blurRadius: 8,
+                              offset: const Offset(0, 3),
+                            ),
+                          ],
+                        ),
+                        child: Text(
+                          categoryName.toUpperCase(),
+                          style: const TextStyle(
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                            letterSpacing: 0.3,
                           ),
-                        ],
-                      ),
-                      child: Text(
-                        (reel['category'] as String? ?? 'DANCE').toUpperCase(),
-                        style: const TextStyle(
-                          fontSize: 9.5,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
-                          letterSpacing: 0.3,
                         ),
                       ),
                     ),
-                  ),
                   Positioned(
                     right: 14,
                     bottom: 128,
@@ -306,31 +440,25 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
                       children: [
                         _ActionBtn(
                           icon: liked ? Icons.favorite : Icons.favorite_border,
-                          count: (reel['likes'] as String?)?.isNotEmpty == true
-                              ? reel['likes'] as String
-                              : '124K',
+                          count: likesText,
                           active: liked,
                           onTap: () => context
                               .read<ReelsCubit>()
-                              .toggleLike(reel['id'] as String),
+                              .toggleLike(reelId, fallbackVideo: reel),
                         ),
                         const SizedBox(height: 18),
                         _ActionBtn(
                           icon: Icons.chat_bubble_outline,
-                          count: (reel['comments'] as String?)?.isNotEmpty == true
-                              ? reel['comments'] as String
-                              : '2.4K',
+                          count: commentsText,
                           onTap: () => context
-                              .push('${AppRoutes.comments}?id=${reel['id']}'),
+                              .push('${AppRoutes.comments}?id=$reelId'),
                         ),
                         const SizedBox(height: 18),
                         _ActionBtn(
                           icon: Icons.share_outlined,
-                          count: (reel['shares'] as String?)?.isNotEmpty == true
-                              ? reel['shares'] as String
-                              : '8.1K',
+                          count: sharesText,
                           onTap: () => context
-                              .push('${AppRoutes.shareReport}?id=${reel['id']}'),
+                              .push('${AppRoutes.shareReport}?id=$reelId'),
                         ),
                         const SizedBox(height: 18),
                         _ActionBtn(
@@ -339,14 +467,14 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
                           active: saved,
                           onTap: () => context
                               .read<ReelsCubit>()
-                              .toggleBookmark(reel['id'] as String),
+                              .toggleBookmark(reelId),
                         ),
                         const SizedBox(height: 18),
                         _ActionBtn(
                           icon: Icons.star,
                           count: 'Rate',
                           rateStyle: true,
-                          onTap: () => _openRating(reel['id'] as String),
+                          onTap: () => _openRating(reelId, reel),
                         ),
                       ],
                     ),
@@ -357,50 +485,42 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
                     bottom: 26,
                     child: GestureDetector(
                       onTap: () => context
-                          .push('${AppRoutes.videoDetail}?id=${reel['id']}'),
+                          .push('${AppRoutes.videoDetail}?id=$reelId'),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           CreatorInfoRow(reel: reel, lightText: true),
-                          const SizedBox(height: 8),
-                          if ((reel['challengeTitle'] as String?)?.isNotEmpty ==
-                                  true ||
-                              challenge?['title'] != null)
+                          if (challengeTitle != null && challengeTitle.isNotEmpty) ...[
+                            const SizedBox(height: 8),
                             _MetaRow(
                               icon: Icons.emoji_events_outlined,
-                              text: (reel['challengeTitle'] as String?)
-                                          ?.isNotEmpty ==
-                                      true
-                                  ? reel['challengeTitle'] as String
-                                  : challenge!['title'] as String,
+                              text: challengeTitle,
                             ),
+                          ],
                           const SizedBox(height: 8),
                           _MetaRow(
                             icon: Icons.music_note,
-                            text: (reel['musicName'] as String?)?.isNotEmpty ==
-                                    true
-                                ? reel['musicName'] as String
-                                : 'Original Sound — ${reel['creator'] ?? 'Maya R.'}',
+                            text: soundText,
                           ),
                           if ((reel['caption'] as String?)?.isNotEmpty == true ||
                               (reel['description'] as String?)?.isNotEmpty == true) ...[
+                            const SizedBox(height: 8),
                             Text(
-                              (reel['caption'] as String?)?.isNotEmpty == true
-                                  ? reel['caption'] as String
-                                  : reel['description'] as String,
+                              ((reel['caption'] as String?)?.isNotEmpty == true
+                                      ? reel['caption'] as String
+                                      : reel['description'] as String)
+                                  .replaceAll(RegExp(r'#+'), '#'),
                               style: TextStyle(
                                 fontSize: 12.5,
                                 height: 1.4,
                                 color: Colors.white.withValues(alpha: 0.92),
                               ),
                             ),
-                            const SizedBox(height: 8),
                           ],
                           const SizedBox(height: 8),
                           _MetaRow(
                             icon: Icons.remove_red_eye_outlined,
-                            text:
-                                '${(reel['views'] as String?)?.isNotEmpty == true ? reel['views'] : '1.2M'} views',
+                            text: '$viewsText views',
                             muted: true,
                           ),
                         ],
@@ -1011,3 +1131,16 @@ class _AdReelCard extends StatelessWidget {
     );
   }
 }
+
+String _formatCount(int count) {
+  if (count >= 1000000) {
+    final val = count / 1000000;
+    return '${val.toStringAsFixed(1).replaceAll('.0', '')}M';
+  }
+  if (count >= 1000) {
+    final val = count / 1000;
+    return '${val.toStringAsFixed(1).replaceAll('.0', '')}K';
+  }
+  return count.toString();
+}
+

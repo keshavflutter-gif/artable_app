@@ -19,12 +19,7 @@ class HomeDashboardData {
     return HomeDashboardData(
       banners: _parseBanners(json['banners']),
       featuredChallenges: _parseMapList(json['featuredChallenges']),
-      trendingVideos: _parseMapList(
-        json['trendingVideos'] ??
-            json['trending_videos'] ??
-            json['videos'] ??
-            json['trending'],
-      ),
+      trendingVideos: _parseTrendingVideos(json),
       categories: _parseMapList(json['categories']),
       announcements: _parseMapList(json['announcements']),
     );
@@ -47,6 +42,42 @@ class HomeDashboardData {
         .map((item) => HomeBanner.fromJson(Map<String, dynamic>.from(item)))
         .where((banner) => banner.id.isNotEmpty)
         .toList();
+  }
+
+  static List<Map<String, dynamic>> _parseTrendingVideos(Map<String, dynamic> json) {
+    final list = <Map<String, dynamic>>[];
+    Map<String, dynamic>? dataMap;
+    if (json['data'] is Map) {
+      dataMap = Map<String, dynamic>.from(json['data'] as Map);
+    } else {
+      dataMap = json;
+    }
+
+    if (dataMap['hero'] is Map) {
+      list.add(Map<String, dynamic>.from(dataMap['hero'] as Map));
+    }
+
+    final raw = json['trendingVideos'] ??
+        json['trending_videos'] ??
+        json['videos'] ??
+        json['trending'] ??
+        dataMap['videos'] ??
+        dataMap['trendingVideos'] ??
+        dataMap['items'];
+
+    if (raw is List) {
+      for (final item in raw) {
+        if (item is Map) {
+          final m = Map<String, dynamic>.from(item);
+          final id = m['id']?.toString() ?? '';
+          if (id.isNotEmpty && !list.any((existing) => existing['id']?.toString() == id)) {
+            list.add(m);
+          }
+        }
+      }
+    }
+
+    return list;
   }
 
   static List<Map<String, dynamic>> _parseMapList(dynamic raw) {

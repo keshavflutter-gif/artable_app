@@ -6,6 +6,7 @@ import 'package:artable_app/core/widgets/app_back_header.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
 import 'package:artable_app/features/settings/presentation/widgets/settings_widgets.dart';
 import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
+import 'package:artable_app/features/settings/presentation/screens/logout_delete_confirm_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -117,13 +118,13 @@ class SettingsScreen extends StatelessWidget {
                         SettingsMenuItem(
                           icon: Icons.logout,
                           title: 'Logout',
-                          route: '/logout-delete-confirm?mode=logout',
+                          onTap: () => LogoutDeleteConfirmScreen.show(context, mode: 'logout'),
                         ),
                         SettingsMenuItem(
                           icon: Icons.delete_outline,
                           title: 'Delete Account',
                           danger: true,
-                          route: '/logout-delete-confirm?mode=delete',
+                          onTap: () => LogoutDeleteConfirmScreen.show(context, mode: 'delete'),
                         ),
                       ],
                     ),

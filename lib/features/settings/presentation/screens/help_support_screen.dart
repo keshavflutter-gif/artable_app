@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:artable_app/app/theme/app_gradients.dart';
 import 'package:artable_app/core/widgets/app_back_header.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
+import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
+import '../../data/models/faq_model.dart';
+import '../../data/repositories/static_pages_repository.dart';
 
 class HelpSupportScreen extends StatefulWidget {
   const HelpSupportScreen({super.key});
@@ -14,6 +18,12 @@ class HelpSupportScreen extends StatefulWidget {
 class _HelpSupportScreenState extends State<HelpSupportScreen> {
   final _searchController = TextEditingController();
   String? _expandedFaqId;
+  late final StaticPagesRepository _repository;
+
+  bool _isLoading = true;
+  String? _errorMessage;
+  List<FaqItem> _faqs = [];
+  String _searchQuery = '';
 
   final List<Map<String, dynamic>> _topics = const [
     {
@@ -43,38 +53,71 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
     },
   ];
 
-  final List<Map<String, dynamic>> _faqs = const [
-    {
-      'id': 'faq1',
-      'q': 'How are winners selected?',
-      'a': 'Winners are selected based on average talent ratings, total votes, and the specific criteria set for each challenge. Our system verifies all score metrics for integrity.',
-    },
-    {
-      'id': 'faq2',
-      'q': 'Why is gallery upload not allowed?',
-      'a': 'To ensure absolute authenticity and prevent pre-edited uploads, all challenge entries must be recorded directly through the Artable in-app studio.',
-    },
-    {
-      'id': 'faq3',
-      'q': 'How do rewards work?',
-      'a': 'When you win a challenge or unlock milestones, cash rewards are credited directly to your in-app Wallet. Sponsor kits are tracked via our shipping timeline.',
-    },
-    {
-      'id': 'faq4',
-      'q': 'How can I withdraw wallet balance?',
-      'a': 'You can link your bank or payment details via the Wallet screen and submit a withdrawal request. The minimum withdrawal threshold is ₹50.',
-    },
-    {
-      'id': 'faq5',
-      'q': 'How do I upgrade to Prime?',
-      'a': 'Navigate to your Profile Settings or click the Prime Banner on home. Subscribing unlocks exclusive diamond badges and ad-free experience.',
-    },
-  ];
+  @override
+  void initState() {
+    super.initState();
+    final authCubit = context.read<AuthCubit>();
+    _repository = StaticPagesRepository(
+      onTokensRefreshed: authCubit.applyRefreshedTokens,
+      onSessionRefreshFailed: authCubit.handleSessionRefreshFailed,
+    );
+
+    _searchController.addListener(() {
+      setState(() {
+        _searchQuery = _searchController.text.trim().toLowerCase();
+      });
+    });
+
+    _fetchFaqs();
+  }
+
+  Future<void> _fetchFaqs() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final authCubit = context.read<AuthCubit>();
+      final token = authCubit.sessionToken;
+      final refresh = authCubit.refreshToken;
+
+      final faqs = await _repository.getFaqs(
+        sessionToken: token != 'design_preview' ? token : null,
+        refreshToken: refresh != 'design_preview' ? refresh : null,
+      );
+
+      faqs.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+
+      if (mounted) {
+        setState(() {
+          _faqs = faqs;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.toString().replaceAll('Exception: ', '');
+          _isLoading = false;
+        });
+      }
+    }
+  }
 
   @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  List<FaqItem> get _filteredFaqs {
+    if (_searchQuery.isEmpty) return _faqs;
+    return _faqs.where((faq) {
+      return faq.question.toLowerCase().contains(_searchQuery) ||
+          faq.answer.toLowerCase().contains(_searchQuery) ||
+          faq.category.toLowerCase().contains(_searchQuery);
+    }).toList();
   }
 
   @override
@@ -92,7 +135,7 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const SizedBox(height: 12),
-                    
+
                     // Search Bar
                     Container(
                       decoration: BoxDecoration(
@@ -219,75 +262,15 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
                     const SizedBox(height: 12),
 
                     // FAQs Expandable Cards
-                    Column(
-                      children: _faqs.map((faq) {
-                        final id = faq['id'] as String;
-                        final isExpanded = _expandedFaqId == id;
+                    _buildFaqsSection(),
 
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: const Color(0xFFECE8F5), width: 1.2),
-                            boxShadow: [
-                              BoxShadow(
-                                color: const Color(0xFF5E2EAA).withValues(alpha: 0.02),
-                                blurRadius: 10,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              ListTile(
-                                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-                                title: Text(
-                                  faq['q'] as String,
-                                  style: const TextStyle(
-                                    fontFamily: 'Poppins',
-                                    color: Color(0xFF241E38),
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                                trailing: Icon(
-                                  isExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
-                                  color: const Color(0xFFB7B1C6),
-                                ),
-                                onTap: () {
-                                  setState(() {
-                                    _expandedFaqId = isExpanded ? null : id;
-                                  });
-                                },
-                              ),
-                              if (isExpanded)
-                                Padding(
-                                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                                  child: Text(
-                                    faq['a'] as String,
-                                    style: const TextStyle(
-                                      fontFamily: 'Inter',
-                                      color: Color(0xFF8B849C),
-                                      fontWeight: FontWeight.w500,
-                                      fontSize: 12,
-                                      height: 1.45,
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        );
-                      }).toList(),
-                    ),
                     const SizedBox(height: 16),
 
                     // "Need more help?" Contact Banner Card
                     Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFFFF9FA), // Soft pink tint background
+                        color: const Color(0xFFFFF9FA),
                         borderRadius: BorderRadius.circular(24),
                         border: Border.all(color: const Color(0xFFFFECEF), width: 1.2),
                         boxShadow: [
@@ -300,7 +283,6 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
                       ),
                       child: Row(
                         children: [
-                          // Chat bubble icon in a pink/orange gradient circle
                           Container(
                             width: 38,
                             height: 38,
@@ -331,11 +313,11 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
                                   ),
                                 ),
                                 const SizedBox(height: 2),
-                                Text(
+                                const Text(
                                   'Our team is here for you.',
                                   style: TextStyle(
                                     fontFamily: 'Inter',
-                                    color: const Color(0xFF8B849C),
+                                    color: Color(0xFF8B849C),
                                     fontWeight: FontWeight.w500,
                                     fontSize: 11,
                                   ),
@@ -343,7 +325,6 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
                               ],
                             ),
                           ),
-                          // Contact Support Button
                           GestureDetector(
                             onTap: () {
                               ScaffoldMessenger.of(context).showSnackBar(
@@ -395,18 +376,18 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
                           Container(
                             width: 36,
                             height: 36,
-                            decoration: const BoxDecoration(
+                            decoration: BoxDecoration(
                               color: Color(0xFFF8F7FC),
                               shape: BoxShape.circle,
                             ),
-                            child: const Icon(
+                            child: Icon(
                               Icons.description_outlined,
                               color: Color(0xFF8B849C),
                               size: 18,
                             ),
                           ),
-                          const SizedBox(width: 14),
-                          const Expanded(
+                          SizedBox(width: 14),
+                          Expanded(
                             child: Text(
                               'Submit a support request',
                               style: TextStyle(
@@ -417,7 +398,7 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
                               ),
                             ),
                           ),
-                          const Icon(
+                          Icon(
                             Icons.chevron_right_rounded,
                             color: Color(0xFFB7B1C6),
                             size: 20,
@@ -433,6 +414,145 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildFaqsSection() {
+    if (_isLoading) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 24),
+        child: Center(
+          child: CircularProgressIndicator(
+            color: Color(0xFF8B3DFF),
+          ),
+        ),
+      );
+    }
+
+    if (_errorMessage != null && _faqs.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFFECE8F5), width: 1.2),
+        ),
+        child: Column(
+          children: [
+            const Icon(
+              Icons.error_outline_rounded,
+              color: Colors.redAccent,
+              size: 36,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _errorMessage!,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 12.5,
+                color: Color(0xFF8B849C),
+              ),
+            ),
+            const SizedBox(height: 12),
+            ElevatedButton(
+              onPressed: _fetchFaqs,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF8B3DFF),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              child: const Text('Retry'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final filteredList = _filteredFaqs;
+
+    if (filteredList.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFFECE8F5), width: 1.2),
+        ),
+        child: const Center(
+          child: Text(
+            'No FAQs found.',
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 13,
+              color: Color(0xFF8B849C),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      children: filteredList.map((faq) {
+        final isExpanded = _expandedFaqId == faq.id;
+
+        return Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: const Color(0xFFECE8F5), width: 1.2),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF5E2EAA).withValues(alpha: 0.02),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+                title: Text(
+                  faq.question,
+                  style: const TextStyle(
+                    fontFamily: 'Poppins',
+                    color: Color(0xFF241E38),
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
+                  ),
+                ),
+                trailing: Icon(
+                  isExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                  color: const Color(0xFFB7B1C6),
+                ),
+                onTap: () {
+                  setState(() {
+                    _expandedFaqId = isExpanded ? null : faq.id;
+                  });
+                },
+              ),
+              if (isExpanded)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  child: Text(
+                    faq.answer,
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      color: Color(0xFF8B849C),
+                      fontWeight: FontWeight.w500,
+                      fontSize: 12,
+                      height: 1.45,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+      }).toList(),
     );
   }
 }

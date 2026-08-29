@@ -1,4 +1,3 @@
-import 'package:artable_app/data/datasources/mock_data.dart';
 import 'package:artable_app/features/home/data/models/home_dashboard_response.dart';
 import 'package:artable_app/features/home/data/models/home_ui_mapper.dart';
 
@@ -22,7 +21,7 @@ class HomeState {
           .where((banner) => (banner['title'] as String).isNotEmpty)
           .toList();
     }
-    return List<Map<String, dynamic>>.from(MockData.MEGA_PROMO_BANNERS);
+    return const [];
   }
 
   List<Map<String, dynamic>> get heroBannerSlides {
@@ -42,7 +41,7 @@ class HomeState {
           .where((challenge) => (challenge['title'] as String).isNotEmpty)
           .toList();
     }
-    return MockData.HOME_ACTIVE_CHALLENGES.take(2).toList();
+    return const [];
   }
 
   List<Map<String, dynamic>> get trendingReels {
@@ -55,7 +54,7 @@ class HomeState {
           })
           .toList();
     }
-    return List<Map<String, dynamic>>.from(MockData.REELS);
+    return const [];
   }
 
   List<Map<String, dynamic>> get categories {

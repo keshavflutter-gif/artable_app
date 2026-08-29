@@ -152,8 +152,13 @@ class TrendingVideoItem {
     this.likes = 0,
     this.likeCount = 0,
     this.likesLabel,
+    this.comments = 0,
+    this.commentCount = 0,
+    this.commentsLabel,
     this.shares = 0,
     this.shareCount = 0,
+    this.sharesLabel,
+    this.musicName,
     this.averageRating,
     this.talentScore,
     this.talentScoreLabel,
@@ -174,8 +179,10 @@ class TrendingVideoItem {
     this.rank,
     this.trendingScore,
     this.badgeLabel,
+    this.categoryBadge,
     this.ratingLabel,
     this.isTrending = false,
+    this.isLiked = false,
     this.hashtags = const [],
   });
 
@@ -194,8 +201,13 @@ class TrendingVideoItem {
   final int likes;
   final int likeCount;
   final String? likesLabel;
+  final int comments;
+  final int commentCount;
+  final String? commentsLabel;
   final int shares;
   final int shareCount;
+  final String? sharesLabel;
+  final String? musicName;
   final String? averageRating;
   final double? talentScore;
   final String? talentScoreLabel;
@@ -216,9 +228,23 @@ class TrendingVideoItem {
   final int? rank;
   final double? trendingScore;
   final String? badgeLabel;
+  final String? categoryBadge;
   final String? ratingLabel;
   final bool isTrending;
+  final bool isLiked;
   final List<String> hashtags;
+
+  static String formatCount(int count) {
+    if (count >= 1000000) {
+      final val = count / 1000000;
+      return '${val.toStringAsFixed(1).replaceAll('.0', '')}M';
+    }
+    if (count >= 1000) {
+      final val = count / 1000;
+      return '${val.toStringAsFixed(1).replaceAll('.0', '')}K';
+    }
+    return count.toString();
+  }
 
   String get playableVideoUrl {
     if (videoUrl != null && videoUrl!.trim().isNotEmpty && videoUrl!.trim() != 'null') {
@@ -237,17 +263,28 @@ class TrendingVideoItem {
     if (category?.imageUrl != null && category!.imageUrl!.trim().isNotEmpty) {
       return category!.imageUrl!.trim();
     }
-    return 'https://images.unsplash.com/photo-1547153760-18fc86324498?w=600&q=80';
+    return '';
   }
 
   String get displayCategoryName {
+    if (categoryBadge != null && categoryBadge!.trim().isNotEmpty) {
+      return categoryBadge!.trim();
+    }
     if (badgeLabel != null && badgeLabel!.trim().isNotEmpty) {
       return badgeLabel!.trim();
     }
     if (category?.name != null && category!.name.trim().isNotEmpty) {
       return category!.name.trim();
     }
-    return 'Dance';
+    if (statusBadge != null &&
+        statusBadge!['label'] != null &&
+        statusBadge!['label'].toString().trim().isNotEmpty) {
+      return statusBadge!['label'].toString().trim();
+    }
+    if (statusLabel != null && statusLabel!.trim().isNotEmpty) {
+      return statusLabel!.trim();
+    }
+    return 'TALENT';
   }
 
   String get displayRating {
@@ -263,112 +300,146 @@ class TrendingVideoItem {
     if (averageRating != null && averageRating!.trim().isNotEmpty) {
       return averageRating!.trim();
     }
-    return '8.7';
+    return '0.0';
   }
 
   String get displayViews {
     if (viewsLabel != null && viewsLabel!.trim().isNotEmpty) {
       return viewsLabel!.trim();
     }
-    if (views > 0) {
-      if (views >= 1000000) {
-        return '${(views / 1000000).toStringAsFixed(1).replaceAll('.0', '')}M';
-      }
-      if (views >= 1000) {
-        return '${(views / 1000).toStringAsFixed(1).replaceAll('.0', '')}K';
-      }
-      return views.toString();
-    }
-    if (viewCount > 0) {
-      return viewCount.toString();
-    }
-    return '1.2M';
+    final count = views > 0 ? views : (viewCount > 0 ? viewCount : 0);
+    return formatCount(count);
   }
 
   String get displayHandle {
     final uname = user?.username?.trim();
-    if (uname != null && uname.isNotEmpty && uname != 'demouser7314') {
+    if (uname != null && uname.isNotEmpty) {
       return uname.startsWith('@') ? uname : '@$uname';
     }
-    return '@dance_hero';
+    return '';
   }
 
   String get displayCreatorName {
     if (user?.fullName != null && user!.fullName!.trim().isNotEmpty) {
       return user!.fullName!.trim();
     }
-    if (user?.username != null && user!.username!.trim().isNotEmpty && user!.username != 'demouser7314') {
+    if (user?.username != null && user!.username!.trim().isNotEmpty) {
       return user!.username!.trim();
     }
-    return 'Maya R.';
+    return '';
   }
 
   String get displayAvatar {
     if (user?.profilePhotoUrl != null && user!.profilePhotoUrl!.trim().isNotEmpty) {
       return user!.profilePhotoUrl!.trim();
     }
-    return 'https://i.pravatar.cc/100?u=${id.isNotEmpty ? id : 'user'}';
+    return '';
   }
 
   bool get isVerifiedUser =>
       user?.isBlueTick == true || user?.isVerified == true;
 
+  static int parseCount(dynamic raw) {
+    if (raw == null) return 0;
+    if (raw is num) return raw.toInt();
+    final str = raw.toString().trim().toUpperCase();
+    if (str.isEmpty) return 0;
+
+    final parsed = int.tryParse(str);
+    if (parsed != null) return parsed;
+
+    final doubleParsed = double.tryParse(str);
+    if (doubleParsed != null) return doubleParsed.toInt();
+
+    if (str.endsWith('K')) {
+      final numPart = double.tryParse(str.replaceAll('K', '').trim());
+      if (numPart != null) return (numPart * 1000).round();
+    }
+    if (str.endsWith('M')) {
+      final numPart = double.tryParse(str.replaceAll('M', '').trim());
+      if (numPart != null) return (numPart * 1000000).round();
+    }
+    if (str.endsWith('B')) {
+      final numPart = double.tryParse(str.replaceAll('B', '').trim());
+      if (numPart != null) return (numPart * 1000000000).round();
+    }
+    return 0;
+  }
+
   String get displayLikes {
-    if (likesLabel != null && likesLabel!.trim().isNotEmpty) {
-      return likesLabel!.trim();
-    }
-    final count = likes > 0 ? likes : (likeCount > 0 ? likeCount : 0);
-    if (count >= 1000000) {
-      return '${(count / 1000000).toStringAsFixed(1).replaceAll('.0', '')}M';
-    }
-    if (count >= 1000) {
-      return '${(count / 1000).toStringAsFixed(1).replaceAll('.0', '')}K';
-    }
-    return count.toString();
+    final count = likes > 0 ? likes : (likeCount > 0 ? likeCount : parseCount(likesLabel));
+    return formatCount(count);
   }
 
   String get displayComments {
-    return '2.4K';
+    if (commentsLabel != null && commentsLabel!.trim().isNotEmpty) {
+      return commentsLabel!.trim();
+    }
+    final count = comments > 0 ? comments : (commentCount > 0 ? commentCount : 0);
+    return formatCount(count);
   }
 
   String get displayShares {
+    if (sharesLabel != null && sharesLabel!.trim().isNotEmpty) {
+      return sharesLabel!.trim();
+    }
     final count = shares > 0 ? shares : (shareCount > 0 ? shareCount : 0);
-    if (count >= 1000000) {
-      return '${(count / 1000000).toStringAsFixed(1).replaceAll('.0', '')}M';
-    }
-    if (count >= 1000) {
-      return '${(count / 1000).toStringAsFixed(1).replaceAll('.0', '')}K';
-    }
-    return count > 0 ? count.toString() : '8.1K';
+    return formatCount(count);
   }
 
   String get displayMusicName {
+    if (musicName != null && musicName!.trim().isNotEmpty) {
+      return musicName!.trim();
+    }
     final creatorName = displayCreatorName;
-    return 'Original Sound — $creatorName';
+    if (creatorName.isNotEmpty) {
+      return 'Original Sound — $creatorName';
+    }
+    final handle = displayHandle;
+    if (handle.isNotEmpty) {
+      return 'Original Sound — $handle';
+    }
+    return 'Original Sound';
   }
 
   String get displayCaption {
     final desc = (description != null && description!.trim().isNotEmpty)
         ? description!.trim()
-        : (title.trim().isNotEmpty && title.trim() != 'Freestyle finale'
-            ? title.trim()
-            : '');
+        : title.trim();
 
-    final tagsStr = hashtags.isNotEmpty ? hashtags.join(' ') : '';
+    final cleanDesc = desc.replaceAll(RegExp(r'#+'), '#');
 
-    if (desc.isNotEmpty && tagsStr.isNotEmpty) {
-      if (desc.contains('#')) return desc;
-      return '$desc $tagsStr';
+    final cleanTags = hashtags
+        .map((e) => e.trim().replaceAll(RegExp(r'^#+'), ''))
+        .where((e) => e.isNotEmpty)
+        .map((e) => '#$e')
+        .toList();
+
+    final tagsStr = cleanTags.isNotEmpty ? cleanTags.join(' ') : '';
+
+    if (cleanDesc.isNotEmpty && tagsStr.isNotEmpty) {
+      if (cleanDesc.contains('#')) return cleanDesc;
+      return '$cleanDesc $tagsStr';
     }
-    if (desc.isNotEmpty) return desc;
+    if (cleanDesc.isNotEmpty) return cleanDesc;
     if (tagsStr.isNotEmpty) return tagsStr;
     return '';
   }
 
   Map<String, dynamic> toUiMap() {
+    final resolvedHandle = displayHandle;
+    final resolvedCreator = displayCreatorName.isNotEmpty
+        ? displayCreatorName
+        : (resolvedHandle.isNotEmpty ? resolvedHandle : '');
+
+    final resolvedViewsCount = views > 0 ? views : viewCount;
+    final resolvedLikesCount = likes > 0 ? likes : likeCount;
+    final resolvedCommentsCount = comments > 0 ? comments : commentCount;
+    final resolvedSharesCount = shares > 0 ? shares : shareCount;
+
     return {
-      'id': id.isNotEmpty ? id : 'r1',
-      'title': title.isNotEmpty ? title : 'Freestyle finale',
+      'id': id,
+      'title': title,
       'description': description ?? '',
       'caption': displayCaption,
       'hashtags': hashtags,
@@ -377,22 +448,58 @@ class TrendingVideoItem {
       'thumbnailUrl': displayThumbnail,
       'videoUrl': playableVideoUrl,
       'views': displayViews,
+      'viewsCount': resolvedViewsCount,
       'likes': displayLikes,
-      'likesCount': likes > 0 ? likes : likeCount,
+      'likesCount': resolvedLikesCount,
+      'isLiked': isLiked,
+      'liked': isLiked,
       'comments': displayComments,
+      'commentsCount': resolvedCommentsCount,
       'shares': displayShares,
+      'sharesCount': resolvedSharesCount,
       'musicName': displayMusicName,
       'avatarUrl': displayAvatar,
-      'handle': displayHandle,
-      'creator': displayCreatorName,
-      'talentScore': talentScore ?? 8.7,
+      'handle': resolvedHandle,
+      'creator': resolvedCreator,
+      'talentScore': talentScore ?? 0.0,
+      'userRating': talentScore ?? 0.0,
+      'score': talentScore != null ? talentScore!.toStringAsFixed(1) : displayRating,
       'rating': displayRating,
       'isBlueTick': isVerifiedUser,
       'verified': isVerifiedUser,
       'isTrending': isTrending,
-      'challengeId': challenge?.id ?? 'c1',
-      'challengeTitle': challenge?.title ?? 'Monthly Mega Dance Battle',
+      'challengeId': challenge?.id ?? '',
+      'challengeTitle': challenge?.title ?? '',
     };
+  }
+
+  static bool _extractIsLiked(Map<String, dynamic> json) {
+    final keys = [
+      'isLiked',
+      'is_liked',
+      'liked',
+      'hasLiked',
+      'has_liked',
+      'userLiked',
+      'user_liked',
+      'isUserLiked',
+      'is_user_liked',
+    ];
+    for (final k in keys) {
+      final val = json[k];
+      if (val == true || val == 1 || val?.toString().toLowerCase() == 'true' || val?.toString() == '1') {
+        return true;
+      }
+    }
+    if (json['hero'] is Map) {
+      final hero = Map<String, dynamic>.from(json['hero'] as Map);
+      if (_extractIsLiked(hero)) return true;
+    }
+    if (json['userReaction']?.toString().toLowerCase() == 'like' ||
+        json['user_reaction']?.toString().toLowerCase() == 'like') {
+      return true;
+    }
+    return false;
   }
 
   static String? _extractVideoUrl(Map<String, dynamic> json) {
@@ -461,24 +568,52 @@ class TrendingVideoItem {
     if (raw == null) return const [];
     if (raw is List) {
       return raw
-          .map((e) => e.toString().trim())
+          .map((e) => e.toString().trim().replaceAll(RegExp(r'^#+'), ''))
           .where((e) => e.isNotEmpty)
-          .map((e) => e.startsWith('#') ? e : '#$e')
+          .map((e) => '#$e')
           .toList();
     }
     if (raw is String && raw.trim().isNotEmpty) {
       return raw
           .split(RegExp(r'[\s,\n]+'))
-          .map((e) => e.trim())
+          .map((e) => e.trim().replaceAll(RegExp(r'^#+'), ''))
           .where((e) => e.isNotEmpty)
-          .map((e) => e.startsWith('#') ? e : '#$e')
+          .map((e) => '#$e')
           .toList();
     }
     return const [];
   }
 
+  static double? _extractTalentScore(Map<String, dynamic> json) {
+    final keys = ['talentScore', 'talent_score', 'userRating', 'user_rating', 'rating', 'score'];
+    for (final k in keys) {
+      final v = json[k];
+      if (v != null) {
+        final parsed = _parseDouble(v);
+        if (parsed != null && parsed > 0) return parsed;
+      }
+    }
+
+    if (json['ratings'] is List && (json['ratings'] as List).isNotEmpty) {
+      final list = json['ratings'] as List;
+      for (final item in list) {
+        if (item is Map) {
+          final score = item['score'] ?? item['rating'] ?? item['userRating'];
+          if (score != null) {
+            final parsed = _parseDouble(score);
+            if (parsed != null && parsed > 0) return parsed;
+          }
+        }
+      }
+    }
+    return null;
+  }
+
   factory TrendingVideoItem.fromJson(Map<String, dynamic> json) {
     final parsedLikes = _extractLikes(json);
+    final parsedComments = _extractComments(json);
+    final parsedShares = _extractShares(json);
+    final parsedViews = _extractViews(json);
     return TrendingVideoItem(
       id: json['id']?.toString() ?? '',
       title: json['title']?.toString() ?? '',
@@ -494,16 +629,21 @@ class TrendingVideoItem {
           ? Map<String, dynamic>.from(json['statusBadge'] as Map)
           : null,
       durationSeconds: _parseInt(json['durationSeconds']),
-      views: _parseInt(json['views']) ?? 0,
-      viewCount: _parseInt(json['viewCount']) ?? 0,
+      views: parsedViews,
+      viewCount: parsedViews,
       viewsLabel: json['viewsLabel']?.toString(),
       likes: parsedLikes,
       likeCount: parsedLikes,
-      likesLabel: json['likesLabel']?.toString() ?? json['likesCount']?.toString(),
-      shares: _parseInt(json['shares']) ?? 0,
-      shareCount: _parseInt(json['shareCount']) ?? 0,
+      likesLabel: json['likesLabel']?.toString() ?? (json['likesCount'] is String ? json['likesCount'] as String : null),
+      comments: parsedComments,
+      commentCount: parsedComments,
+      commentsLabel: json['commentsLabel']?.toString() ?? (json['commentsCount'] is String ? json['commentsCount'] as String : null),
+      shares: parsedShares,
+      shareCount: parsedShares,
+      sharesLabel: json['sharesLabel']?.toString() ?? (json['sharesCount'] is String ? json['sharesCount'] as String : null),
+      musicName: _extractMusicName(json),
       averageRating: json['averageRating']?.toString(),
-      talentScore: _parseDouble(json['talentScore']),
+      talentScore: _extractTalentScore(json),
       talentScoreLabel: json['talentScoreLabel']?.toString(),
       ratingCount: _parseInt(json['ratingCount']) ?? 0,
       createdAt: json['createdAt']?.toString(),
@@ -525,10 +665,7 @@ class TrendingVideoItem {
           ? TrendingVideoChallenge.fromJson(
               Map<String, dynamic>.from(json['challenge'] as Map))
           : null,
-      category: json['category'] is Map
-          ? TrendingVideoCategory.fromJson(
-              Map<String, dynamic>.from(json['category'] as Map))
-          : null,
+      category: _parseCategory(json),
       user: json['user'] is Map
           ? TrendingVideoUser.fromJson(
               Map<String, dynamic>.from(json['user'] as Map))
@@ -536,26 +673,168 @@ class TrendingVideoItem {
       rank: _parseInt(json['rank']),
       trendingScore: _parseDouble(json['trendingScore']),
       badgeLabel: json['badgeLabel']?.toString(),
+      categoryBadge: json['categoryBadge']?.toString() ?? json['category_badge']?.toString(),
       ratingLabel: json['ratingLabel']?.toString(),
       isTrending: json['isTrending'] == true,
+      isLiked: _extractIsLiked(json),
     );
   }
 
   static int _extractLikes(Map<String, dynamic> json) {
-    final directKeys = ['likes', 'likeCount', 'likesCount', 'totalLikes'];
+    final directKeys = [
+      'likesCount',
+      'likes_count',
+      'likeCount',
+      'like_count',
+      'totalLikes',
+      'total_likes',
+      'likes',
+    ];
+    for (final key in directKeys) {
+      final val = _parseInt(json[key]);
+      if (val != null) return val;
+    }
+    if (json['hero'] is Map) {
+      final val = _extractLikes(Map<String, dynamic>.from(json['hero'] as Map));
+      if (val > 0) return val;
+    }
+    if (json['_count'] is Map) {
+      final map = Map<String, dynamic>.from(json['_count'] as Map);
+      for (final key in ['likes', 'like', 'likesCount', 'likes_count', 'totalLikes']) {
+        final val = _parseInt(map[key]);
+        if (val != null) return val;
+      }
+    }
+    if (json['count'] is Map) {
+      final map = Map<String, dynamic>.from(json['count'] as Map);
+      for (final key in ['likes', 'like', 'likesCount', 'likes_count', 'totalLikes']) {
+        final val = _parseInt(map[key]);
+        if (val != null) return val;
+      }
+    }
+    return 0;
+  }
+
+  static int _extractComments(Map<String, dynamic> json) {
+    final directKeys = [
+      'commentsCount',
+      'comments_count',
+      'commentCount',
+      'comment_count',
+      'totalComments',
+      'total_comments',
+      'comments',
+    ];
+    for (final key in directKeys) {
+      final val = _parseInt(json[key]);
+      if (val != null) return val;
+    }
+    if (json['hero'] is Map) {
+      final val = _extractComments(Map<String, dynamic>.from(json['hero'] as Map));
+      if (val > 0) return val;
+    }
+    if (json['comments'] is List) {
+      return (json['comments'] as List).length;
+    }
+    if (json['_count'] is Map) {
+      final map = Map<String, dynamic>.from(json['_count'] as Map);
+      for (final key in ['comments', 'comment', 'commentsCount', 'comments_count', 'totalComments']) {
+        final val = _parseInt(map[key]);
+        if (val != null) return val;
+      }
+    }
+    if (json['count'] is Map) {
+      final map = Map<String, dynamic>.from(json['count'] as Map);
+      for (final key in ['comments', 'comment', 'commentsCount', 'comments_count', 'totalComments']) {
+        final val = _parseInt(map[key]);
+        if (val != null) return val;
+      }
+    }
+    return 0;
+  }
+
+  static int _extractShares(Map<String, dynamic> json) {
+    final directKeys = [
+      'sharesCount',
+      'shares_count',
+      'shareCount',
+      'share_count',
+      'totalShares',
+      'total_shares',
+      'shares',
+    ];
     for (final key in directKeys) {
       final val = _parseInt(json[key]);
       if (val != null) return val;
     }
     if (json['_count'] is Map) {
-      final val = _parseInt(json['_count']['likes']);
+      final map = Map<String, dynamic>.from(json['_count'] as Map);
+      for (final key in ['shares', 'share', 'sharesCount', 'shares_count', 'totalShares']) {
+        final val = _parseInt(map[key]);
+        if (val != null) return val;
+      }
+    }
+    if (json['count'] is Map) {
+      final map = Map<String, dynamic>.from(json['count'] as Map);
+      for (final key in ['shares', 'share', 'sharesCount', 'shares_count', 'totalShares']) {
+        final val = _parseInt(map[key]);
+        if (val != null) return val;
+      }
+    }
+    return 0;
+  }
+
+  static TrendingVideoCategory? _parseCategory(Map<String, dynamic> json) {
+    if (json['category'] is Map) {
+      return TrendingVideoCategory.fromJson(
+          Map<String, dynamic>.from(json['category'] as Map));
+    }
+    if (json['category'] is String &&
+        (json['category'] as String).trim().isNotEmpty) {
+      final str = (json['category'] as String).trim();
+      return TrendingVideoCategory(id: str, name: str);
+    }
+    if (json['categoryName'] != null &&
+        json['categoryName'].toString().trim().isNotEmpty) {
+      final str = json['categoryName'].toString().trim();
+      return TrendingVideoCategory(id: str, name: str);
+    }
+    if (json['categoryId'] is String &&
+        (json['categoryId'] as String).trim().isNotEmpty) {
+      final str = (json['categoryId'] as String).trim();
+      return TrendingVideoCategory(id: str, name: str);
+    }
+    return null;
+  }
+
+  static int _extractViews(Map<String, dynamic> json) {
+    final directKeys = ['views', 'viewCount', 'viewsCount', 'totalViews'];
+    for (final key in directKeys) {
+      final val = _parseInt(json[key]);
+      if (val != null) return val;
+    }
+    if (json['_count'] is Map) {
+      final val = _parseInt(json['_count']['views']);
       if (val != null) return val;
     }
     if (json['count'] is Map) {
-      final val = _parseInt(json['count']['likes']);
+      final val = _parseInt(json['count']['views']);
       if (val != null) return val;
     }
     return 0;
+  }
+
+  static String? _extractMusicName(Map<String, dynamic> json) {
+    final directKeys = ['musicName', 'music_name', 'music', 'soundName', 'sound_name', 'audioTitle'];
+    for (final key in directKeys) {
+      final val = json[key]?.toString().trim();
+      if (val != null && val.isNotEmpty && val != 'null') return val;
+    }
+    if (json['audio'] is Map) {
+      final name = json['audio']['title']?.toString().trim() ?? json['audio']['name']?.toString().trim();
+      if (name != null && name.isNotEmpty && name != 'null') return name;
+    }
+    return null;
   }
 
   static int? _parseInt(dynamic value) {
@@ -733,9 +1012,9 @@ class TrendingVideoUser {
   factory TrendingVideoUser.fromJson(Map<String, dynamic> json) {
     return TrendingVideoUser(
       id: json['id']?.toString() ?? '',
-      fullName: json['fullName']?.toString(),
-      username: json['username']?.toString(),
-      profilePhotoUrl: json['profilePhotoUrl']?.toString(),
+      fullName: json['fullName']?.toString() ?? json['name']?.toString(),
+      username: json['username']?.toString() ?? json['handle']?.toString(),
+      profilePhotoUrl: json['profilePhotoUrl']?.toString() ?? json['avatarUrl']?.toString(),
       socialLinks: json['socialLinks'] is Map
           ? Map<String, dynamic>.from(json['socialLinks'] as Map)
           : const {},

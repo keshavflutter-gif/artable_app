@@ -86,6 +86,11 @@ class AuthCubit extends Cubit<AuthState> {
 
   Future<void> handleSessionRefreshFailed() async {
     await logout();
+    try {
+      if (appRouter.canPop()) {
+        appRouter.pop();
+      }
+    } catch (_) {}
     appRouter.go(AppRoutes.login);
   }
 

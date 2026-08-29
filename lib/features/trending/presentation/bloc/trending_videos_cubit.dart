@@ -34,6 +34,16 @@ class TrendingVideosCubit extends Cubit<TrendingVideosState> {
   List<Map<String, dynamic>> get heroAsUiMap => state.heroAsUiMap;
   List<Map<String, dynamic>> get gridVideosAsUiMaps => state.gridVideosAsUiMaps;
 
+  TrendingVideoItem? getVideoById(String videoId) {
+    if (state.hero?.id == videoId) {
+      return state.hero;
+    }
+    for (final v in state.videos) {
+      if (v.id == videoId) return v;
+    }
+    return null;
+  }
+
   Future<void> loadTrendingVideos({
     String? tab,
     String? category,

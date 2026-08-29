@@ -53,7 +53,7 @@ class _ShareReportScreenState extends State<ShareReportScreen> {
                         crossAxisCount: 5,
                         mainAxisSpacing: 8,
                         crossAxisSpacing: 8,
-                        childAspectRatio: 0.72,
+                        childAspectRatio: 0.65,
                       ),
                       itemCount: MockData.SHARE_OPTIONS.length,
                       itemBuilder: (context, i) {
@@ -70,6 +70,7 @@ class _ShareReportScreenState extends State<ShareReportScreen> {
                             });
                           },
                           child: Column(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
                               AnimatedContainer(
                                 duration: const Duration(milliseconds: 150),
@@ -86,7 +87,7 @@ class _ShareReportScreenState extends State<ShareReportScreen> {
                                   color: shared ? Colors.white : AppColors.purple,
                                 ),
                               ),
-                              const SizedBox(height: 7),
+                              const SizedBox(height: 5),
                               Text(
                                 opt['label'] ?? '',
                                 style: AppTextStyles.hint12.copyWith(
@@ -95,6 +96,7 @@ class _ShareReportScreenState extends State<ShareReportScreen> {
                                 ),
                                 textAlign: TextAlign.center,
                                 maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ],
                           ),

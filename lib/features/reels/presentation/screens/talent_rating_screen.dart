@@ -1,11 +1,13 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/core/utils/reel_helpers.dart';
 import 'package:artable_app/core/widgets/app_network_image.dart';
+import 'package:artable_app/features/reels/presentation/bloc/reels_cubit.dart';
 import 'package:artable_app/features/reels/presentation/widgets/talent_rating_slider.dart';
 
 class TalentRatingScreen extends StatefulWidget {
@@ -23,6 +25,45 @@ class _TalentRatingScreenState extends State<TalentRatingScreen> {
 
   Map<String, dynamic> get _reel =>
       ReelHelpers.reelById(widget.reelId ?? 'r1')!;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final reelId = widget.reelId ?? 'r1';
+      final reelsCubit = context.read<ReelsCubit>();
+      final userRating = reelsCubit.getUserRating(reelId);
+      final video = reelsCubit.getVideo(reelId) ?? _reel;
+
+      double initialRating = userRating ?? 5.0;
+      if (userRating == null) {
+        if (video['userRating'] != null) {
+          initialRating = double.tryParse(video['userRating'].toString()) ?? 5.0;
+        } else if (video['score'] != null) {
+          initialRating = double.tryParse(video['score'].toString()) ?? 5.0;
+        } else if (video['rating'] != null) {
+          initialRating = double.tryParse(video['rating'].toString()) ?? 5.0;
+        } else if (video['talentScore'] is num) {
+          initialRating = (video['talentScore'] as num).toDouble();
+        } else if (video['ratings'] is List && (video['ratings'] as List).isNotEmpty) {
+          for (final item in (video['ratings'] as List)) {
+            if (item is Map && item['score'] != null) {
+              final parsed = double.tryParse(item['score'].toString());
+              if (parsed != null && parsed > 0) {
+                initialRating = parsed;
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      setState(() {
+        _ratingValue = initialRating.clamp(0.0, 10.0);
+      });
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -136,7 +177,11 @@ class _TalentRatingScreenState extends State<TalentRatingScreen> {
                   ),
                   RatingSubmitButton(
                     label: 'Submit Rating',
-                    onPressed: () => setState(() => _success = true),
+                    onPressed: () {
+                      final rId = widget.reelId ?? _reel['id']?.toString() ?? 'r1';
+                      context.read<ReelsCubit>().rateVideo(rId, _ratingValue);
+                      setState(() => _success = true);
+                    },
                   ),
                   const SizedBox(height: 12),
                   Text(

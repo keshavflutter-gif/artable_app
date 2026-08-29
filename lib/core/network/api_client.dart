@@ -97,6 +97,26 @@ class ApiClient {
     );
   }
 
+  Future<Map<String, dynamic>> delete(
+    String path, {
+    Map<String, dynamic>? body,
+    Map<String, String>? headers,
+  }) {
+    return _executeWithAuthRetry(
+      path: path,
+      body: body,
+      headers: headers,
+      send: (requestHeaders) {
+        final uri = Uri.parse('$_baseUrl$path');
+        return _client.delete(
+          uri,
+          headers: requestHeaders,
+          body: body != null ? jsonEncode(body) : null,
+        );
+      },
+    );
+  }
+
   Future<Map<String, dynamic>> _executeWithAuthRetry({
     required String path,
     required Future<http.Response> Function(Map<String, String> headers) send,

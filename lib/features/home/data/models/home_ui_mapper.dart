@@ -1,3 +1,4 @@
+import 'package:artable_app/features/trending/data/models/trending_videos_response.dart';
 import 'home_banner.dart';
 
 class HomeUiMapper {
@@ -139,7 +140,7 @@ class HomeUiMapper {
       viewsStr = rawViews.toString().trim();
     }
 
-    String categoryStr = 'DANCE';
+    String categoryStr = 'TALENT';
     if (item['categoryBadge'] != null &&
         item['categoryBadge'].toString().trim().isNotEmpty) {
       categoryStr = item['categoryBadge'].toString().trim();
@@ -147,13 +148,19 @@ class HomeUiMapper {
         item['badgeLabel'].toString().trim().isNotEmpty) {
       categoryStr = item['badgeLabel'].toString().trim();
     } else if (item['category'] is String &&
-        (item['category'] as String).isNotEmpty) {
-      categoryStr = item['category'] as String;
-    } else if (item['category'] is Map && item['category']['name'] != null) {
-      categoryStr = item['category']['name'].toString();
+        (item['category'] as String).trim().isNotEmpty) {
+      categoryStr = (item['category'] as String).trim();
+    } else if (item['category'] is Map &&
+        item['category']['name'] != null &&
+        item['category']['name'].toString().trim().isNotEmpty) {
+      categoryStr = item['category']['name'].toString().trim();
     } else if (item['categoryName'] != null &&
-        item['categoryName'].toString().isNotEmpty) {
-      categoryStr = item['categoryName'].toString();
+        item['categoryName'].toString().trim().isNotEmpty) {
+      categoryStr = item['categoryName'].toString().trim();
+    } else if (item['statusBadge'] is Map &&
+        item['statusBadge']['label'] != null &&
+        item['statusBadge']['label'].toString().trim().isNotEmpty) {
+      categoryStr = item['statusBadge']['label'].toString().trim();
     }
 
     final rawDescription = _firstNonEmptyString([
@@ -166,28 +173,30 @@ class HomeUiMapper {
     final rawHashtags = item['hashtags'] ?? item['tags'] ?? item['hashTags'];
     if (rawHashtags is List) {
       formattedHashtags = rawHashtags
-          .map((e) => e.toString().trim())
+          .map((e) => e.toString().trim().replaceAll(RegExp(r'^#+'), ''))
           .where((e) => e.isNotEmpty)
-          .map((e) => e.startsWith('#') ? e : '#$e')
+          .map((e) => '#$e')
           .join(' ');
     } else if (rawHashtags is String && rawHashtags.trim().isNotEmpty) {
       formattedHashtags = rawHashtags
           .split(RegExp(r'[\s,\n]+'))
-          .map((e) => e.trim())
+          .map((e) => e.trim().replaceAll(RegExp(r'^#+'), ''))
           .where((e) => e.isNotEmpty)
-          .map((e) => e.startsWith('#') ? e : '#$e')
+          .map((e) => '#$e')
           .join(' ');
     }
 
+    final cleanRawDesc = rawDescription.replaceAll(RegExp(r'#+'), '#');
+
     String finalCaption = '';
-    if (rawDescription.isNotEmpty && formattedHashtags.isNotEmpty) {
-      if (rawDescription.contains('#')) {
-        finalCaption = rawDescription;
+    if (cleanRawDesc.isNotEmpty && formattedHashtags.isNotEmpty) {
+      if (cleanRawDesc.contains('#')) {
+        finalCaption = cleanRawDesc;
       } else {
-        finalCaption = '$rawDescription $formattedHashtags';
+        finalCaption = '$cleanRawDesc $formattedHashtags';
       }
-    } else if (rawDescription.isNotEmpty) {
-      finalCaption = rawDescription;
+    } else if (cleanRawDesc.isNotEmpty) {
+      finalCaption = cleanRawDesc;
     } else if (formattedHashtags.isNotEmpty) {
       finalCaption = formattedHashtags;
     }
@@ -197,39 +206,60 @@ class HomeUiMapper {
       item['challenge'] is Map ? item['challenge']['title'] : null,
     ]);
 
+    final rawLikes = TrendingVideoItem.parseCount(
+      item['likesCount'] ?? item['likes_count'] ?? item['likeCount'] ?? item['likes'] ?? item['_count']?['likes'],
+    );
+    final rawComments = TrendingVideoItem.parseCount(
+      item['commentsCount'] ?? item['comments_count'] ?? item['commentCount'] ?? item['comments'] ?? item['_count']?['comments'],
+    );
+    final rawShares = TrendingVideoItem.parseCount(
+      item['sharesCount'] ?? item['shares_count'] ?? item['shareCount'] ?? item['shares'] ?? item['_count']?['shares'],
+    );
+    final parsedViews = TrendingVideoItem.parseCount(
+      item['viewsCount'] ?? item['views_count'] ?? item['viewCount'] ?? item['views'] ?? item['_count']?['views'],
+    );
+
+    final isLikedBool = item['isLiked'] == true ||
+        item['liked'] == true ||
+        item['hasLiked'] == true ||
+        item['userLiked'] == true ||
+        item['userReaction']?.toString().toLowerCase() == 'like';
+
     return {
-      'id': _stringValue(item['id']).isNotEmpty ? _stringValue(item['id']) : 'r1',
+      'id': _stringValue(item['id']),
       'title': _stringValue(item['title']),
       'caption': finalCaption,
       'category': categoryStr,
-      'imageUrl': thumb.isNotEmpty
-          ? thumb
-          : 'https://images.unsplash.com/photo-1547153760-18fc86324498?w=600&q=80',
+      'imageUrl': thumb,
       'thumbnailUrl': thumb,
       'videoUrl': videoUrl,
-      'views': viewsStr.isNotEmpty ? viewsStr : '1.2M',
+      'views': viewsStr.isNotEmpty ? viewsStr : _formatCompactNumber(parsedViews),
+      'viewsCount': parsedViews,
       'likes': item['likesLabel'] != null
           ? item['likesLabel'].toString()
-          : _formatCompactNumber(item['likes'] is num ? item['likes'] : 124000),
+          : _formatCompactNumber(rawLikes),
+      'likesCount': rawLikes,
+      'isLiked': isLikedBool,
+      'liked': isLikedBool,
       'comments': item['commentsLabel'] != null
           ? item['commentsLabel'].toString()
-          : _formatCompactNumber(item['comments'] is num ? item['comments'] : 2400),
+          : _formatCompactNumber(rawComments),
+      'commentsCount': rawComments,
       'shares': item['sharesLabel'] != null
           ? item['sharesLabel'].toString()
-          : _formatCompactNumber(item['shares'] is num ? item['shares'] : 8100),
+          : _formatCompactNumber(rawShares),
+      'sharesCount': rawShares,
       'musicName': _firstNonEmptyString([item['musicName'], item['music']]).isNotEmpty
           ? _firstNonEmptyString([item['musicName'], item['music']])
-          : 'Original Sound — ${creator.isNotEmpty ? creator : handle}',
-      'avatarUrl': avatarUrl.isNotEmpty
-          ? avatarUrl
-          : 'https://i.pravatar.cc/100?u=${item['id'] ?? 'user'}',
+          : (creator.isNotEmpty ? 'Original Sound — $creator' : (handle.isNotEmpty ? 'Original Sound — $handle' : 'Original Sound')),
+      'avatarUrl': avatarUrl,
       'handle': handle,
       'creator': creator.isNotEmpty ? creator : handle,
       'verified': user?['isVerified'] == true ||
           user?['verified'] == true ||
           item['verified'] == true,
-      'challengeId': item['challengeId'] ?? (item['challenge'] is Map ? item['challenge']['id'] : 'c1'),
-      'challengeTitle': challengeTitleStr.isNotEmpty ? challengeTitleStr : 'Monthly Mega Dance Battle',
+      'challengeId': item['challengeId'] ?? (item['challenge'] is Map ? item['challenge']['id'] : ''),
+      'challengeTitle': challengeTitleStr,
     };
   }
 

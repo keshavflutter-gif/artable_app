@@ -4,15 +4,21 @@ import 'package:artable_app/data/datasources/mock_data.dart';
 
 abstract final class ReelHelpers {
   static Map<String, dynamic>? reelById(String id, {List<Map<String, dynamic>>? availableReels}) {
+    final cleanId = id.trim();
+    if (cleanId.isEmpty) {
+      return MockData.REELS.isNotEmpty ? MockData.REELS.first : null;
+    }
     if (availableReels != null && availableReels.isNotEmpty) {
       for (final r in availableReels) {
-        if (r['id']?.toString() == id.toString()) return r;
+        final rId = r['id']?.toString() ?? r['_id']?.toString() ?? '';
+        if (rId == cleanId) return r;
       }
     }
     for (final r in MockData.REELS) {
-      if (r['id']?.toString() == id.toString()) return r;
+      final rId = r['id']?.toString() ?? r['_id']?.toString() ?? '';
+      if (rId == cleanId) return r;
     }
-    return MockData.REELS.isNotEmpty ? MockData.REELS.first : null;
+    return null;
   }
 
   static Map<String, dynamic>? challengeForReel(Map<String, dynamic> reel) {

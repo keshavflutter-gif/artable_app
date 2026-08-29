@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
-
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_gradients.dart';
 import 'package:artable_app/app/theme/app_typography.dart';
@@ -14,6 +13,8 @@ import 'package:artable_app/features/shell/presentation/widgets/bottom_nav.dart'
 import 'package:artable_app/core/widgets/network_image_widget.dart';
 import 'package:artable_app/core/widgets/section_header.dart';
 import 'package:artable_app/features/studio/presentation/widgets/studio_header.dart';
+import 'package:artable_app/core/widgets/no_internet_dialog.dart';
+import 'package:artable_app/features/home/presentation/bloc/home_state.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -25,6 +26,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final _heroController = PageController();
   int _heroIndex = 0;
+  bool _isNoInternetDialogShowing = false;
 
   @override
   void initState() {
@@ -41,6 +43,20 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _heroController.dispose();
     super.dispose();
+  }
+
+  bool _isNetworkError(String? msg) {
+    if (msg == null || msg.isEmpty) return false;
+    final lower = msg.toLowerCase();
+    return lower.contains('socketexception') ||
+        lower.contains('clientexception') ||
+        lower.contains('failed host lookup') ||
+        lower.contains('no internet') ||
+        lower.contains('network_error') ||
+        lower.contains('network is unreachable') ||
+        lower.contains('connection refused') ||
+        lower.contains('connection timed out') ||
+        lower.contains('timeoutexception');
   }
 
   @override
@@ -93,12 +109,32 @@ class _HomeScreenState extends State<HomeScreen> {
     return AppShell(
       currentPath: AppRoutes.home,
       bottomNavVariant: BottomNavVariant.home,
-      body: Stack(
-        children: [
-          RefreshIndicator(
-            onRefresh: () => context
-                .read<HomeCubit>()
-                .loadHomeDashboard(forceRefresh: true),
+      body: BlocListener<HomeCubit, HomeState>(
+        listenWhen: (prev, curr) =>
+            curr.errorMessage != null &&
+            curr.dashboard == null &&
+            !curr.isLoading &&
+            _isNetworkError(curr.errorMessage),
+        listener: (context, state) {
+          if (_isNoInternetDialogShowing) return;
+          _isNoInternetDialogShowing = true;
+          NoInternetDialog.show(
+            context,
+            onRetry: () {
+              _isNoInternetDialogShowing = false;
+              context.read<HomeCubit>().loadHomeDashboard(forceRefresh: true);
+              context.read<TrendingVideosCubit>().loadTrendingVideos(forceRefresh: true);
+            },
+          ).then((_) {
+            _isNoInternetDialogShowing = false;
+          });
+        },
+        child: Stack(
+          children: [
+            RefreshIndicator(
+              onRefresh: () => context
+                  .read<HomeCubit>()
+                  .loadHomeDashboard(forceRefresh: true),
             child: SingleChildScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
               child: Column(
@@ -145,6 +181,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
         ],
       ),
+    ),
     );
   }
 }

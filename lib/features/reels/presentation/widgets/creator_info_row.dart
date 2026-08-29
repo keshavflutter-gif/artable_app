@@ -41,7 +41,13 @@ class CreatorInfoRow extends StatelessWidget {
                 ),
                 child: CircleAvatar(
                   radius: 18,
-                  backgroundImage: NetworkImage(reel['avatarUrl'] as String),
+                  backgroundColor: Colors.white24,
+                  backgroundImage: ((reel['avatarUrl'] as String?)?.trim().isNotEmpty == true)
+                      ? NetworkImage((reel['avatarUrl'] as String).trim())
+                      : null,
+                  child: ((reel['avatarUrl'] as String?)?.trim().isNotEmpty != true)
+                      ? const Icon(Icons.person, size: 18, color: Colors.white)
+                      : null,
                 ),
               ),
               const SizedBox(width: 10),

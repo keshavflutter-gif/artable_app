@@ -12,7 +12,9 @@ import 'package:artable_app/data/datasources/mock_data.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/core/utils/reel_helpers.dart';
 import 'package:artable_app/features/home/presentation/bloc/home_cubit.dart';
+import 'package:artable_app/features/reels/presentation/bloc/reels_cubit.dart';
 import 'package:artable_app/features/trending/presentation/bloc/trending_videos_cubit.dart';
+import 'package:artable_app/features/trending/data/models/trending_videos_response.dart';
 
 class VideoDetailScreen extends StatefulWidget {
   const VideoDetailScreen({super.key, this.reelId});
@@ -27,17 +29,34 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
   VideoPlayerController? _videoController;
   bool _isVideoInitialized = false;
   bool _isPlaying = false;
-  bool _isLiked = false;
 
   Map<String, dynamic> get _reel {
+    final targetId = widget.reelId?.trim() ?? '';
     final trendingCubit = context.read<TrendingVideosCubit>();
     final homeCubit = context.read<HomeCubit>();
+    final reelsCubit = context.read<ReelsCubit>();
+
     final available = [
+      if (trendingCubit.hero != null) trendingCubit.hero!.toUiMap(),
       ...trendingCubit.videos.map((v) => v.toUiMap()),
       ...homeCubit.trendingReels,
+      ...reelsCubit.videos,
     ];
-    return ReelHelpers.reelById(widget.reelId ?? 'r1', availableReels: available) ??
-        MockData.REELS.first;
+
+    if (targetId.isNotEmpty) {
+      final match = ReelHelpers.reelById(targetId, availableReels: available);
+      if (match != null) return match;
+
+      final singleItem = trendingCubit.getVideoById(targetId);
+      if (singleItem != null) return singleItem.toUiMap();
+
+      final reelsMatch = reelsCubit.getVideo(targetId);
+      if (reelsMatch != null) return reelsMatch;
+    }
+
+    return available.isNotEmpty
+        ? available.first
+        : (MockData.REELS.isNotEmpty ? MockData.REELS.first : {});
   }
 
   @override
@@ -56,6 +75,15 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
       debugPrint('Initializing video with videoUrl only');
       _initVideoPlayer(resolvedVideoUrl);
     }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        final rId = reelMap['id']?.toString() ?? reelMap['_id']?.toString() ?? widget.reelId;
+        if (rId != null && rId.isNotEmpty) {
+          context.read<ReelsCubit>().fetchComments(rId);
+        }
+      }
+    });
   }
 
   String? _resolvePlayableUrl(String rawUrl) {
@@ -102,6 +130,9 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
       });
     } catch (e) {
       debugPrint('VideoDetailScreen video player error: $e');
+      if (videoUrl != 'https://flutter.github.io/assets-for-api-docs/assets/videos/butterfly.mp4') {
+        _initVideoPlayer('https://flutter.github.io/assets-for-api-docs/assets/videos/butterfly.mp4');
+      }
     }
   }
 
@@ -187,7 +218,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                   // 3. Caption & Hashtags
                   if ((reel['caption'] as String?)?.isNotEmpty == true)
                     Text(
-                      reel['caption'] as String,
+                      (reel['caption'] as String).replaceAll(RegExp(r'#+'), '#'),
                       style: const TextStyle(
                         fontFamily: 'Inter',
                         fontSize: 13,
@@ -250,7 +281,11 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
 
   // --- Main Video Stage Player ---
   Widget _buildVideoStage(Map<String, dynamic> reel) {
-    final category = (reel['category'] as String? ?? 'DANCE').toUpperCase();
+    final rawCat = (reel['category'] as String?)?.trim();
+    final category = (rawCat != null && rawCat.isNotEmpty)
+        ? rawCat.toUpperCase()
+        : 'TALENT';
+    final badgeColor = _categoryBadgeColor(rawCat ?? 'TALENT');
 
     return AspectRatio(
       aspectRatio: 3 / 3.8,
@@ -294,12 +329,15 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
                   decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.45),
+                    color: badgeColor,
                     borderRadius: BorderRadius.circular(999),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.25),
-                      width: 1,
-                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: badgeColor.withValues(alpha: 0.4),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
                   ),
                   child: Text(
                     category,
@@ -353,10 +391,11 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
   }
 
   // --- Creator Card (Deep Purple Card) ---
+  // --- Creator Card (Deep Purple Card) ---
   Widget _buildCreatorCard(Map<String, dynamic> reel, Map<String, dynamic> creator) {
-    final handle = reel['handle'] as String? ?? '@creator';
-    final views = reel['views'] as String? ?? '1.2M';
-    final isVerified = reel['verified'] == true;
+    final handle = reel['handle'] as String? ?? (creator['handle'] as String? ?? '');
+    final views = (reel['views'] as String?)?.isNotEmpty == true ? reel['views'] as String : '0';
+    final isVerified = reel['verified'] == true || reel['isBlueTick'] == true;
 
     return Material(
       color: Colors.transparent,
@@ -395,7 +434,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                   ),
                 ),
                 child: AppImage(
-                  url: reel['avatarUrl'] as String,
+                  url: (reel['avatarUrl'] as String?) ?? '',
                   width: 38,
                   height: 38,
                   borderRadius: BorderRadius.circular(19),
@@ -455,34 +494,55 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
 
   // --- 4-Column Engagement Stats Row ---
   Widget _buildEngagementStats(Map<String, dynamic> reel) {
+    final reelId = reel['id']?.toString() ?? '';
+    final reelsProvider = context.watch<ReelsCubit>();
+    final isLiked = reelsProvider.isLiked(reelId, fallbackVideo: reel);
+
+    final currentVideo = reelsProvider.getVideo(reelId) ?? reel;
+
+    final views = (currentVideo['views'] as String?)?.isNotEmpty == true
+        ? currentVideo['views'] as String
+        : '0';
+    final likes = (currentVideo['likes'] as String?)?.isNotEmpty == true
+        ? currentVideo['likes'] as String
+        : '0';
+    final int rawComments = currentVideo['commentsCount'] is int
+        ? currentVideo['commentsCount'] as int
+        : (int.tryParse(currentVideo['comments']?.toString() ?? '') ?? 0);
+    final int commentsVal = reelsProvider.getCommentsCount(reelId, rawComments);
+    final comments = TrendingVideoItem.formatCount(commentsVal);
+    final shares = (currentVideo['shares'] as String?)?.isNotEmpty == true
+        ? currentVideo['shares'] as String
+        : '0';
+
     return Row(
       children: [
         _buildStatItem(
           icon: Icons.remove_red_eye_outlined,
-          value: reel['views'] as String? ?? '1.2M',
+          value: views,
           label: 'Views',
         ),
         const SizedBox(width: 8),
         _buildStatItem(
-          icon: _isLiked ? Icons.favorite : Icons.favorite_border,
-          iconColor: _isLiked ? const Color(0xFFFF3D77) : const Color(0xFF8B3DFF),
-          value: reel['likes'] as String? ?? '0',
+          icon: isLiked ? Icons.favorite : Icons.favorite_border,
+          iconColor: isLiked ? const Color(0xFFFF3D77) : const Color(0xFF8B3DFF),
+          value: likes,
           label: 'Likes',
-          onTap: () => setState(() => _isLiked = !_isLiked),
+          onTap: () => context.read<ReelsCubit>().toggleLike(reelId, fallbackVideo: reel),
         ),
         const SizedBox(width: 8),
         _buildStatItem(
           icon: Icons.chat_bubble_outline,
-          value: reel['comments'] as String? ?? '2.4K',
+          value: comments,
           label: 'Comments',
-          onTap: () => context.push('${AppRoutes.comments}?id=${reel['id']}'),
+          onTap: () => context.push('${AppRoutes.comments}?id=$reelId'),
         ),
         const SizedBox(width: 8),
         _buildStatItem(
           icon: Icons.share_outlined,
-          value: reel['shares'] as String? ?? '8.1K',
+          value: shares,
           label: 'Shares',
-          onTap: () => context.push('${AppRoutes.shareReport}?id=${reel['id']}'),
+          onTap: () => context.push('${AppRoutes.shareReport}?id=$reelId'),
         ),
       ],
     );
@@ -549,7 +609,30 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
 
   // --- Avg. Talent Score Banner ---
   Widget _buildTalentScoreBanner(Map<String, dynamic> reel) {
-    final score = (reel['talentScore'] as num?)?.toDouble() ?? 8.7;
+    final reelId = reel['id']?.toString() ?? '';
+    final userRating = context.watch<ReelsCubit>().getUserRating(reelId);
+
+    double score = userRating ?? 0.0;
+    if (score == 0.0) {
+      if (reel['userRating'] != null) {
+        score = double.tryParse(reel['userRating'].toString()) ?? 0.0;
+      } else if (reel['score'] != null) {
+        score = double.tryParse(reel['score'].toString()) ?? 0.0;
+      } else if (reel['rating'] != null) {
+        score = double.tryParse(reel['rating'].toString()) ?? 0.0;
+      } else if (reel['talentScore'] is num) {
+        score = (reel['talentScore'] as num).toDouble();
+      } else if (reel['ratings'] is List && (reel['ratings'] as List).isNotEmpty) {
+        for (final item in (reel['ratings'] as List)) {
+          if (item is Map && item['score'] != null) {
+            score = double.tryParse(item['score'].toString()) ?? 0.0;
+            if (score > 0) break;
+          }
+        }
+      }
+    }
+
+    final displayScore = score > 0 ? score.toStringAsFixed(1) : (reel['rating']?.toString() ?? '8.5');
 
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
@@ -578,7 +661,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
           ),
           const SizedBox(width: 6),
           Text(
-            score.toStringAsFixed(1),
+            displayScore,
             style: const TextStyle(
               fontFamily: 'Poppins',
               fontSize: 18,

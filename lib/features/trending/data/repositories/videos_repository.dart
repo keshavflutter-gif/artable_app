@@ -71,6 +71,51 @@ class VideosRepository {
     return TrendingVideosResponse.fromJson(data);
   }
 
+  Future<TrendingVideoItem?> getVideoById(
+    String videoId, {
+    String? sessionToken,
+    String? refreshToken,
+  }) async {
+    final cleanId = videoId.trim();
+    if (cleanId.isEmpty) return null;
+
+    final headers = (sessionToken != null &&
+            sessionToken.isNotEmpty &&
+            refreshToken != null &&
+            refreshToken.isNotEmpty)
+        ? ApiAuthHeaders.authenticated(
+            sessionToken: sessionToken,
+            refreshToken: refreshToken,
+          )
+        : <String, String>{};
+
+    try {
+      final res = await _apiClient.get(
+        '/app/videos/$cleanId',
+        headers: headers.isNotEmpty ? headers : null,
+      );
+      if (res['success'] == true && res['data'] is Map) {
+        return TrendingVideoItem.fromJson(
+          Map<String, dynamic>.from(res['data'] as Map),
+        );
+      }
+    } catch (_) {}
+
+    final res = await getTrendingVideos(
+      sessionToken: sessionToken,
+      refreshToken: refreshToken,
+    );
+    if (res.data != null) {
+      if (res.data!.hero?.id == cleanId) {
+        return res.data!.hero;
+      }
+      for (final v in res.data!.gridVideos) {
+        if (v.id == cleanId) return v;
+      }
+    }
+    return null;
+  }
+
   Future<Map<String, dynamic>> createVideo({
     required String title,
     required String videoPathOrUrl,
@@ -160,22 +205,151 @@ class VideosRepository {
     if (input == null) return const [];
     if (input is List) {
       return input
-          .map((e) => e.toString().trim())
+          .map((e) => e.toString().trim().replaceAll(RegExp(r'^#+'), ''))
           .where((e) => e.isNotEmpty)
-          .map((e) => e.startsWith('#') ? e : '#$e')
+          .map((e) => '#$e')
           .toList();
     }
     if (input is String) {
       if (input.trim().isEmpty) return const [];
       final items = input
           .split(RegExp(r'[\s,\n]+'))
-          .map((e) => e.trim())
+          .map((e) => e.trim().replaceAll(RegExp(r'^#+'), ''))
           .where((e) => e.isNotEmpty)
-          .map((e) => e.startsWith('#') ? e : '#$e')
+          .map((e) => '#$e')
           .toList();
       return items;
     }
     return const [];
+  }
+
+  Future<Map<String, dynamic>> likeVideo({
+    required String videoId,
+    String? sessionToken,
+    String? refreshToken,
+  }) async {
+    final headers = (sessionToken != null &&
+            sessionToken.isNotEmpty &&
+            refreshToken != null &&
+            refreshToken.isNotEmpty)
+        ? ApiAuthHeaders.authenticated(
+            sessionToken: sessionToken,
+            refreshToken: refreshToken,
+          )
+        : <String, String>{};
+
+    return _apiClient.post(
+      '/app/videos/$videoId/like',
+      headers: headers.isNotEmpty ? headers : null,
+    );
+  }
+
+  Future<Map<String, dynamic>> rateVideo({
+    required String videoId,
+    required double score,
+    String? sessionToken,
+    String? refreshToken,
+  }) async {
+    final cleanId = videoId.trim();
+    final headers = (sessionToken != null &&
+            sessionToken.isNotEmpty &&
+            refreshToken != null &&
+            refreshToken.isNotEmpty)
+        ? ApiAuthHeaders.authenticated(
+            sessionToken: sessionToken,
+            refreshToken: refreshToken,
+          )
+        : <String, String>{};
+
+    final formattedScore = score.toStringAsFixed(1);
+
+    return _apiClient.post(
+      '/app/videos/$cleanId/rate',
+      body: {
+        'score': formattedScore,
+      },
+      headers: headers.isNotEmpty ? headers : null,
+    );
+  }
+
+  Future<Map<String, dynamic>> createComment({
+    required String videoId,
+    required String text,
+    String? sessionToken,
+    String? refreshToken,
+  }) async {
+    final headers = (sessionToken != null &&
+            sessionToken.isNotEmpty &&
+            refreshToken != null &&
+            refreshToken.isNotEmpty)
+        ? ApiAuthHeaders.authenticated(
+            sessionToken: sessionToken,
+            refreshToken: refreshToken,
+          )
+        : <String, String>{};
+
+    return _apiClient.post(
+      '/app/comments',
+      body: {
+        'videoId': videoId,
+        'text': text,
+      },
+      headers: headers.isNotEmpty ? headers : null,
+    );
+  }
+
+  Future<Map<String, dynamic>> getComments({
+    required String videoId,
+    int page = 1,
+    int limit = 20,
+    String? sessionToken,
+    String? refreshToken,
+  }) async {
+    final queryParams = <String, String>{
+      'videoId': videoId.trim(),
+      'page': page.toString(),
+      'limit': limit.toString(),
+    };
+
+    final queryString = Uri(queryParameters: queryParams).query;
+    final path = '/app/comments?$queryString';
+
+    final headers = (sessionToken != null &&
+            sessionToken.isNotEmpty &&
+            refreshToken != null &&
+            refreshToken.isNotEmpty)
+        ? ApiAuthHeaders.authenticated(
+            sessionToken: sessionToken,
+            refreshToken: refreshToken,
+          )
+        : <String, String>{};
+
+    return _apiClient.get(
+      path,
+      headers: headers.isNotEmpty ? headers : null,
+    );
+  }
+
+  Future<Map<String, dynamic>> deleteComment({
+    required String commentId,
+    String? sessionToken,
+    String? refreshToken,
+  }) async {
+    final cleanId = commentId.trim();
+    final headers = (sessionToken != null &&
+            sessionToken.isNotEmpty &&
+            refreshToken != null &&
+            refreshToken.isNotEmpty)
+        ? ApiAuthHeaders.authenticated(
+            sessionToken: sessionToken,
+            refreshToken: refreshToken,
+          )
+        : <String, String>{};
+
+    return _apiClient.delete(
+      '/app/comments/$cleanId',
+      headers: headers.isNotEmpty ? headers : null,
+    );
   }
 
   Future<String> _uploadFile(String filePath, {required bool isVideo}) async {

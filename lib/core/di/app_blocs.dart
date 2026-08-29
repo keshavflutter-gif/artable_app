@@ -51,7 +51,9 @@ class AppBlocs {
           ),
         ),
         BlocProvider<ReelsCubit>(
-          create: (_) => ReelsCubit(),
+          create: (context) => ReelsCubit(
+            authCubit: context.read<AuthCubit>(),
+          ),
         ),
         BlocProvider<RewardsCubit>(
           create: (context) => RewardsCubit(

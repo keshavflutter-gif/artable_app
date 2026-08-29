@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_typography.dart';
 import 'package:artable_app/core/widgets/app_back_header.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
+import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
+import '../../data/models/privacy_policy_model.dart';
+import '../../data/repositories/static_pages_repository.dart';
 
 class PrivacyPolicyScreen extends StatefulWidget {
   const PrivacyPolicyScreen({super.key});
@@ -15,72 +19,57 @@ class PrivacyPolicyScreen extends StatefulWidget {
 class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
   final ScrollController _scrollController = ScrollController();
   final Map<int, GlobalKey> _sectionKeys = {};
+  late final StaticPagesRepository _repository;
 
-  static const _pills = [
-    'Information We Collect',
-    'How We Use It',
-    'Video & Challenges',
-    'Ratings & Engagement',
-    'Rewards & Wallet',
-    'Notifications',
-    'Data Security',
-    'Your Controls',
-    'Contact',
-  ];
-
-  static const _sections = [
-    {
-      'title': '1. Information We Collect',
-      'body':
-          'We collect information you provide directly, such as your profile details, challenge entries, and payment method details for Prime subscriptions, along with usage data generated as you use the app.',
-    },
-    {
-      'title': '2. How We Use Information',
-      'body':
-          'Your information helps us operate challenges, calculate talent scores, process rewards, personalize your feed, and improve the ARTABLE experience.',
-    },
-    {
-      'title': '3. Video & Challenge Content',
-      'body':
-          'Videos recorded through the in-app Studio and submitted to challenges may be visible to other users, judges, and the public depending on the challenge and your privacy settings.',
-    },
-    {
-      'title': '4. Ratings and Engagement Data',
-      'body':
-          'Likes, comments, shares, and talent ratings are collected to calculate your talent score and surface relevant content to the community.',
-    },
-    {
-      'title': '5. Rewards & Wallet Data',
-      'body':
-          'Wallet balances, transaction history, and withdrawal requests are stored securely and used solely to process your rewards.',
-    },
-    {
-      'title': '6. Notifications',
-      'body':
-          'We use your notification preferences to determine which updates — challenges, rewards, winners, and more — are sent to your device.',
-    },
-    {
-      'title': '7. Data Security',
-      'body':
-          'We use industry-standard safeguards to protect your data. No method of transmission or storage is ever 100% secure, but we work to keep your information safe.',
-    },
-    {
-      'title': '8. User Controls',
-      'body':
-          'You can manage profile visibility, comment and share permissions, and notification preferences at any time from Settings.',
-    },
-    {
-      'title': '9. Contact',
-      'body':
-          'Questions about this Privacy Policy can be directed to our support team from the Help & Support screen.',
-    },
-  ];
+  bool _isLoading = true;
+  String? _errorMessage;
+  PrivacyPolicyData? _privacyData;
 
   @override
   void initState() {
     super.initState();
-    for (var i = 0; i < _sections.length; i++) {
-      _sectionKeys[i] = GlobalKey();
+    final authCubit = context.read<AuthCubit>();
+    _repository = StaticPagesRepository(
+      onTokensRefreshed: authCubit.applyRefreshedTokens,
+      onSessionRefreshFailed: authCubit.handleSessionRefreshFailed,
+    );
+    _fetchPrivacyPolicy();
+  }
+
+  Future<void> _fetchPrivacyPolicy() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final authCubit = context.read<AuthCubit>();
+      final token = authCubit.sessionToken;
+      final refresh = authCubit.refreshToken;
+
+      final data = await _repository.getPrivacyPolicy(
+        sessionToken: token != 'design_preview' ? token : null,
+        refreshToken: refresh != 'design_preview' ? refresh : null,
+      );
+
+      _sectionKeys.clear();
+      for (var i = 0; i < data.sections.length; i++) {
+        _sectionKeys[i] = GlobalKey();
+      }
+
+      if (mounted) {
+        setState(() {
+          _privacyData = data;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.toString().replaceAll('Exception: ', '');
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -103,85 +92,150 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final titleText = _privacyData?.title.isNotEmpty == true
+        ? _privacyData!.title
+        : 'Privacy Policy';
+
     return AppScreen(
       child: Column(
         children: [
-          const AppBackHeader(title: 'Privacy Policy'),
+          AppBackHeader(title: titleText),
           Expanded(
-            child: SingleChildScrollView(
-              controller: _scrollController,
-              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 10),
+            child: _buildBody(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(
+          color: AppColors.purple,
+        ),
+      );
+    }
+
+    if (_errorMessage != null && _privacyData == null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(
+                Icons.error_outline_rounded,
+                size: 44,
+                color: Colors.redAccent,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                _errorMessage!,
+                style: AppTypography.body(
+                  fontSize: 13.5,
+                  color: AppColors.textSoft,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: _fetchPrivacyPolicy,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.purple,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final data = _privacyData!;
+    final lastUpdated = data.lastUpdated.isNotEmpty
+        ? 'Last updated: ${data.lastUpdated}'
+        : '';
+    final tabs = data.tabs;
+    final sections = data.sections;
+
+    return SingleChildScrollView(
+      controller: _scrollController,
+      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (lastUpdated.isNotEmpty) ...[
+            Text(
+              lastUpdated,
+              style: AppTypography.body(
+                fontSize: 11.5,
+                color: AppColors.textFaint,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+          if (tabs.isNotEmpty) ...[
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: List.generate(tabs.length, (index) {
+                return GestureDetector(
+                  onTap: () => _scrollToSection(index),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: AppColors.purple.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Text(
+                      tabs[index],
+                      style: AppTypography.body(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.purple,
+                      ),
+                    ),
+                  ),
+                );
+              }),
+            ),
+            const SizedBox(height: 20),
+          ],
+          ...List.generate(sections.length, (index) {
+            final item = sections[index];
+            return Padding(
+              key: _sectionKeys[index],
+              padding: const EdgeInsets.only(bottom: 18),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Last updated: July 1, 2026',
-                    style: AppTypography.body(
-                      fontSize: 11.5,
-                      color: AppColors.textFaint,
-                      fontWeight: FontWeight.w500,
+                    item.title,
+                    style: AppTypography.display(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.text,
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: List.generate(_pills.length, (index) {
-                      return GestureDetector(
-                        onTap: () => _scrollToSection(index),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                          decoration: BoxDecoration(
-                            color: AppColors.purple.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: Text(
-                            _pills[index],
-                            style: AppTypography.body(
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.purple,
-                            ),
-                          ),
-                        ),
-                      );
-                    }),
+                  const SizedBox(height: 6),
+                  Text(
+                    item.body,
+                    style: AppTypography.body(
+                      fontSize: 12.5,
+                      height: 1.5,
+                      color: AppColors.textSoft,
+                    ),
                   ),
-                  const SizedBox(height: 20),
-                  ...List.generate(_sections.length, (index) {
-                    final item = _sections[index];
-                    return Padding(
-                      key: _sectionKeys[index],
-                      padding: const EdgeInsets.only(bottom: 18),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            item['title']!,
-                            style: AppTypography.display(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.text,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            item['body']!,
-                            style: AppTypography.body(
-                              fontSize: 12.5,
-                              height: 1.5,
-                              color: AppColors.textSoft,
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }),
-                  const SizedBox(height: 30),
                 ],
               ),
-            ),
-          ),
+            );
+          }),
+          const SizedBox(height: 30),
         ],
       ),
     );
