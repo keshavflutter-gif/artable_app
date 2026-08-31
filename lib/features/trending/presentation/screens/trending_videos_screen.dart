@@ -8,6 +8,7 @@ import 'package:artable_app/core/widgets/app_back_header.dart';
 import 'package:artable_app/core/widgets/app_image.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
 import 'package:artable_app/core/widgets/filter_pills.dart';
+import 'package:artable_app/features/home/presentation/bloc/home_cubit.dart';
 import 'package:artable_app/features/trending/presentation/bloc/trending_videos_cubit.dart';
 import 'package:artable_app/features/trending/data/models/trending_videos_response.dart';
 
@@ -32,8 +33,34 @@ class _TrendingVideosScreenState extends State<TrendingVideosScreen> {
   @override
   Widget build(BuildContext context) {
     final trendingProvider = context.watch<TrendingVideosCubit>();
+    final homeCubitTrendingReels = context.select<HomeCubit, List<Map<String, dynamic>>>(
+      (vm) => vm.trendingReels,
+    );
     final hero = trendingProvider.hero;
-    final videos = trendingProvider.videos;
+    final apiVideos = trendingProvider.videos;
+
+    final List<TrendingVideoItem> videos = [];
+    final Set<String> seenIds = {};
+
+    if (hero != null && hero.id.isNotEmpty) {
+      seenIds.add(hero.id);
+    }
+
+    for (final itemMap in homeCubitTrendingReels) {
+      final id = itemMap['id']?.toString() ?? '';
+      if (id.isNotEmpty && !seenIds.contains(id)) {
+        seenIds.add(id);
+        videos.add(TrendingVideoItem.fromJson(itemMap));
+      }
+    }
+
+    for (final v in apiVideos) {
+      if (v.id.isNotEmpty && !seenIds.contains(v.id)) {
+        seenIds.add(v.id);
+        videos.add(v);
+      }
+    }
+
     final isLoading = trendingProvider.isLoading && !trendingProvider.hasLoaded;
 
     return AppScreen(
@@ -137,7 +164,12 @@ class _TrendingVideosScreenState extends State<TrendingVideosScreen> {
 
   void _navigateToVideo(String videoId) {
     if (videoId.isNotEmpty) {
-      context.push('/video-detail?id=$videoId');
+      context.push('/video-detail?id=$videoId').then((_) {
+        if (mounted) {
+          context.read<TrendingVideosCubit>().loadTrendingVideos(forceRefresh: true);
+          context.read<HomeCubit>().loadHomeDashboard(forceRefresh: true);
+        }
+      });
     }
   }
 }
@@ -189,7 +221,12 @@ class _FeaturedHeroCard extends StatelessWidget {
     return GestureDetector(
       onTap: () {
         if (id.isNotEmpty) {
-          context.push('/video-detail?id=$id');
+          context.push('/video-detail?id=$id').then((_) {
+            if (context.mounted) {
+              context.read<TrendingVideosCubit>().loadTrendingVideos(forceRefresh: true);
+              context.read<HomeCubit>().loadHomeDashboard(forceRefresh: true);
+            }
+          });
         }
       },
       child: ClipRRect(

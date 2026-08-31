@@ -250,8 +250,9 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
               final challenge = ReelHelpers.challengeForReel(reel);
               final liked = reelsProvider.isLiked(reelId, fallbackVideo: reel);
               final saved = reelsProvider.isBookmarked(reelId);
-              final videoUrl = reel['videoUrl'] as String? ??
-                  'https://flutter.github.io/assets-for-api-docs/assets/videos/butterfly.mp4';
+              final videoUrl = (reel['videoUrl'] as String?)?.isNotEmpty == true && reel['videoUrl'] != 'null'
+                  ? reel['videoUrl'] as String
+                  : '';
               final imageUrl = reel['imageUrl'] as String? ?? reel['thumbnailUrl'] as String? ?? '';
               final isActive = index == _currentPage;
 

@@ -161,7 +161,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           viewAllRoute: AppRoutes.trendingVideos,
                           marginTop: 18,
                         ),
-                        _ReelGrid(reels: trendingReels),
+                        _ReelGrid(reels: trendingReels.take(5).toList()),
                         const SizedBox(height: 26),
                         _MegaPromoScroll(banners: megaPromoBanners),
                       ],

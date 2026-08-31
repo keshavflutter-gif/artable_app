@@ -288,17 +288,31 @@ class TrendingVideoItem {
   }
 
   String get displayRating {
-    if (ratingLabel != null && ratingLabel!.trim().isNotEmpty) {
+    if (ratingLabel != null &&
+        ratingLabel!.trim().isNotEmpty &&
+        ratingLabel!.trim() != '0.0' &&
+        ratingLabel!.trim() != '0') {
+      final p = double.tryParse(ratingLabel!.trim());
+      if (p != null && p > 0) return p.toStringAsFixed(1);
       return ratingLabel!.trim();
     }
-    if (talentScoreLabel != null && talentScoreLabel!.trim().isNotEmpty) {
+    if (talentScoreLabel != null &&
+        talentScoreLabel!.trim().isNotEmpty &&
+        talentScoreLabel!.trim() != '0.0' &&
+        talentScoreLabel!.trim() != '0') {
+      final p = double.tryParse(talentScoreLabel!.trim());
+      if (p != null && p > 0) return p.toStringAsFixed(1);
       return talentScoreLabel!.trim();
     }
     if (talentScore != null && talentScore! > 0) {
       return talentScore!.toStringAsFixed(1);
     }
     if (averageRating != null && averageRating!.trim().isNotEmpty) {
-      return averageRating!.trim();
+      final p = double.tryParse(averageRating!.trim());
+      if (p != null && p > 0) return p.toStringAsFixed(1);
+      if (averageRating!.trim() != '0.0' && averageRating!.trim() != '0') {
+        return averageRating!.trim();
+      }
     }
     return '0.0';
   }
@@ -585,7 +599,20 @@ class TrendingVideoItem {
   }
 
   static double? _extractTalentScore(Map<String, dynamic> json) {
-    final keys = ['talentScore', 'talent_score', 'userRating', 'user_rating', 'rating', 'score'];
+    final keys = [
+      'talentScore',
+      'talent_score',
+      'userRating',
+      'user_rating',
+      'averageRating',
+      'average_rating',
+      'avgRating',
+      'avg_rating',
+      'talentRating',
+      'talent_rating',
+      'rating',
+      'score',
+    ];
     for (final k in keys) {
       final v = json[k];
       if (v != null) {
@@ -598,12 +625,87 @@ class TrendingVideoItem {
       final list = json['ratings'] as List;
       for (final item in list) {
         if (item is Map) {
-          final score = item['score'] ?? item['rating'] ?? item['userRating'];
+          final score = item['score'] ?? item['rating'] ?? item['userRating'] ?? item['averageRating'];
           if (score != null) {
             final parsed = _parseDouble(score);
             if (parsed != null && parsed > 0) return parsed;
           }
         }
+      }
+    }
+    return null;
+  }
+
+  static TrendingVideoUser? _parseUser(Map<String, dynamic> json) {
+    Map<String, dynamic>? userMap;
+    if (json['user'] is Map) {
+      userMap = Map<String, dynamic>.from(json['user'] as Map);
+    }
+
+    final id = userMap?['id']?.toString() ??
+        json['userId']?.toString() ??
+        json['user_id']?.toString() ??
+        '';
+
+    final fullName = _firstNonEmptyStr([
+      userMap?['fullName'],
+      userMap?['name'],
+      userMap?['creator'],
+      json['fullName'],
+      json['creator'],
+      json['authorName'],
+      json['name'],
+    ]);
+
+    final username = _firstNonEmptyStr([
+      userMap?['username'],
+      userMap?['handle'],
+      userMap?['name'],
+      json['username'],
+      json['handle'],
+      json['creator'],
+      json['authorName'],
+      json['name'],
+      json['user_name'],
+      json['userHandle'],
+    ]);
+
+    final avatar = _firstNonEmptyStr([
+      userMap?['profilePhotoUrl'],
+      userMap?['avatarUrl'],
+      userMap?['avatar'],
+      userMap?['imageUrl'],
+      json['profilePhotoUrl'],
+      json['avatarUrl'],
+      json['avatar'],
+      json['userAvatar'],
+      json['imageUrl'],
+    ]);
+
+    final isBlueTick = userMap?['isBlueTick'] == true ||
+        userMap?['isVerified'] == true ||
+        json['isBlueTick'] == true ||
+        json['isVerified'] == true ||
+        json['verified'] == true;
+
+    if ((username != null && username.isNotEmpty) || (fullName != null && fullName.isNotEmpty)) {
+      return TrendingVideoUser(
+        id: id,
+        username: username ?? fullName,
+        fullName: fullName ?? username,
+        profilePhotoUrl: avatar,
+        isBlueTick: isBlueTick,
+        isVerified: isBlueTick,
+      );
+    }
+    return null;
+  }
+
+  static String? _firstNonEmptyStr(List<dynamic> candidates) {
+    for (final c in candidates) {
+      if (c != null) {
+        final str = c.toString().trim();
+        if (str.isNotEmpty && str != 'null') return str;
       }
     }
     return null;
@@ -642,7 +744,7 @@ class TrendingVideoItem {
       shareCount: parsedShares,
       sharesLabel: json['sharesLabel']?.toString() ?? (json['sharesCount'] is String ? json['sharesCount'] as String : null),
       musicName: _extractMusicName(json),
-      averageRating: json['averageRating']?.toString(),
+      averageRating: json['averageRating']?.toString() ?? json['rating']?.toString(),
       talentScore: _extractTalentScore(json),
       talentScoreLabel: json['talentScoreLabel']?.toString(),
       ratingCount: _parseInt(json['ratingCount']) ?? 0,
@@ -666,10 +768,7 @@ class TrendingVideoItem {
               Map<String, dynamic>.from(json['challenge'] as Map))
           : null,
       category: _parseCategory(json),
-      user: json['user'] is Map
-          ? TrendingVideoUser.fromJson(
-              Map<String, dynamic>.from(json['user'] as Map))
-          : null,
+      user: _parseUser(json),
       rank: _parseInt(json['rank']),
       trendingScore: _parseDouble(json['trendingScore']),
       badgeLabel: json['badgeLabel']?.toString(),
@@ -1010,17 +1109,21 @@ class TrendingVideoUser {
   final bool isVerified;
 
   factory TrendingVideoUser.fromJson(Map<String, dynamic> json) {
+    final fullName = json['fullName']?.toString() ?? json['name']?.toString() ?? json['creator']?.toString();
+    final username = json['username']?.toString() ?? json['handle']?.toString() ?? json['name']?.toString() ?? json['creator']?.toString() ?? json['authorName']?.toString();
+    final avatar = json['profilePhotoUrl']?.toString() ?? json['avatarUrl']?.toString() ?? json['avatar']?.toString() ?? json['imageUrl']?.toString();
+
     return TrendingVideoUser(
       id: json['id']?.toString() ?? '',
-      fullName: json['fullName']?.toString() ?? json['name']?.toString(),
-      username: json['username']?.toString() ?? json['handle']?.toString(),
-      profilePhotoUrl: json['profilePhotoUrl']?.toString() ?? json['avatarUrl']?.toString(),
+      fullName: fullName ?? username,
+      username: username ?? fullName,
+      profilePhotoUrl: avatar,
       socialLinks: json['socialLinks'] is Map
           ? Map<String, dynamic>.from(json['socialLinks'] as Map)
           : const {},
       talentCategory: json['talentCategory']?.toString(),
-      isBlueTick: json['isBlueTick'] == true,
-      isVerified: json['isVerified'] == true,
+      isBlueTick: json['isBlueTick'] == true || json['isVerified'] == true || json['verified'] == true,
+      isVerified: json['isVerified'] == true || json['isBlueTick'] == true || json['verified'] == true,
     );
   }
 

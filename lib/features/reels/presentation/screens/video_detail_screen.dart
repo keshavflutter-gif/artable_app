@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
-import 'package:video_player/video_player.dart';
 
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_text_styles.dart';
@@ -11,10 +10,12 @@ import 'package:artable_app/core/widgets/app_scaffold.dart';
 import 'package:artable_app/data/datasources/mock_data.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/core/utils/reel_helpers.dart';
+import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
 import 'package:artable_app/features/home/presentation/bloc/home_cubit.dart';
 import 'package:artable_app/features/reels/presentation/bloc/reels_cubit.dart';
 import 'package:artable_app/features/trending/presentation/bloc/trending_videos_cubit.dart';
 import 'package:artable_app/features/trending/data/models/trending_videos_response.dart';
+import 'package:artable_app/features/trending/data/repositories/videos_repository.dart';
 
 class VideoDetailScreen extends StatefulWidget {
   const VideoDetailScreen({super.key, this.reelId});
@@ -26,11 +27,13 @@ class VideoDetailScreen extends StatefulWidget {
 }
 
 class _VideoDetailScreenState extends State<VideoDetailScreen> {
-  VideoPlayerController? _videoController;
-  bool _isVideoInitialized = false;
-  bool _isPlaying = false;
+  Map<String, dynamic>? _apiReel;
 
   Map<String, dynamic> get _reel {
+    if (_apiReel != null && _apiReel!.isNotEmpty) {
+      return _apiReel!;
+    }
+
     final targetId = widget.reelId?.trim() ?? '';
     final trendingCubit = context.read<TrendingVideosCubit>();
     final homeCubit = context.read<HomeCubit>();
@@ -63,97 +66,52 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
   void initState() {
     super.initState();
     final reelMap = _reel;
-    final rawVideoUrl = reelMap['videoUrl'] as String? ?? '';
-    final rawThumbUrl = reelMap['thumbnailUrl'] as String? ?? (reelMap['imageUrl'] as String? ?? '');
-
-    debugPrint('=== TRENDING REEL VIDEO ===');
-    debugPrint('Video URL: $rawVideoUrl');
-    debugPrint('Thumbnail URL: $rawThumbUrl');
-
-    final resolvedVideoUrl = _resolvePlayableUrl(rawVideoUrl);
-    if (resolvedVideoUrl != null && resolvedVideoUrl.isNotEmpty) {
-      debugPrint('Initializing video with videoUrl only');
-      _initVideoPlayer(resolvedVideoUrl);
-    }
-
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         final rId = reelMap['id']?.toString() ?? reelMap['_id']?.toString() ?? widget.reelId;
         if (rId != null && rId.isNotEmpty) {
           context.read<ReelsCubit>().fetchComments(rId);
+          _fetchVideoDetail(rId);
         }
       }
     });
   }
 
-  String? _resolvePlayableUrl(String rawUrl) {
-    final clean = rawUrl.trim();
-    if (clean.isEmpty || clean == 'null') {
-      return null;
-    }
-    final lower = clean.toLowerCase();
-    if (lower.endsWith('.jpg') ||
-        lower.endsWith('.jpeg') ||
-        lower.endsWith('.png') ||
-        lower.endsWith('.webp') ||
-        lower.endsWith('.gif')) {
-      return null;
-    }
-
-    String fullUrl;
-    if (clean.startsWith('http://') || clean.startsWith('https://') || clean.startsWith('file://')) {
-      fullUrl = clean;
-    } else if (clean.startsWith('/')) {
-      fullUrl = 'http://server.keshavinfotechdemo2.com:3055$clean';
-    } else {
-      fullUrl = 'http://server.keshavinfotechdemo2.com:3055/$clean';
-    }
+  Future<void> _fetchVideoDetail(String videoId) async {
     try {
-      return Uri.encodeFull(fullUrl);
-    } catch (_) {
-      return fullUrl;
+      final authCubit = context.read<AuthCubit>();
+      final repo = VideosRepository(
+        onTokensRefreshed: authCubit.applyRefreshedTokens,
+        onSessionRefreshFailed: authCubit.handleSessionRefreshFailed,
+      );
+      final item = await repo.getVideoById(
+        videoId,
+        sessionToken: authCubit.sessionToken != 'design_preview' ? authCubit.sessionToken : null,
+        refreshToken: authCubit.refreshToken != 'design_preview' ? authCubit.refreshToken : null,
+      );
+      if (item != null && mounted) {
+        final uiMap = item.toUiMap();
+        context.read<ReelsCubit>().syncVideos([uiMap]);
+        setState(() {
+          _apiReel = uiMap;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching video detail: $e');
     }
   }
 
-  Future<void> _initVideoPlayer(String videoUrl) async {
-    try {
-      final controller = VideoPlayerController.networkUrl(Uri.parse(videoUrl));
-      _videoController = controller;
-      await controller.initialize();
-      if (!mounted) return;
-      controller.setLooping(true);
-      controller.setVolume(1.0);
-      await controller.play();
-      setState(() {
-        _isVideoInitialized = true;
-        _isPlaying = true;
-      });
-    } catch (e) {
-      debugPrint('VideoDetailScreen video player error: $e');
-      if (videoUrl != 'https://flutter.github.io/assets-for-api-docs/assets/videos/butterfly.mp4') {
-        _initVideoPlayer('https://flutter.github.io/assets-for-api-docs/assets/videos/butterfly.mp4');
+  String _getFormattedCount(dynamic rawCount, dynamic rawLabel) {
+    if (rawLabel is String && rawLabel.trim().isNotEmpty) {
+      return rawLabel.trim();
+    }
+    if (rawCount is String && rawCount.trim().isNotEmpty) {
+      if (RegExp(r'[a-zA-Z]').hasMatch(rawCount)) {
+        return rawCount.trim();
       }
     }
-  }
-
-  @override
-  void dispose() {
-    _videoController?.dispose();
-    super.dispose();
-  }
-
-  void _togglePlayPause() {
-    if (_videoController != null && _isVideoInitialized) {
-      setState(() {
-        if (_videoController!.value.isPlaying) {
-          _videoController!.pause();
-          _isPlaying = false;
-        } else {
-          _videoController!.play();
-          _isPlaying = true;
-        }
-      });
-    }
+    final int count = TrendingVideoItem.parseCount(rawCount);
+    return TrendingVideoItem.formatCount(count);
   }
 
   Color _categoryBadgeColor(String category) {
@@ -177,6 +135,14 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     }
   }
 
+  void _onBackRefresh() {
+    context.read<TrendingVideosCubit>().loadTrendingVideos(forceRefresh: true);
+    context.read<HomeCubit>().loadHomeDashboard(forceRefresh: true);
+    if (context.canPop()) {
+      context.pop(true);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final reel = _reel;
@@ -188,11 +154,21 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
       orElse: () => MockData.CREATORS.first,
     );
 
-    return AppScreen(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const AppBackHeader(title: 'Reel'),
+    return PopScope(
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) {
+          context.read<TrendingVideosCubit>().loadTrendingVideos(forceRefresh: true);
+          context.read<HomeCubit>().loadHomeDashboard(forceRefresh: true);
+        }
+      },
+      child: AppScreen(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            AppBackHeader(
+              title: 'Reel',
+              onBack: _onBackRefresh,
+            ),
           Expanded(
             child: SingleChildScrollView(
               child: Column(
@@ -276,6 +252,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     ),
   ],
 ),
+),
 );
 }
 
@@ -286,83 +263,93 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
         ? rawCat.toUpperCase()
         : 'TALENT';
     final badgeColor = _categoryBadgeColor(rawCat ?? 'TALENT');
+    final reelId = reel['id']?.toString() ?? reel['_id']?.toString() ?? widget.reelId ?? '';
+    final imageUrl = (reel['imageUrl'] as String?) ?? (reel['thumbnailUrl'] as String?) ?? '';
 
     return AspectRatio(
       aspectRatio: 3 / 3.8,
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF15083C).withValues(alpha: 0.2),
-              blurRadius: 24,
-              offset: const Offset(0, 10),
-            ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(20),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              // Video Thumbnail
-              AppImage(
-                url: reel['imageUrl'] as String,
-                fit: BoxFit.cover,
+      child: GestureDetector(
+        onTap: () {
+          if (reelId.isNotEmpty) {
+            context.push('${AppRoutes.reelsFeed}?id=$reelId');
+          }
+        },
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF15083C).withValues(alpha: 0.2),
+                blurRadius: 24,
+                offset: const Offset(0, 10),
               ),
-
-              if (_isVideoInitialized && _videoController != null && _videoController!.value.isInitialized)
-                FittedBox(
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(20),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                // Video Thumbnail
+                AppImage(
+                  url: imageUrl,
                   fit: BoxFit.cover,
-                  clipBehavior: Clip.hardEdge,
-                  child: SizedBox(
-                    width: _videoController!.value.size.width > 0 ? _videoController!.value.size.width : 360,
-                    height: _videoController!.value.size.height > 0 ? _videoController!.value.size.height : 640,
-                    child: VideoPlayer(_videoController!),
-                  ),
                 ),
 
-              // Category Badge (Top-Left)
-              Positioned(
-                top: 12,
-                left: 12,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
+                // Gradient Overlay
+                Container(
                   decoration: BoxDecoration(
-                    color: badgeColor,
-                    borderRadius: BorderRadius.circular(999),
-                    boxShadow: [
-                      BoxShadow(
-                        color: badgeColor.withValues(alpha: 0.4),
-                        blurRadius: 8,
-                        offset: const Offset(0, 3),
-                      ),
-                    ],
-                  ),
-                  child: Text(
-                    category,
-                    style: const TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 10,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.white,
-                      letterSpacing: 0.5,
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.black.withValues(alpha: 0.25),
+                        Colors.transparent,
+                        Colors.black.withValues(alpha: 0.65),
+                      ],
+                      stops: const [0.0, 0.4, 1.0],
                     ),
                   ),
                 ),
-              ),
 
-              // Center Frosted Glass Play / Pause Button
-              Center(
-                child: GestureDetector(
-                  onTap: _togglePlayPause,
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
+                // Category Badge (Top-Left)
+                Positioned(
+                  top: 12,
+                  left: 12,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: badgeColor,
+                      borderRadius: BorderRadius.circular(999),
+                      boxShadow: [
+                        BoxShadow(
+                          color: badgeColor.withValues(alpha: 0.4),
+                          blurRadius: 8,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: Text(
+                      category,
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ),
+                ),
+
+                // Center Frosted Glass Play Button Icon
+                Center(
+                  child: Container(
                     width: 58,
                     height: 58,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: Colors.white.withValues(alpha: _isPlaying ? 0.15 : 0.24),
+                      color: Colors.white.withValues(alpha: 0.24),
                       border: Border.all(
                         color: Colors.white.withValues(alpha: 0.55),
                         width: 1.5,
@@ -375,15 +362,15 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                         ),
                       ],
                     ),
-                    child: Icon(
-                      _isPlaying ? Icons.pause : Icons.play_arrow,
+                    child: const Icon(
+                      Icons.play_arrow_rounded,
                       color: Colors.white,
-                      size: 26,
+                      size: 36,
                     ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -391,10 +378,14 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
   }
 
   // --- Creator Card (Deep Purple Card) ---
-  // --- Creator Card (Deep Purple Card) ---
   Widget _buildCreatorCard(Map<String, dynamic> reel, Map<String, dynamic> creator) {
-    final handle = reel['handle'] as String? ?? (creator['handle'] as String? ?? '');
-    final views = (reel['views'] as String?)?.isNotEmpty == true ? reel['views'] as String : '0';
+    final handle = (reel['handle'] as String?)?.isNotEmpty == true
+        ? reel['handle'] as String
+        : ((creator['handle'] as String?)?.isNotEmpty == true ? creator['handle'] as String : '@user');
+    final views = _getFormattedCount(
+      reel['viewsCount'] ?? reel['viewCount'] ?? reel['views'],
+      reel['viewsLabel'],
+    );
     final isVerified = reel['verified'] == true || reel['isBlueTick'] == true;
 
     return Material(
@@ -500,20 +491,28 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
 
     final currentVideo = reelsProvider.getVideo(reelId) ?? reel;
 
-    final views = (currentVideo['views'] as String?)?.isNotEmpty == true
-        ? currentVideo['views'] as String
-        : '0';
-    final likes = (currentVideo['likes'] as String?)?.isNotEmpty == true
-        ? currentVideo['likes'] as String
-        : '0';
-    final int rawComments = currentVideo['commentsCount'] is int
-        ? currentVideo['commentsCount'] as int
-        : (int.tryParse(currentVideo['comments']?.toString() ?? '') ?? 0);
+    final views = _getFormattedCount(
+      currentVideo['viewsCount'] ?? currentVideo['viewCount'] ?? currentVideo['views'],
+      currentVideo['viewsLabel'],
+    );
+
+    final likes = _getFormattedCount(
+      currentVideo['likesCount'] ?? currentVideo['likeCount'] ?? currentVideo['likes'],
+      currentVideo['likesLabel'],
+    );
+
+    final int rawComments = TrendingVideoItem.parseCount(
+      currentVideo['commentsCount'] ?? currentVideo['commentCount'] ?? currentVideo['comments'],
+    );
     final int commentsVal = reelsProvider.getCommentsCount(reelId, rawComments);
-    final comments = TrendingVideoItem.formatCount(commentsVal);
-    final shares = (currentVideo['shares'] as String?)?.isNotEmpty == true
-        ? currentVideo['shares'] as String
-        : '0';
+    final comments = (currentVideo['commentsLabel'] is String && (currentVideo['commentsLabel'] as String).isNotEmpty)
+        ? currentVideo['commentsLabel'] as String
+        : TrendingVideoItem.formatCount(commentsVal);
+
+    final shares = _getFormattedCount(
+      currentVideo['sharesCount'] ?? currentVideo['shareCount'] ?? currentVideo['shares'],
+      currentVideo['sharesLabel'],
+    );
 
     return Row(
       children: [
@@ -614,25 +613,32 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
 
     double score = userRating ?? 0.0;
     if (score == 0.0) {
-      if (reel['userRating'] != null) {
+      if (reel['userRating'] != null && (double.tryParse(reel['userRating'].toString()) ?? 0.0) > 0) {
         score = double.tryParse(reel['userRating'].toString()) ?? 0.0;
-      } else if (reel['score'] != null) {
-        score = double.tryParse(reel['score'].toString()) ?? 0.0;
-      } else if (reel['rating'] != null) {
-        score = double.tryParse(reel['rating'].toString()) ?? 0.0;
-      } else if (reel['talentScore'] is num) {
+      } else if (reel['talentScore'] is num && (reel['talentScore'] as num) > 0) {
         score = (reel['talentScore'] as num).toDouble();
+      } else if (reel['averageRating'] != null && (double.tryParse(reel['averageRating'].toString()) ?? 0.0) > 0) {
+        score = double.tryParse(reel['averageRating'].toString()) ?? 0.0;
+      } else if (reel['score'] != null && (double.tryParse(reel['score'].toString()) ?? 0.0) > 0) {
+        score = double.tryParse(reel['score'].toString()) ?? 0.0;
+      } else if (reel['rating'] != null && (double.tryParse(reel['rating'].toString()) ?? 0.0) > 0) {
+        score = double.tryParse(reel['rating'].toString()) ?? 0.0;
       } else if (reel['ratings'] is List && (reel['ratings'] as List).isNotEmpty) {
         for (final item in (reel['ratings'] as List)) {
           if (item is Map && item['score'] != null) {
-            score = double.tryParse(item['score'].toString()) ?? 0.0;
-            if (score > 0) break;
+            final s = double.tryParse(item['score'].toString()) ?? 0.0;
+            if (s > 0) {
+              score = s;
+              break;
+            }
           }
         }
       }
     }
 
-    final displayScore = score > 0 ? score.toStringAsFixed(1) : (reel['rating']?.toString() ?? '8.5');
+    final displayScore = score > 0
+        ? score.toStringAsFixed(1)
+        : (reel['score']?.toString() ?? reel['rating']?.toString() ?? reel['averageRating']?.toString() ?? '0.0');
 
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),

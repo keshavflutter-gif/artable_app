@@ -225,6 +225,20 @@ class HomeUiMapper {
         item['userLiked'] == true ||
         item['userReaction']?.toString().toLowerCase() == 'like';
 
+    final rawScore = item['talentScore'] ??
+        item['talent_score'] ??
+        item['averageRating'] ??
+        item['average_rating'] ??
+        item['avgRating'] ??
+        item['avg_rating'] ??
+        item['rating'] ??
+        item['score'] ??
+        item['userRating'];
+    final scoreDouble = double.tryParse(rawScore?.toString() ?? '');
+    final scoreStr = scoreDouble != null && scoreDouble > 0
+        ? scoreDouble.toStringAsFixed(1)
+        : _firstNonEmptyString([item['ratingLabel'], item['talentScoreLabel'], item['rating'], item['score']]);
+
     return {
       'id': _stringValue(item['id']),
       'title': _stringValue(item['title']),
@@ -258,6 +272,11 @@ class HomeUiMapper {
       'verified': user?['isVerified'] == true ||
           user?['verified'] == true ||
           item['verified'] == true,
+      'talentScore': scoreDouble ?? 0.0,
+      'averageRating': scoreStr,
+      'rating': scoreStr,
+      'score': scoreStr,
+      'ratingLabel': scoreStr,
       'challengeId': item['challengeId'] ?? (item['challenge'] is Map ? item['challenge']['id'] : ''),
       'challengeTitle': challengeTitleStr,
     };
