@@ -455,6 +455,13 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
                         ),
                         const SizedBox(height: 18),
                         _ActionBtn(
+                          icon: Icons.star,
+                          count: 'Rate',
+                          rateStyle: true,
+                          onTap: () => _openRating(reelId, reel),
+                        ),
+                        const SizedBox(height: 18),
+                        _ActionBtn(
                           icon: Icons.share_outlined,
                           count: sharesText,
                           onTap: () => context
@@ -468,13 +475,6 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
                           onTap: () => context
                               .read<ReelsCubit>()
                               .toggleBookmark(reelId),
-                        ),
-                        const SizedBox(height: 18),
-                        _ActionBtn(
-                          icon: Icons.star,
-                          count: 'Rate',
-                          rateStyle: true,
-                          onTap: () => _openRating(reelId, reel),
                         ),
                       ],
                     ),
