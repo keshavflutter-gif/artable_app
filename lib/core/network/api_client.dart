@@ -1,6 +1,6 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import 'package:artable_app/features/auth/data/models/generate_session_request.dart';
 import 'package:artable_app/features/auth/data/models/login_response.dart';
 import 'api_config.dart';
 import 'api_exception.dart';
@@ -117,6 +117,54 @@ class ApiClient {
     );
   }
 
+  Future<Map<String, dynamic>> getPresignedUrl({
+    required String fileName,
+    required String fileType,
+    required String folder,
+    Map<String, String>? headers,
+  }) async {
+    final body = <String, dynamic>{
+      'fileName': fileName,
+      'fileType': fileType,
+      'folder': folder,
+    };
+    return post(
+      '/file-upload/presigned-url',
+      body: body,
+      headers: headers,
+    );
+  }
+
+  Future<bool> uploadFileToPresignedUrl({
+    required String uploadUrl,
+    required List<int> bytes,
+    required String contentType,
+  }) async {
+    try {
+      final uri = Uri.parse(uploadUrl);
+      final response = await _client.put(
+        uri,
+        headers: {
+          'Content-Type': contentType,
+        },
+        body: bytes,
+      );
+      final isSuccess = response.statusCode >= 200 && response.statusCode < 300;
+      if (!isSuccess) {
+        debugPrint(
+            '=== STORAGE UPLOAD === Video PUT status: ${response.statusCode}, body: ${response.body}');
+      } else {
+        debugPrint(
+            '=== STORAGE UPLOAD === Video PUT status: ${response.statusCode} completed');
+      }
+      return isSuccess;
+    } catch (e) {
+      debugPrint('=== STORAGE UPLOAD === Video PUT upload error: $e');
+      return false;
+    }
+  }
+
+
   Future<Map<String, dynamic>> _executeWithAuthRetry({
     required String path,
     required Future<http.Response> Function(Map<String, String> headers) send,
@@ -177,7 +225,7 @@ class ApiClient {
       return false;
     }
     if (path == '/auth/generate-session') return false;
-    return headers.containsKey('Authorization');
+    return headers.keys.any((k) => k.toLowerCase() == 'authorization');
   }
 
   Future<String?> _refreshSessionToken() {
@@ -191,20 +239,38 @@ class ApiClient {
     if (callbacks == null) return null;
 
     final refreshToken = await callbacks.getRefreshToken();
-    if (refreshToken == null || refreshToken.isEmpty) {
+    if (refreshToken == null || refreshToken.isEmpty || refreshToken == 'design_preview') {
+      debugPrint('[SESSION_REFRESH] No valid refreshToken available in storage.');
       return null;
     }
 
     final uri = Uri.parse('$_baseUrl/auth/generate-session');
+    final refreshHeaders = {
+      'Content-Type': 'application/json',
+      'Refresh-Token': refreshToken,
+      'x-refresh-token': refreshToken,
+    };
+    final refreshBody = jsonEncode({
+      'refreshToken': refreshToken,
+      'refresh_token': refreshToken,
+    });
+
+    debugPrint('=== GENERATE SESSION (TOKEN REFRESH) REQUEST ===');
+    debugPrint('URL: $uri');
+    debugPrint('Headers: $refreshHeaders');
+
     final response = await _client.post(
       uri,
-      headers: const {'Content-Type': 'application/json'},
-      body: jsonEncode(
-        GenerateSessionRequest(refreshToken: refreshToken).toJson(),
-      ),
+      headers: refreshHeaders,
+      body: refreshBody,
     );
 
+    debugPrint('=== GENERATE SESSION (TOKEN REFRESH) RESPONSE ===');
+    debugPrint('Status Code: ${response.statusCode}');
+    debugPrint('Response: ${response.body}');
+
     if (response.statusCode < 200 || response.statusCode >= 300) {
+      debugPrint('[SESSION_REFRESH] Generate-session returned HTTP ${response.statusCode}');
       return null;
     }
 
@@ -230,6 +296,7 @@ class ApiClient {
           : null,
     );
 
+    debugPrint('[SESSION_REFRESH] Tokens refreshed successfully!');
     return sessionResponse.sessionToken;
   }
 

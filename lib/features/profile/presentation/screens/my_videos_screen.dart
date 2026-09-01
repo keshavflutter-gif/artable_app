@@ -25,6 +25,7 @@ class _MyVideosScreenState extends State<MyVideosScreen> {
     ('UNDER_REVIEW', 'Under Review'),
     ('DRAFTS', 'Drafts'),
     ('REJECTED', 'Rejected'),
+    ('SAVED', 'Saved Videos'),
   ];
 
   @override
@@ -48,7 +49,11 @@ class _MyVideosScreenState extends State<MyVideosScreen> {
         // Extract tab pills dynamically from API tabs if available, else fallback
         final dynamicTabs = state.tabs.isNotEmpty
             ? state.tabs.map((t) => (t.key, t.label)).toList()
-            : _defaultFilterTabs;
+            : List<(String, String)>.from(_defaultFilterTabs);
+
+        if (!dynamicTabs.any((t) => t.$1.toUpperCase() == 'SAVED' || t.$1.toUpperCase() == 'SAVED_VIDEOS')) {
+          dynamicTabs.add(('SAVED', 'Saved Videos'));
+        }
 
         final activeTabKey = state.activeTab;
         final selectedTabLabel = dynamicTabs
@@ -60,9 +65,20 @@ class _MyVideosScreenState extends State<MyVideosScreen> {
 
         final list = state.videos;
         final emptyState = state.emptyState;
+        final isSavedTab = activeTabKey.toUpperCase() == 'SAVED' || activeTabKey.toUpperCase() == 'SAVED_VIDEOS';
+        final emptyTitle = emptyState?.title.isNotEmpty == true
+            ? emptyState!.title
+            : isSavedTab
+                ? 'No Saved Videos'
+                : 'No Videos Available';
         final emptyMsg = emptyState?.message.isNotEmpty == true
             ? emptyState!.message
-            : 'No videos found in this section.';
+            : isSavedTab
+                ? 'You have not saved any videos yet. Tap the save icon on any video to bookmark it here.'
+                : 'No videos found in this section.';
+        final emptyIcon = isSavedTab
+            ? Icons.bookmark_border_rounded
+            : Icons.video_library_outlined;
 
         return AppScreen(
           child: Column(
@@ -101,12 +117,10 @@ class _MyVideosScreenState extends State<MyVideosScreen> {
                                   ),
                                   child: Column(
                                     children: [
-                                      const Icon(Icons.video_library_outlined, size: 40, color: AppColors.textSoft),
+                                      Icon(emptyIcon, size: 44, color: AppColors.purple),
                                       const SizedBox(height: 10),
                                       Text(
-                                        emptyState?.title.isNotEmpty == true
-                                            ? emptyState!.title
-                                            : 'No Videos Available',
+                                        emptyTitle,
                                         style: const TextStyle(
                                           fontFamily: 'Poppins',
                                           fontSize: 15,
@@ -178,6 +192,9 @@ class _FigmaMyVideoCard extends StatelessWidget {
     } else if (statusRaw == 'draft') {
       badgeColor = const Color(0xFF5E2EAA);
       badgeLabel = 'DRAFT';
+    } else if (statusRaw == 'saved') {
+      badgeColor = const Color(0xFF00B0FF);
+      badgeLabel = 'SAVED';
     } else {
       badgeColor = const Color(0xFFFF3B30);
       badgeLabel = 'REJECTED';

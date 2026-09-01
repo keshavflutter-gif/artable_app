@@ -254,14 +254,46 @@ class ReelsCubit extends Cubit<ReelsState> {
     }
   }
 
-  void toggleBookmark(String videoId) {
+  Future<void> toggleBookmark(String videoId) async {
+    final vId = videoId.trim();
+    if (vId.isEmpty) return;
+
     final bookmarked = Set<String>.from(state.bookmarkedVideoIds);
-    if (bookmarked.contains(videoId)) {
-      bookmarked.remove(videoId);
+    if (bookmarked.contains(vId)) {
+      bookmarked.remove(vId);
     } else {
-      bookmarked.add(videoId);
+      bookmarked.add(vId);
     }
     emit(state.copyWith(bookmarkedVideoIds: bookmarked));
+
+    try {
+      final token = _authCubit?.sessionToken;
+      final refresh = _authCubit?.refreshToken;
+      final res = await _videosRepository.saveVideo(
+        videoId: vId,
+        sessionToken: (token != null && token != 'design_preview') ? token : null,
+        refreshToken: (refresh != null && refresh != 'design_preview') ? refresh : null,
+      );
+
+      final data = res['data'];
+      if (data is Map<String, dynamic>) {
+        final videos = List<Map<String, dynamic>>.from(
+          state.videos.map((v) => Map<String, dynamic>.from(v)),
+        );
+        for (final v in videos) {
+          final curId = v['id']?.toString() ?? v['_id']?.toString() ?? '';
+          if (curId == vId) {
+            if (data.containsKey('saves')) {
+              v['saves'] = data['saves'];
+            }
+            break;
+          }
+        }
+        emit(state.copyWith(videos: videos));
+      }
+    } catch (e) {
+      debugPrint('saveVideo API error: $e');
+    }
   }
 
   Future<bool> rateVideo(String videoId, double rating) async {

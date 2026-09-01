@@ -37,6 +37,13 @@ class StudioVideoPlayerUtils {
     }
 
     final file = File(cleanPath);
+    final exists = file.existsSync();
+    final fileSize = exists ? file.lengthSync() : 0;
+    debugPrint('=== VIDEO RECORDING ===');
+    debugPrint('Recorded video path: $cleanPath');
+    debugPrint('Recorded file exists: $exists');
+    debugPrint('Recorded file size: $fileSize');
+
     if (!await _waitForRecordedFile(file)) {
       debugPrint('Recorded video file not ready: $cleanPath');
       return null;

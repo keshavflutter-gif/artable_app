@@ -1875,6 +1875,7 @@ function hydrateMyVideos() {
     { id: 'under_review', label: 'Under Review' },
     { id: 'draft', label: 'Drafts' },
     { id: 'rejected', label: 'Rejected' },
+    { id: 'saved', label: 'Saved Videos' },
   ];
   const filterEl = document.getElementById('myVideosFilterChips');
   if (filterEl) filterEl.innerHTML = filters.map((f, i) => `<button class="filter-pill${i === 0 ? ' is-active' : ''}" type="button" data-status="${f.id}">${f.label}</button>`).join('');

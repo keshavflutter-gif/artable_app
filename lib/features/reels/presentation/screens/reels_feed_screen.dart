@@ -748,7 +748,8 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer> {
       return;
     }
 
-    debugPrint('Initializing video with videoUrl only');
+    debugPrint('=== VIDEO PLAYBACK === Playback videoUrl: $resolvedUrl');
+    debugPrint('=== VIDEO PLAYBACK === Network player initialization started');
     setState(() {
       _isInitializing = true;
       _hasError = false;
@@ -765,12 +766,13 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer> {
       if (widget.isActive) {
         await controller.play();
       }
+      debugPrint('=== VIDEO PLAYBACK === Network player initialized: true');
       setState(() {
         _isInitialized = true;
         _isInitializing = false;
       });
     } catch (e) {
-      debugPrint('Error initializing reel video: $e');
+      debugPrint('=== VIDEO PLAYBACK === Network player error: $e');
       if (mounted) {
         setState(() {
           _hasError = true;

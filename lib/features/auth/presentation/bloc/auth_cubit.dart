@@ -84,14 +84,23 @@ class AuthCubit extends Cubit<AuthState> {
     ));
   }
 
+  bool _isHandlingRefreshFailure = false;
+
   Future<void> handleSessionRefreshFailed() async {
-    await logout();
+    if (_isHandlingRefreshFailure) return;
+    _isHandlingRefreshFailure = true;
     try {
-      if (appRouter.canPop()) {
-        appRouter.pop();
-      }
-    } catch (_) {}
-    appRouter.go(AppRoutes.login);
+      debugPrint('[AUTH_CUBIT] Refresh token expired or session invalid (401). Logging out user...');
+      await logout();
+      try {
+        if (appRouter.canPop()) {
+          appRouter.pop();
+        }
+      } catch (_) {}
+      appRouter.go(AppRoutes.login);
+    } finally {
+      _isHandlingRefreshFailure = false;
+    }
   }
 
   Future<void> initialize() {

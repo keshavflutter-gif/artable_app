@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:artable_app/core/network/api_auth_headers.dart';
 import 'package:artable_app/core/network/api_client.dart';
 import 'package:artable_app/core/network/api_session_callbacks_factory.dart';
@@ -130,30 +131,48 @@ class VideosRepository {
     // 1. Ensure video URL is ready
     String finalVideoUrl = videoPathOrUrl;
     if (!finalVideoUrl.startsWith('http://') && !finalVideoUrl.startsWith('https://')) {
-      finalVideoUrl = await _uploadFile(finalVideoUrl, isVideo: true);
+      finalVideoUrl = await _uploadFile(
+        finalVideoUrl,
+        isVideo: true,
+        sessionToken: sessionToken,
+        refreshToken: refreshToken,
+      );
     }
 
     // 2. Resolve Thumbnail (Priority: Manual selected thumbnail > Video-generated thumbnail)
-    String finalThumbnailUrl;
+    String finalThumbnailUrl = 'https://images.unsplash.com/photo-1547153760-18fc86324498?w=600&q=80';
     if (manualSelectedThumbnailPath != null &&
         manualSelectedThumbnailPath.trim().isNotEmpty &&
         manualSelectedThumbnailPath.trim() != 'null') {
-      // Manual thumbnail selected: Use selected thumbnail image & upload (Do NOT generate from video)
       final path = manualSelectedThumbnailPath.trim();
       if (path.startsWith('http://') || path.startsWith('https://')) {
         finalThumbnailUrl = path;
       } else {
-        finalThumbnailUrl = await _uploadFile(path, isVideo: false);
+        try {
+          finalThumbnailUrl = await _uploadFile(
+            path,
+            isVideo: false,
+            sessionToken: sessionToken,
+            refreshToken: refreshToken,
+          );
+        } catch (e) {
+          debugPrint('Thumbnail upload error fallback to default: $e');
+        }
       }
     } else {
-      // No thumbnail selected: Automatically generate thumbnail from video frame & upload
-      final generatedFile =
-          await VideoThumbnailGenerator.generateThumbnailFromVideo(videoPathOrUrl);
-      if (generatedFile != null && await generatedFile.exists()) {
-        finalThumbnailUrl = await _uploadFile(generatedFile.path, isVideo: false);
-      } else {
-        finalThumbnailUrl =
-            'https://images.unsplash.com/photo-1547153760-18fc86324498?w=600&q=80';
+      try {
+        final generatedFile =
+            await VideoThumbnailGenerator.generateThumbnailFromVideo(videoPathOrUrl);
+        if (generatedFile != null && await generatedFile.exists()) {
+          finalThumbnailUrl = await _uploadFile(
+            generatedFile.path,
+            isVideo: false,
+            sessionToken: sessionToken,
+            refreshToken: refreshToken,
+          );
+        }
+      } catch (e) {
+        debugPrint('Generated thumbnail upload error fallback to default: $e');
       }
     }
 
@@ -194,11 +213,24 @@ class VideosRepository {
         'challengeId': challengeId.trim(),
     };
 
-    return _apiClient.post(
+    debugPrint('=== CREATE VIDEO === Create Video videoUrl: $finalVideoUrl');
+    debugPrint('=== CREATE VIDEO === Create Video API request payload: $body');
+
+    final response = await _apiClient.post(
       '/app/videos',
       body: body,
       headers: headers.isNotEmpty ? headers : null,
     );
+
+    final isSuccess = response['success'] == true || response['status'] == 200 || response['status'] == 201;
+    final createdData = response['data'] is Map ? Map<String, dynamic>.from(response['data'] as Map) : null;
+    final createdId = createdData?['id']?.toString() ?? 'N/A';
+
+    debugPrint('=== CREATE VIDEO === Create Video API status: ${response['status'] ?? 200}');
+    debugPrint('=== CREATE VIDEO === Create Video success: $isSuccess');
+    debugPrint('=== CREATE VIDEO === Created video ID: $createdId');
+
+    return response;
   }
 
   List<String> _parseHashtagsList(dynamic input) {
@@ -240,6 +272,28 @@ class VideosRepository {
 
     return _apiClient.post(
       '/app/videos/$videoId/like',
+      headers: headers.isNotEmpty ? headers : null,
+    );
+  }
+
+  Future<Map<String, dynamic>> saveVideo({
+    required String videoId,
+    String? sessionToken,
+    String? refreshToken,
+  }) async {
+    final cleanId = videoId.trim();
+    final headers = (sessionToken != null &&
+            sessionToken.isNotEmpty &&
+            refreshToken != null &&
+            refreshToken.isNotEmpty)
+        ? ApiAuthHeaders.authenticated(
+            sessionToken: sessionToken,
+            refreshToken: refreshToken,
+          )
+        : <String, String>{};
+
+    return _apiClient.post(
+      '/app/videos/$cleanId/save',
       headers: headers.isNotEmpty ? headers : null,
     );
   }
@@ -352,19 +406,105 @@ class VideosRepository {
     );
   }
 
-  Future<String> _uploadFile(String filePath, {required bool isVideo}) async {
-    var clean = filePath;
+  Future<String> _uploadFile(
+    String filePath, {
+    required bool isVideo,
+    String? sessionToken,
+    String? refreshToken,
+  }) async {
+    var clean = filePath.trim();
     if (clean.startsWith('file://')) {
       clean = clean.replaceFirst('file://', '');
     }
+
     final file = File(clean);
-    if (!file.existsSync()) {
-      return isVideo
-          ? 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4'
-          : 'https://images.unsplash.com/photo-1547153760-18fc86324498?w=600&q=80';
+    if (!await file.exists()) {
+      throw Exception('Local file does not exist at $clean');
     }
-    return isVideo
-        ? 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4'
-        : 'https://images.unsplash.com/photo-1547153760-18fc86324498?w=600&q=80';
+
+    final fileSize = await file.length();
+    if (fileSize <= 0) {
+      throw Exception('Recorded file size is 0 bytes');
+    }
+
+    final rawName = file.path.split(Platform.pathSeparator).last;
+    final fileName = rawName.isNotEmpty
+        ? rawName
+        : (isVideo
+            ? 'video_${DateTime.now().millisecondsSinceEpoch}.mp4'
+            : 'thumb_${DateTime.now().millisecondsSinceEpoch}.jpg');
+    final fileType = isVideo ? 'video/mp4' : 'image/jpeg';
+    final folder = isVideo ? 'videos' : 'thumbnails';
+
+    final headers = (sessionToken != null &&
+            sessionToken.isNotEmpty &&
+            refreshToken != null &&
+            refreshToken.isNotEmpty)
+        ? ApiAuthHeaders.authenticated(
+            sessionToken: sessionToken,
+            refreshToken: refreshToken,
+          )
+        : <String, String>{};
+
+    debugPrint('=== PRESIGNED URL === Presigned URL API called');
+    debugPrint(
+        '=== PRESIGNED URL === fileName: $fileName, fileType: $fileType, folder: $folder');
+
+    final presignedRes = await _apiClient.getPresignedUrl(
+      fileName: fileName,
+      fileType: fileType,
+      folder: folder,
+      headers: headers.isNotEmpty ? headers : null,
+    );
+
+    if (presignedRes['success'] != true || presignedRes['data'] is! Map) {
+      final msg = presignedRes['message']?.toString() ??
+          'Failed to get presigned upload URL';
+      debugPrint('=== PRESIGNED URL ERROR === $msg');
+      throw Exception(msg);
+    }
+
+    final data = Map<String, dynamic>.from(presignedRes['data'] as Map);
+    final uploadUrl = data['uploadUrl']?.toString();
+    final fileUrl = data['fileUrl']?.toString();
+    final key = data['key']?.toString();
+    final contentType = data['contentType']?.toString() ?? fileType;
+
+    if (uploadUrl == null || uploadUrl.isEmpty) {
+      throw Exception('Presigned URL response missing uploadUrl');
+    }
+    if (fileUrl == null || fileUrl.isEmpty) {
+      throw Exception('Presigned URL response missing fileUrl');
+    }
+
+    final uploadUri = Uri.tryParse(uploadUrl);
+    final sanitizedUploadUrl = uploadUri != null
+        ? '${uploadUri.scheme}://${uploadUri.host}${uploadUri.path}'
+        : '***uploadUrl***';
+
+    debugPrint(
+        '=== PRESIGNED URL === uploadUrl received: $sanitizedUploadUrl');
+    debugPrint('=== PRESIGNED URL === fileUrl received: $fileUrl');
+    debugPrint('=== PRESIGNED URL === contentType: $contentType');
+    debugPrint('=== PRESIGNED URL === key: $key');
+
+    debugPrint(
+        '=== STORAGE UPLOAD === Video PUT upload started for $fileSize bytes');
+    final bytes = await file.readAsBytes();
+
+    final uploadSuccess = await _apiClient.uploadFileToPresignedUrl(
+      uploadUrl: uploadUrl,
+      bytes: bytes,
+      contentType: contentType,
+    );
+
+    if (!uploadSuccess) {
+      debugPrint('=== STORAGE UPLOAD === Storage PUT upload failed');
+      throw Exception('Storage PUT upload failed for $fileName');
+    }
+
+    debugPrint(
+        '=== STORAGE UPLOAD === Video PUT upload completed successfully');
+    return fileUrl;
   }
 }
