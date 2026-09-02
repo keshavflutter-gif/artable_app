@@ -1,6 +1,7 @@
 import 'package:video_player/video_player.dart';
-import 'package:artable_app/data/datasources/mock_data.dart';
 import 'package:artable_app/data/datasources/music_api_service.dart';
+import 'package:artable_app/features/studio/data/models/studio_filters_response.dart';
+import 'package:artable_app/features/studio/data/models/studio_setup_response.dart';
 
 enum StudioCameraMode { back, front }
 
@@ -27,8 +28,15 @@ class StudioState {
     this.recordingFilter = 'natural',
     this.recordingBeautyOn = false,
     this.recordingBeautyIntensity = 50,
+    this.filtersConfig,
+    this.isLoadingFilters = false,
+    this.studioSetup,
+    this.isSetupLoading = false,
+    this.isSavingDraft = false,
+    this.saveDraftError,
+    this.isLoadingDrafts = false,
     List<Map<String, dynamic>>? drafts,
-  }) : drafts = drafts ?? List<Map<String, dynamic>>.from(MockData.DRAFTS);
+  }) : drafts = drafts ?? const [];
 
   final String recordedDuration;
   final String? recordedVideoPath;
@@ -54,6 +62,16 @@ class StudioState {
   final String recordingFilter;
   final bool recordingBeautyOn;
   final double recordingBeautyIntensity;
+
+  final StudioFiltersConfig? filtersConfig;
+  final bool isLoadingFilters;
+
+  final StudioSetupData? studioSetup;
+  final bool isSetupLoading;
+
+  final bool isSavingDraft;
+  final String? saveDraftError;
+  final bool isLoadingDrafts;
 
   final List<Map<String, dynamic>> drafts;
 
@@ -88,11 +106,19 @@ class StudioState {
     String? recordingFilter,
     bool? recordingBeautyOn,
     double? recordingBeautyIntensity,
+    StudioFiltersConfig? filtersConfig,
+    bool? isLoadingFilters,
+    StudioSetupData? studioSetup,
+    bool? isSetupLoading,
+    bool? isSavingDraft,
+    String? saveDraftError,
+    bool? isLoadingDrafts,
     List<Map<String, dynamic>>? drafts,
     bool clearRecordedVideoPath = false,
     bool clearSelectedThumbnailPath = false,
     bool clearSelectedMusic = false,
     bool clearActiveVideoController = false,
+    bool clearSaveDraftError = false,
   }) {
     return StudioState(
       recordedDuration: recordedDuration ?? this.recordedDuration,
@@ -116,6 +142,13 @@ class StudioState {
       recordingFilter: recordingFilter ?? this.recordingFilter,
       recordingBeautyOn: recordingBeautyOn ?? this.recordingBeautyOn,
       recordingBeautyIntensity: recordingBeautyIntensity ?? this.recordingBeautyIntensity,
+      filtersConfig: filtersConfig ?? this.filtersConfig,
+      isLoadingFilters: isLoadingFilters ?? this.isLoadingFilters,
+      studioSetup: studioSetup ?? this.studioSetup,
+      isSetupLoading: isSetupLoading ?? this.isSetupLoading,
+      isSavingDraft: isSavingDraft ?? this.isSavingDraft,
+      saveDraftError: clearSaveDraftError ? null : (saveDraftError ?? this.saveDraftError),
+      isLoadingDrafts: isLoadingDrafts ?? this.isLoadingDrafts,
       drafts: drafts ?? this.drafts,
     );
   }

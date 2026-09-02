@@ -5,10 +5,332 @@ import 'package:video_player/video_player.dart';
 
 import 'package:artable_app/data/datasources/mock_data.dart';
 import 'package:artable_app/data/datasources/music_api_service.dart';
+import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
+import 'package:artable_app/features/studio/data/models/studio_filters_response.dart';
+import 'package:artable_app/features/studio/data/repositories/studio_repository.dart';
+import 'package:artable_app/features/studio/data/services/video_thumbnail_generator.dart';
 import 'studio_state.dart';
 
 class StudioCubit extends Cubit<StudioState> {
-  StudioCubit() : super(StudioState());
+  StudioCubit({
+    AuthCubit? authCubit,
+    StudioRepository? repository,
+  })  : _authCubit = authCubit,
+        _repository = repository ??
+            StudioRepository(
+              onTokensRefreshed: authCubit?.applyRefreshedTokens,
+              onSessionRefreshFailed: authCubit?.handleSessionRefreshFailed,
+            ),
+        super(StudioState());
+
+  AuthCubit? _authCubit;
+  final StudioRepository _repository;
+
+  void updateAuth(AuthCubit authCubit) {
+    _authCubit = authCubit;
+  }
+
+  StudioFiltersConfig? get filtersConfig => state.filtersConfig;
+
+  Future<void> loadFiltersConfig({bool forceRefresh = false}) async {
+    if (state.isLoadingFilters) return;
+    if (state.filtersConfig != null && !forceRefresh) return;
+
+    emit(state.copyWith(isLoadingFilters: true));
+
+    final token = _authCubit?.sessionToken;
+    final refresh = _authCubit?.refreshToken;
+
+    try {
+      final res = await _repository.getStudioFiltersConfig(
+        sessionToken: (token != null && token != 'design_preview') ? token : null,
+        refreshToken: (refresh != null && refresh != 'design_preview') ? refresh : null,
+      );
+
+      emit(state.copyWith(
+        filtersConfig: res.data,
+        isLoadingFilters: false,
+      ));
+    } catch (e) {
+      debugPrint('StudioCubit loadFiltersConfig error: $e');
+      emit(state.copyWith(
+        filtersConfig: const StudioFiltersConfig.empty(),
+        isLoadingFilters: false,
+      ));
+    }
+  }
+
+  Future<void> fetchStudioSetup(String challengeId, {bool forceRefresh = false}) async {
+    final cleanId = challengeId.trim();
+    if (cleanId.isEmpty) return;
+
+    if (state.studioSetup != null &&
+        state.studioSetup!.challenge.id == cleanId &&
+        !forceRefresh) {
+      return;
+    }
+
+    emit(state.copyWith(isSetupLoading: true));
+
+    final token = _authCubit?.sessionToken;
+    final refresh = _authCubit?.refreshToken;
+
+    try {
+      final res = await _repository.getStudioSetup(
+        challengeId: cleanId,
+        sessionToken: (token != null && token != 'design_preview') ? token : null,
+        refreshToken: (refresh != null && refresh != 'design_preview') ? refresh : null,
+      );
+
+      if (res != null && res.success) {
+        emit(state.copyWith(
+          studioSetup: res.data,
+          isSetupLoading: false,
+        ));
+      } else {
+        emit(state.copyWith(isSetupLoading: false));
+      }
+    } catch (e) {
+      debugPrint('StudioCubit fetchStudioSetup error: $e');
+      emit(state.copyWith(isSetupLoading: false));
+    }
+  }
+
+  Future<Map<String, dynamic>?> saveDraftFromPreview({
+    required Map<String, dynamic> challenge,
+    String? title,
+    String? description,
+    String? videoUrl,
+    String? thumbnailUrl,
+    List<String>? hashtags,
+    int? durationSeconds,
+  }) async {
+    emit(state.copyWith(isSavingDraft: true, clearSaveDraftError: true));
+
+    final token = _authCubit?.sessionToken;
+    final refresh = _authCubit?.refreshToken;
+
+    final cleanChallengeId = (challenge['id']?.toString() ?? state.videoChallengeId ?? '').trim();
+    final cleanCategoryId = (challenge['categoryId']?.toString() ?? state.videoCategoryId)?.trim();
+    final draftTitle = (title ?? challenge['title']?.toString() ?? 'Studio Draft').trim();
+    final draftDescription = description ?? 'Draft from studio preview';
+    final recVideoPath = (videoUrl ?? state.recordedVideoPath ?? '').trim();
+
+    String resolvedThumbPath = (thumbnailUrl ?? state.selectedThumbnailPath ?? '').trim();
+
+    if (resolvedThumbPath.isEmpty || resolvedThumbPath.contains('storage.example')) {
+      if (recVideoPath.isNotEmpty) {
+        try {
+          final genFile = await VideoThumbnailGenerator.generateThumbnailFromVideo(recVideoPath);
+          if (genFile != null && await genFile.exists()) {
+            resolvedThumbPath = genFile.path;
+            emit(state.copyWith(selectedThumbnailPath: resolvedThumbPath));
+          }
+        } catch (e) {
+          debugPrint('Video frame thumbnail generation warning: $e');
+        }
+      }
+    }
+
+    if (resolvedThumbPath.isEmpty) {
+      resolvedThumbPath = (challenge['bannerUrl']?.toString() ?? challenge['imageUrl']?.toString() ?? '').trim();
+    }
+
+    final vUrl = recVideoPath.isNotEmpty ? recVideoPath : 'https://storage.example/videos/demo-entry.mp4';
+    final tUrl = resolvedThumbPath.isNotEmpty ? resolvedThumbPath : 'https://storage.example/videos/demo-entry.jpg';
+
+    int durSecs = durationSeconds ?? 42;
+    if (durationSeconds == null) {
+      final durParts = state.recordedDuration.split(':');
+      if (durParts.length == 2) {
+        final m = int.tryParse(durParts[0]) ?? 0;
+        final s = int.tryParse(durParts[1]) ?? 0;
+        durSecs = m * 60 + s;
+      }
+    }
+
+    final body = {
+      if (cleanChallengeId.isNotEmpty) 'challengeId': cleanChallengeId,
+      if (cleanCategoryId != null && cleanCategoryId.isNotEmpty) 'categoryId': cleanCategoryId,
+      'title': draftTitle,
+      'description': draftDescription,
+      'videoUrl': vUrl.startsWith('http') ? vUrl : 'https://storage.example/videos/demo-entry.mp4',
+      'thumbnailUrl': tUrl.startsWith('http') ? tUrl : 'https://storage.example/videos/demo-entry.jpg',
+      'hashtags': (hashtags != null && hashtags.isNotEmpty) ? hashtags : ['dance', 'talent', 'artable'],
+      'durationSeconds': durSecs > 0 ? durSecs : 42,
+    };
+
+    try {
+      final res = await _repository.saveDraft(
+        body: body,
+        sessionToken: (token != null && token != 'design_preview') ? token : null,
+        refreshToken: (refresh != null && refresh != 'design_preview') ? refresh : null,
+      );
+
+      if (res.success && res.data != null) {
+        final uiDraftMap = res.data!.toUiMap();
+        addDraft(uiDraftMap);
+        emit(state.copyWith(isSavingDraft: false));
+        return uiDraftMap;
+      } else {
+        emit(state.copyWith(
+          isSavingDraft: false,
+          saveDraftError: res.message.isNotEmpty ? res.message : 'Failed to save draft',
+        ));
+        return null;
+      }
+    } catch (e) {
+      debugPrint('StudioCubit saveDraftFromPreview error: $e');
+      final localDraft = {
+        'id': 'd${DateTime.now().millisecondsSinceEpoch}',
+        'challengeId': cleanChallengeId,
+        'challengeTitle': draftTitle,
+        'duration': state.recordedDuration,
+        'recordedAt': DateTime.now().toIso8601String(),
+        'thumbnailUrl': tUrl,
+        'videoPath': state.recordedVideoPath,
+        ...state.recordingEffectsPayload,
+      };
+      addDraft(localDraft);
+      emit(state.copyWith(isSavingDraft: false));
+      return localDraft;
+    }
+  }
+
+  Future<Map<String, dynamic>?> updateDraftDetails({
+    required String videoId,
+    required Map<String, dynamic> challenge,
+    String? title,
+    String? description,
+    String? thumbnailUrl,
+    List<String>? hashtags,
+    int? durationSeconds,
+  }) async {
+    final cleanVideoId = videoId.trim();
+    if (cleanVideoId.isEmpty) return null;
+
+    emit(state.copyWith(isSavingDraft: true, clearSaveDraftError: true));
+
+    final token = _authCubit?.sessionToken;
+    final refresh = _authCubit?.refreshToken;
+
+    final cleanChallengeId = (challenge['id']?.toString() ?? state.videoChallengeId ?? '').trim();
+    final cleanCategoryId = (challenge['categoryId']?.toString() ?? state.videoCategoryId)?.trim();
+    final draftTitle = (title ?? challenge['title']?.toString() ?? 'My Dance Entry').trim();
+    final draftDescription = description ?? 'This is my challenge performance.';
+    final recVideoPath = (state.recordedVideoPath ?? '').trim();
+
+    String resolvedThumbPath = (thumbnailUrl ?? state.selectedThumbnailPath ?? '').trim();
+
+    if (resolvedThumbPath.isEmpty || resolvedThumbPath.contains('storage.example')) {
+      if (recVideoPath.isNotEmpty) {
+        try {
+          final genFile = await VideoThumbnailGenerator.generateThumbnailFromVideo(recVideoPath);
+          if (genFile != null && await genFile.exists()) {
+            resolvedThumbPath = genFile.path;
+            emit(state.copyWith(selectedThumbnailPath: resolvedThumbPath));
+          }
+        } catch (e) {
+          debugPrint('Video frame thumbnail generation warning: $e');
+        }
+      }
+    }
+
+    if (resolvedThumbPath.isEmpty) {
+      resolvedThumbPath = (challenge['bannerUrl']?.toString() ?? challenge['imageUrl']?.toString() ?? '').trim();
+    }
+
+    final tUrl = resolvedThumbPath.isNotEmpty ? resolvedThumbPath : 'https://storage.example/videos/demo-entry.jpg';
+
+    int durSecs = durationSeconds ?? 42;
+    if (durationSeconds == null) {
+      final durParts = state.recordedDuration.split(':');
+      if (durParts.length == 2) {
+        final m = int.tryParse(durParts[0]) ?? 0;
+        final s = int.tryParse(durParts[1]) ?? 0;
+        durSecs = m * 60 + s;
+      }
+    }
+
+    final body = {
+      if (cleanChallengeId.isNotEmpty) 'challengeId': cleanChallengeId,
+      if (cleanCategoryId != null && cleanCategoryId.isNotEmpty) 'categoryId': cleanCategoryId,
+      'title': draftTitle,
+      'description': draftDescription,
+      'thumbnailUrl': tUrl.startsWith('http') ? tUrl : 'https://storage.example/videos/demo-entry.jpg',
+      'hashtags': (hashtags != null && hashtags.isNotEmpty) ? hashtags : ['dance', 'talent', 'artable'],
+      'durationSeconds': durSecs > 0 ? durSecs : 42,
+    };
+
+    try {
+      final res = await _repository.updateDraft(
+        videoId: cleanVideoId,
+        body: body,
+        sessionToken: (token != null && token != 'design_preview') ? token : null,
+        refreshToken: (refresh != null && refresh != 'design_preview') ? refresh : null,
+      );
+
+      if (res.success && res.data != null) {
+        final uiDraftMap = res.data!.toUiMap();
+
+        final updatedDrafts = state.drafts.map((d) {
+          if (d['id'] == cleanVideoId) {
+            return {...d, ...uiDraftMap};
+          }
+          return d;
+        }).toList();
+
+        emit(state.copyWith(
+          drafts: updatedDrafts,
+          isSavingDraft: false,
+        ));
+        return uiDraftMap;
+      } else {
+        emit(state.copyWith(
+          isSavingDraft: false,
+          saveDraftError: res.message.isNotEmpty ? res.message : 'Failed to update draft',
+        ));
+        return null;
+      }
+    } catch (e) {
+      debugPrint('StudioCubit updateDraftDetails error: $e');
+      emit(state.copyWith(
+        isSavingDraft: false,
+        saveDraftError: e.toString(),
+      ));
+      return null;
+    }
+  }
+
+  Future<void> fetchDraftsList({String? challengeId, bool forceRefresh = false}) async {
+    if (state.isLoadingDrafts) return;
+
+    emit(state.copyWith(isLoadingDrafts: true));
+
+    final token = _authCubit?.sessionToken;
+    final refresh = _authCubit?.refreshToken;
+
+    try {
+      final res = await _repository.getDraftsList(
+        challengeId: challengeId,
+        sessionToken: (token != null && token != 'design_preview') ? token : null,
+        refreshToken: (refresh != null && refresh != 'design_preview') ? refresh : null,
+      );
+
+      if (res.success) {
+        final uiDrafts = res.data.map((d) => d.toUiMap()).toList();
+        emit(state.copyWith(
+          drafts: uiDrafts,
+          isLoadingDrafts: false,
+        ));
+      } else {
+        emit(state.copyWith(isLoadingDrafts: false));
+      }
+    } catch (e) {
+      debugPrint('StudioCubit fetchDraftsList error: $e');
+      emit(state.copyWith(isLoadingDrafts: false));
+    }
+  }
 
   String get recordedDuration => state.recordedDuration;
   String? get recordedVideoPath => state.recordedVideoPath;
@@ -210,11 +532,38 @@ class StudioCubit extends Cubit<StudioState> {
     emit(state.copyWith(drafts: updated));
   }
 
-  void deleteDraft(String id) {
+  Future<bool> deleteDraft(String id) async {
+    final cleanId = id.trim();
+    if (cleanId.isEmpty) return false;
+
+    final previousDrafts = List<Map<String, dynamic>>.from(state.drafts);
     final updated = List<Map<String, dynamic>>.from(state.drafts)
-      ..removeWhere((d) => d['id'] == id);
-    MockData.DRAFTS.removeWhere((d) => d['id'] == id);
+      ..removeWhere((d) => d['id'] == cleanId);
+    MockData.DRAFTS.removeWhere((d) => d['id'] == cleanId);
     emit(state.copyWith(drafts: updated));
+
+    final token = _authCubit?.sessionToken;
+    final refresh = _authCubit?.refreshToken;
+
+    try {
+      final res = await _repository.deleteDraft(
+        videoId: cleanId,
+        sessionToken: (token != null && token != 'design_preview') ? token : null,
+        refreshToken: (refresh != null && refresh != 'design_preview') ? refresh : null,
+      );
+
+      final isSuccess = res['success'] == true;
+      if (!isSuccess && !cleanId.startsWith('d')) {
+        emit(state.copyWith(drafts: previousDrafts));
+      }
+      return isSuccess || cleanId.startsWith('d');
+    } catch (e) {
+      debugPrint('StudioCubit deleteDraft error for $cleanId: $e');
+      if (!cleanId.startsWith('d')) {
+        emit(state.copyWith(drafts: previousDrafts));
+      }
+      return cleanId.startsWith('d');
+    }
   }
 
   void resetSession() {

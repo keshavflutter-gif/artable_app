@@ -386,7 +386,15 @@ class _FigmaMyVideoCard extends StatelessWidget {
                           child: _buildSmallActionButton(
                             icon: Icons.edit_outlined,
                             label: 'Continue Draft',
-                            onTap: () => context.push('/studio-drafts'),
+                            onTap: () {
+                              final challengeObj = item.challenge;
+                              final challengeId = challengeObj?['id']?.toString() ?? '';
+                              if (challengeId.isNotEmpty) {
+                                context.push('/studio-drafts?id=$challengeId');
+                              } else {
+                                context.push('/studio-drafts');
+                              }
+                            },
                           ),
                         ),
                         const SizedBox(width: 5),

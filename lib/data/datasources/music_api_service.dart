@@ -165,7 +165,7 @@ class MusicApiService {
           'Accept': 'application/json',
           'User-Agent': 'ArtableApp/1.0',
         },
-      ).timeout(const Duration(seconds: 3));
+      ).timeout(const Duration(seconds: 6));
 
       if (response.statusCode == 200) {
         final tracks = await compute(parseMusicTracksFromJson, response.body);

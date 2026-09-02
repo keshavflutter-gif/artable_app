@@ -159,6 +159,61 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
     }
   }
 
+  Future<void> _handleSaveDraft(StudioCubit studio) async {
+    final title = _titleController.text.trim();
+    final description = _descriptionController.text.trim();
+    final rawHashtags = _hashtagsController.text.trim();
+    final effectiveHashtags = rawHashtags.isNotEmpty
+        ? rawHashtags.split(' ')
+        : (_hashtagChips.isNotEmpty
+            ? _hashtagChips
+            : ['dance', 'talent', 'artable']);
+
+    final challengeObj = {
+      'id': _challengeId,
+      'categoryId': _categoryId,
+      'title': title.isNotEmpty ? title : 'Studio Draft',
+    };
+
+    final existingDraftId = widget.draftId ?? _draft?['id'] as String?;
+
+    final res = (existingDraftId != null && existingDraftId.isNotEmpty)
+        ? await studio.updateDraftDetails(
+            videoId: existingDraftId,
+            challenge: challengeObj,
+            title: title.isNotEmpty ? title : null,
+            description: description.isNotEmpty ? description : null,
+            hashtags: effectiveHashtags,
+          )
+        : await studio.saveDraftFromPreview(
+            challenge: challengeObj,
+            title: title.isNotEmpty ? title : null,
+            description: description.isNotEmpty ? description : null,
+            hashtags: effectiveHashtags,
+          );
+
+    if (!mounted) return;
+
+    if (res != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Draft saved successfully'),
+          backgroundColor: AppColors.purple,
+          duration: Duration(seconds: 2),
+        ),
+      );
+      context.push('${AppRoutes.studioDrafts}?id=$_challengeId');
+    } else {
+      final errorMsg = studio.state.saveDraftError ?? 'Failed to save draft';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(errorMsg),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    }
+  }
+
   Map<String, dynamic> get _selectedChallenge =>
       ReelHelpers.challengeById(_challengeId)!;
 
@@ -569,10 +624,8 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
                       children: [
                         Expanded(
                           child: SecondaryOutlineButton(
-                            label: 'Save Draft',
-                            onPressed: () => context.push(
-                              '${AppRoutes.studioDrafts}?id=$_challengeId',
-                            ),
+                            label: studio.state.isSavingDraft ? 'Saving...' : 'Save Draft',
+                            onPressed: studio.state.isSavingDraft ? null : () => _handleSaveDraft(studio),
                           ),
                         ),
                         const SizedBox(width: 10),

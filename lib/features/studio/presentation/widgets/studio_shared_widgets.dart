@@ -7,15 +7,21 @@ import 'package:artable_app/core/utils/formatters.dart';
 import 'package:artable_app/core/widgets/app_network_image.dart';
 
 class StudioStepIndicator extends StatelessWidget {
-  const StudioStepIndicator({super.key, required this.activeIndex});
+  const StudioStepIndicator({
+    super.key,
+    required this.activeIndex,
+    this.steps,
+  });
 
   final int activeIndex;
+  final List<String>? steps;
 
-  static const _steps = ['Challenge', 'Record', 'Details', 'Preview'];
+  static const _defaultSteps = ['Challenge', 'Record', 'Details', 'Preview'];
 
   @override
   Widget build(BuildContext context) {
-    final progress = activeIndex / (_steps.length - 1);
+    final stepList = (steps != null && steps!.isNotEmpty) ? steps! : _defaultSteps;
+    final progress = activeIndex / (stepList.length - 1);
     return Padding(
       padding: const EdgeInsets.only(bottom: 22, top: 4),
       child: Stack(
@@ -45,7 +51,7 @@ class StudioStepIndicator extends StatelessWidget {
             ),
           ),
           Row(
-            children: List.generate(_steps.length, (i) {
+            children: List.generate(stepList.length, (i) {
               final isActive = i == activeIndex;
               final isDone = i < activeIndex;
               return Expanded(
@@ -91,7 +97,7 @@ class StudioStepIndicator extends StatelessWidget {
                     ),
                     const SizedBox(height: 7),
                     Text(
-                      _steps[i],
+                      stepList[i],
                       style: TextStyle(
                         fontSize: 9.5,
                         fontWeight: isActive ? FontWeight.w800 : FontWeight.w700,
@@ -121,6 +127,15 @@ class StudioHeroCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final maxDuration = challenge['maxVideoDuration'] != null
+        ? '${challenge['maxVideoDuration']}'
+        : '60';
+
+    final categoryStr = (challenge['category'] as String?)?.trim() ?? '';
+    final prizeStr = (challenge['prize'] as String?)?.trim() ?? '';
+    final endDateRaw = (challenge['endDate'] as String?)?.trim() ?? '';
+    final formattedDate = endDateRaw.isNotEmpty ? AppFormatters.formatDate(endDateRaw) : '';
+
     return Container(
       constraints: const BoxConstraints(minHeight: 220),
       decoration: BoxDecoration(
@@ -175,7 +190,7 @@ class StudioHeroCard extends StatelessWidget {
               ).createShader(rect),
               blendMode: BlendMode.dstIn,
               child: AppNetworkImage(
-                url: challenge['imageUrl'] as String,
+                url: challenge['imageUrl'] as String? ?? challenge['bannerUrl'] as String? ?? '',
                 fit: BoxFit.cover,
                 alt: challenge['title'] as String? ?? '',
               ),
@@ -215,7 +230,7 @@ class StudioHeroCard extends StatelessWidget {
                         const Icon(Icons.access_time, size: 12, color: Colors.white),
                         const SizedBox(width: 5),
                         Text(
-                          'Max 60 sec',
+                          'Max $maxDuration sec',
                           style: AppTextStyles.divider115.copyWith(
                             fontSize: 10,
                             fontWeight: FontWeight.w800,
@@ -243,46 +258,53 @@ class StudioHeroCard extends StatelessWidget {
                       height: 1.22,
                     ),
                   ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Text(
-                        challenge['category'] as String? ?? '',
-                        style: const TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFFFFC24D),
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        child: Container(
-                          width: 3,
-                          height: 3,
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.4),
-                            shape: BoxShape.circle,
+                  if (categoryStr.isNotEmpty || prizeStr.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        if (categoryStr.isNotEmpty)
+                          Text(
+                            categoryStr,
+                            style: const TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFFFFC24D),
+                            ),
                           ),
-                        ),
-                      ),
-                      Text(
-                        challenge['prize'] as String? ?? '',
-                        style: const TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFFFFC24D),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Ends ${AppFormatters.formatDate(challenge['endDate'] as String? ?? '')}',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.white.withValues(alpha: 0.65),
+                        if (categoryStr.isNotEmpty && prizeStr.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            child: Container(
+                              width: 3,
+                              height: 3,
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.4),
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                          ),
+                        if (prizeStr.isNotEmpty)
+                          Text(
+                            prizeStr,
+                            style: const TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFFFFC24D),
+                            ),
+                          ),
+                      ],
                     ),
-                  ),
+                  ],
+                  if (formattedDate.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      'Ends $formattedDate',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.white.withValues(alpha: 0.65),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),

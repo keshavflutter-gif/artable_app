@@ -1,19 +1,32 @@
 class FormatUtils {
   FormatUtils._();
 
+  static DateTime? _tryParse(String iso) {
+    final str = iso.trim();
+    if (str.isEmpty) return null;
+    final direct = DateTime.tryParse(str);
+    if (direct != null) return direct;
+    if (!str.contains('T')) {
+      return DateTime.tryParse('${str}T00:00:00');
+    }
+    return null;
+  }
+
   static String formatDate(String iso) {
-    final parts = iso.split('-');
-    if (parts.length != 3) return iso;
+    if (iso.isEmpty) return iso;
+    final d = _tryParse(iso);
+    if (d == null) return iso;
     const months = [
       'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
     ];
-    final month = int.tryParse(parts[1]) ?? 1;
-    return '${months[month - 1]} ${int.parse(parts[2])}, ${parts[0]}';
+    return '${months[d.month - 1]} ${d.day}, ${d.year}';
   }
 
   static String formatDateTime(String iso) {
-    final d = DateTime.parse(iso);
+    if (iso.isEmpty) return iso;
+    final d = _tryParse(iso);
+    if (d == null) return iso;
     const months = [
       'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
@@ -25,8 +38,10 @@ class FormatUtils {
   }
 
   static int daysRemaining(String iso) {
-    final end = DateTime.parse('${iso}T00:00:00');
-    final today = DateTime(2026, 7, 11);
+    if (iso.isEmpty) return 0;
+    final end = _tryParse(iso);
+    if (end == null) return 0;
+    final today = DateTime.now();
     return end.difference(today).inDays;
   }
 

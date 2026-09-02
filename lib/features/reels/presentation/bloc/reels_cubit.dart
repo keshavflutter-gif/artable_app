@@ -54,10 +54,22 @@ class ReelsCubit extends Cubit<ReelsState> {
     final currentVideos = List<Map<String, dynamic>>.from(
       state.videos.map((v) => Map<String, dynamic>.from(v)),
     );
+    final bookmarked = Set<String>.from(state.bookmarkedVideoIds);
     bool changed = false;
+    bool bookmarkChanged = false;
+
     for (final nv in newVideos) {
       final nid = nv['id']?.toString() ?? nv['_id']?.toString() ?? '';
       if (nid.isEmpty) continue;
+
+      final isSavedVal = nv['isSaved'] == true ||
+          nv['saved'] == true ||
+          nv['isBookmarked'] == true;
+      if (isSavedVal && !bookmarked.contains(nid)) {
+        bookmarked.add(nid);
+        bookmarkChanged = true;
+      }
+
       final idx = currentVideos.indexWhere((v) =>
           (v['id']?.toString() ?? v['_id']?.toString() ?? '') == nid);
       if (idx == -1) {
@@ -70,10 +82,24 @@ class ReelsCubit extends Cubit<ReelsState> {
           existing['liked'] = nv['liked'] ?? nv['isLiked'];
           changed = true;
         }
+        if (nv.containsKey('saves') || nv.containsKey('savesCount') || nv.containsKey('isSaved')) {
+          if (nv.containsKey('saves')) existing['saves'] = nv['saves'];
+          if (nv.containsKey('savesCount')) existing['savesCount'] = nv['savesCount'];
+          if (nv.containsKey('isSaved')) {
+            existing['isSaved'] = nv['isSaved'];
+            existing['saved'] = nv['isSaved'];
+            existing['isBookmarked'] = nv['isSaved'];
+          }
+          changed = true;
+        }
       }
     }
-    if (changed) {
-      emit(state.copyWith(videos: currentVideos));
+
+    if (changed || bookmarkChanged) {
+      emit(state.copyWith(
+        videos: currentVideos,
+        bookmarkedVideoIds: bookmarked,
+      ));
     }
   }
 
@@ -259,12 +285,36 @@ class ReelsCubit extends Cubit<ReelsState> {
     if (vId.isEmpty) return;
 
     final bookmarked = Set<String>.from(state.bookmarkedVideoIds);
-    if (bookmarked.contains(vId)) {
-      bookmarked.remove(vId);
-    } else {
+    final isNowBookmarked = !bookmarked.contains(vId);
+    if (isNowBookmarked) {
       bookmarked.add(vId);
+    } else {
+      bookmarked.remove(vId);
     }
-    emit(state.copyWith(bookmarkedVideoIds: bookmarked));
+
+    final videos = List<Map<String, dynamic>>.from(
+      state.videos.map((v) => Map<String, dynamic>.from(v)),
+    );
+    for (final v in videos) {
+      final curId = v['id']?.toString() ?? v['_id']?.toString() ?? '';
+      if (curId == vId) {
+        final int currentSaves = TrendingVideoItem.parseCount(
+          v['savesCount'] ?? v['saveCount'] ?? v['saves'],
+        );
+        final int newSaves = isNowBookmarked
+            ? currentSaves + 1
+            : (currentSaves > 0 ? currentSaves - 1 : 0);
+        v['saves'] = TrendingVideoItem.formatCount(newSaves);
+        v['savesCount'] = newSaves;
+        v['saveCount'] = newSaves;
+        v['isSaved'] = isNowBookmarked;
+        v['saved'] = isNowBookmarked;
+        v['isBookmarked'] = isNowBookmarked;
+        break;
+      }
+    }
+
+    emit(state.copyWith(bookmarkedVideoIds: bookmarked, videos: videos));
 
     try {
       final token = _authCubit?.sessionToken;
@@ -277,19 +327,34 @@ class ReelsCubit extends Cubit<ReelsState> {
 
       final data = res['data'];
       if (data is Map<String, dynamic>) {
-        final videos = List<Map<String, dynamic>>.from(
+        final updatedVideos = List<Map<String, dynamic>>.from(
           state.videos.map((v) => Map<String, dynamic>.from(v)),
         );
-        for (final v in videos) {
+        for (final v in updatedVideos) {
           final curId = v['id']?.toString() ?? v['_id']?.toString() ?? '';
           if (curId == vId) {
             if (data.containsKey('saves')) {
-              v['saves'] = data['saves'];
+              final sCount = TrendingVideoItem.parseCount(data['saves']);
+              v['saves'] = TrendingVideoItem.formatCount(sCount);
+              v['savesCount'] = sCount;
+              v['saveCount'] = sCount;
+            } else if (data.containsKey('savesCount')) {
+              final sCount = TrendingVideoItem.parseCount(data['savesCount']);
+              v['saves'] = TrendingVideoItem.formatCount(sCount);
+              v['savesCount'] = sCount;
+              v['saveCount'] = sCount;
+            }
+            if (data.containsKey('isSaved')) {
+              final isS = data['isSaved'] == true ||
+                  data['isSaved']?.toString().toLowerCase() == 'true';
+              v['isSaved'] = isS;
+              v['saved'] = isS;
+              v['isBookmarked'] = isS;
             }
             break;
           }
         }
-        emit(state.copyWith(videos: videos));
+        emit(state.copyWith(videos: updatedVideos));
       }
     } catch (e) {
       debugPrint('saveVideo API error: $e');

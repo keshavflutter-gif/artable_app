@@ -169,20 +169,39 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
     return studio.recordedDuration;
   }
 
-  void _saveDraft(StudioCubit studio) {
+  Future<void> _saveDraft(StudioCubit studio) async {
     final challenge = _challenge;
-    final draftObj = {
-      'id': 'd${DateTime.now().millisecondsSinceEpoch}',
-      'challengeId': challenge['id'],
-      'challengeTitle': challenge['title'],
-      'duration': _getDuration(studio),
-      'recordedAt': DateTime.now().toIso8601String(),
-      'thumbnailUrl': challenge['imageUrl'],
-      'videoPath': studio.recordedVideoPath,
-      ...studio.recordingEffectsPayload,
-    };
-    studio.addDraft(draftObj);
-    context.push('${AppRoutes.studioDrafts}?id=${challenge['id']}');
+    final existingDraftId = widget.draftId ?? _draft?['id'] as String?;
+
+    final res = (existingDraftId != null && existingDraftId.isNotEmpty)
+        ? await studio.updateDraftDetails(
+            videoId: existingDraftId,
+            challenge: challenge,
+          )
+        : await studio.saveDraftFromPreview(
+            challenge: challenge,
+          );
+
+    if (!mounted) return;
+
+    if (res != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Draft saved successfully'),
+          backgroundColor: AppColors.purple,
+          duration: Duration(seconds: 2),
+        ),
+      );
+      context.push('${AppRoutes.studioDrafts}?id=${challenge['id']}');
+    } else {
+      final errorMsg = studio.state.saveDraftError ?? 'Failed to save draft';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(errorMsg),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    }
   }
 
   @override
@@ -307,9 +326,15 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
                     ),
                     const SizedBox(height: 10),
                     SecondaryOutlineButton(
-                      label: 'Save Draft',
-                      icon: const Icon(Icons.save_outlined, size: 17),
-                      onPressed: () => _saveDraft(studio),
+                      label: studio.state.isSavingDraft ? 'Saving Draft...' : 'Save Draft',
+                      icon: studio.state.isSavingDraft
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.purple),
+                            )
+                          : const Icon(Icons.save_outlined, size: 17),
+                      onPressed: studio.state.isSavingDraft ? null : () => _saveDraft(studio),
                     ),
                     const SizedBox(height: 14),
                     Row(

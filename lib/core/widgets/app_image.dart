@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
@@ -9,6 +10,8 @@ class AppImage extends StatelessWidget {
     this.height,
     this.fit = BoxFit.cover,
     this.borderRadius,
+    this.placeholderIcon,
+    this.isVideo = false,
   });
 
   final String url;
@@ -16,29 +19,85 @@ class AppImage extends StatelessWidget {
   final double? height;
   final BoxFit fit;
   final BorderRadius? borderRadius;
+  final IconData? placeholderIcon;
+  final bool isVideo;
+
+  Widget _buildFallbackContainer() {
+    IconData icon;
+    if (placeholderIcon != null) {
+      icon = placeholderIcon!;
+    } else if (isVideo) {
+      icon = Icons.play_circle_fill_rounded;
+    } else if (borderRadius != null && (width == height || (width != null && width! <= 100))) {
+      icon = Icons.person_rounded;
+    } else {
+      icon = Icons.image_outlined;
+    }
+
+    return Container(
+      width: width,
+      height: height,
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF2A1560), Color(0xFF4C248B)],
+        ),
+      ),
+      child: Center(
+        child: Icon(
+          icon,
+          color: Colors.white70,
+          size: (width != null && width! < 50) ? 18 : 26,
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final image = CachedNetworkImage(
-      imageUrl: url,
-      width: width,
-      height: height,
-      fit: fit,
-      placeholder: (context, url) => Container(
+    Widget img;
+    final cleanUrl = url.trim();
+
+    if (cleanUrl.isEmpty || cleanUrl.contains('storage.example')) {
+      img = _buildFallbackContainer();
+    } else if (cleanUrl.startsWith('/') ||
+        cleanUrl.startsWith('file://') ||
+        (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://'))) {
+      var filePath = cleanUrl;
+      if (filePath.startsWith('file://')) {
+        filePath = filePath.replaceFirst('file://', '');
+      }
+      final file = File(filePath);
+      if (file.existsSync()) {
+        img = Image.file(
+          file,
+          width: width,
+          height: height,
+          fit: fit,
+          errorBuilder: (context, error, stackTrace) => _buildFallbackContainer(),
+        );
+      } else {
+        img = _buildFallbackContainer();
+      }
+    } else {
+      img = CachedNetworkImage(
+        imageUrl: cleanUrl,
         width: width,
         height: height,
-        color: const Color(0xFFF0EDF7),
-      ),
-      errorWidget: (context, url, error) => Container(
-        width: width,
-        height: height,
-        color: const Color(0xFFE8E4F0),
-        child: const Icon(Icons.image_not_supported_outlined, size: 20),
-      ),
-    );
-    if (borderRadius != null) {
-      return ClipRRect(borderRadius: borderRadius!, child: image);
+        fit: fit,
+        placeholder: (context, url) => Container(
+          width: width,
+          height: height,
+          color: const Color(0xFF2A1560),
+        ),
+        errorWidget: (context, url, error) => _buildFallbackContainer(),
+      );
     }
-    return image;
+
+    if (borderRadius != null) {
+      return ClipRRect(borderRadius: borderRadius!, child: img);
+    }
+    return img;
   }
 }

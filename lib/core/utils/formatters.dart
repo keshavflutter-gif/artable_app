@@ -2,15 +2,30 @@
 abstract final class AppFormatters {
   static const _fixedToday = '2026-07-11';
 
+  static DateTime? tryParseDate(String raw) {
+    final str = raw.trim();
+    if (str.isEmpty) return null;
+    final direct = DateTime.tryParse(str);
+    if (direct != null) return direct;
+    if (!str.contains('T')) {
+      return DateTime.tryParse('${str}T00:00:00');
+    }
+    return null;
+  }
+
   static String formatDate(String iso) {
-    final d = DateTime.parse('${iso}T00:00:00');
+    if (iso.isEmpty) return '';
+    final d = tryParseDate(iso);
+    if (d == null) return iso;
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     return '${months[d.month - 1]} ${d.day}, ${d.year}';
   }
 
   static int daysRemaining(String iso) {
-    final end = DateTime.parse('${iso}T00:00:00');
-    final today = DateTime.parse('${_fixedToday}T00:00:00');
+    if (iso.isEmpty) return 0;
+    final end = tryParseDate(iso);
+    if (end == null) return 0;
+    final today = tryParseDate(_fixedToday) ?? DateTime.now();
     return end.difference(today).inDays;
   }
 
@@ -24,8 +39,12 @@ abstract final class AppFormatters {
   }
 
   static String formatDateTime(String iso) {
-    final d = DateTime.parse(iso);
-    return '${formatDate(iso.split('T').first)} · ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+    if (iso.isEmpty) return '';
+    final d = tryParseDate(iso);
+    if (d == null) return iso;
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    final timeStr = '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+    return '${months[d.month - 1]} ${d.day}, ${d.year} · $timeStr';
   }
 
   static String imgFallbackUrl(String alt, {int w = 400, int h = 400}) {

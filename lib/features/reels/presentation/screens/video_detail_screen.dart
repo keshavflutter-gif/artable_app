@@ -265,6 +265,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     final badgeColor = _categoryBadgeColor(rawCat ?? 'TALENT');
     final reelId = reel['id']?.toString() ?? reel['_id']?.toString() ?? widget.reelId ?? '';
     final imageUrl = (reel['imageUrl'] as String?) ?? (reel['thumbnailUrl'] as String?) ?? '';
+    final isSaved = context.watch<ReelsCubit>().isBookmarked(reelId);
 
     return AspectRatio(
       aspectRatio: 3 / 3.8,
@@ -337,6 +338,33 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                         fontWeight: FontWeight.w800,
                         color: Colors.white,
                         letterSpacing: 0.5,
+                      ),
+                    ),
+                  ),
+                ),
+
+                // Top-Right Save / Bookmark Icon
+                Positioned(
+                  top: 12,
+                  right: 12,
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () => context.read<ReelsCubit>().toggleBookmark(reelId),
+                      borderRadius: BorderRadius.circular(999),
+                      child: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: isSaved
+                              ? const Color(0xFFFF3D77)
+                              : Colors.black.withValues(alpha: 0.45),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          isSaved ? Icons.bookmark : Icons.bookmark_border,
+                          color: Colors.white,
+                          size: 18,
+                        ),
                       ),
                     ),
                   ),
@@ -488,6 +516,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     final reelId = reel['id']?.toString() ?? '';
     final reelsProvider = context.watch<ReelsCubit>();
     final isLiked = reelsProvider.isLiked(reelId, fallbackVideo: reel);
+    final isSaved = reelsProvider.isBookmarked(reelId);
 
     final currentVideo = reelsProvider.getVideo(reelId) ?? reel;
 
@@ -514,6 +543,11 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
       currentVideo['sharesLabel'],
     );
 
+    final saves = _getFormattedCount(
+      currentVideo['savesCount'] ?? currentVideo['saveCount'] ?? currentVideo['saves'],
+      currentVideo['savesLabel'],
+    );
+
     return Row(
       children: [
         _buildStatItem(
@@ -521,7 +555,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
           value: views,
           label: 'Views',
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: 5),
         _buildStatItem(
           icon: isLiked ? Icons.favorite : Icons.favorite_border,
           iconColor: isLiked ? const Color(0xFFFF3D77) : const Color(0xFF8B3DFF),
@@ -529,14 +563,22 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
           label: 'Likes',
           onTap: () => context.read<ReelsCubit>().toggleLike(reelId, fallbackVideo: reel),
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: 5),
         _buildStatItem(
           icon: Icons.chat_bubble_outline,
           value: comments,
           label: 'Comments',
           onTap: () => context.push('${AppRoutes.comments}?id=$reelId'),
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: 5),
+        _buildStatItem(
+          icon: isSaved ? Icons.bookmark : Icons.bookmark_border,
+          iconColor: isSaved ? const Color(0xFFFF3D77) : const Color(0xFF8B3DFF),
+          value: saves,
+          label: 'Saves',
+          onTap: () => context.read<ReelsCubit>().toggleBookmark(reelId),
+        ),
+        const SizedBox(width: 5),
         _buildStatItem(
           icon: Icons.share_outlined,
           value: shares,

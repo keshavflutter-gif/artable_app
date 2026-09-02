@@ -390,7 +390,11 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                AppImage(url: coverUrl, fit: BoxFit.cover),
+                AppImage(
+                  url: coverUrl,
+                  fit: BoxFit.cover,
+                  placeholderIcon: Icons.panorama_outlined,
+                ),
                 DecoratedBox(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
@@ -430,6 +434,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
                   width: 90,
                   height: 90,
                   borderRadius: BorderRadius.circular(45),
+                  placeholderIcon: Icons.person_rounded,
                 ),
               ),
             ),

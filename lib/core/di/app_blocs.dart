@@ -62,7 +62,9 @@ class AppBlocs {
           ),
         ),
         BlocProvider<StudioCubit>(
-          create: (_) => StudioCubit(),
+          create: (context) => StudioCubit(
+            authCubit: context.read<AuthCubit>(),
+          ),
         ),
         BlocProvider<TrendingVideosCubit>(
           create: (context) => TrendingVideosCubit(

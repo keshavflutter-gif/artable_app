@@ -158,6 +158,9 @@ class TrendingVideoItem {
     this.shares = 0,
     this.shareCount = 0,
     this.sharesLabel,
+    this.saves = 0,
+    this.saveCount = 0,
+    this.savesLabel,
     this.musicName,
     this.averageRating,
     this.talentScore,
@@ -183,6 +186,7 @@ class TrendingVideoItem {
     this.ratingLabel,
     this.isTrending = false,
     this.isLiked = false,
+    this.isSaved = false,
     this.hashtags = const [],
   });
 
@@ -207,6 +211,9 @@ class TrendingVideoItem {
   final int shares;
   final int shareCount;
   final String? sharesLabel;
+  final int saves;
+  final int saveCount;
+  final String? savesLabel;
   final String? musicName;
   final String? averageRating;
   final double? talentScore;
@@ -232,6 +239,7 @@ class TrendingVideoItem {
   final String? ratingLabel;
   final bool isTrending;
   final bool isLiked;
+  final bool isSaved;
   final List<String> hashtags;
 
   static String formatCount(int count) {
@@ -401,6 +409,14 @@ class TrendingVideoItem {
     return formatCount(count);
   }
 
+  String get displaySaves {
+    if (savesLabel != null && savesLabel!.trim().isNotEmpty) {
+      return savesLabel!.trim();
+    }
+    final count = saves > 0 ? saves : (saveCount > 0 ? saveCount : 0);
+    return formatCount(count);
+  }
+
   String get displayMusicName {
     if (musicName != null && musicName!.trim().isNotEmpty) {
       return musicName!.trim();
@@ -450,6 +466,7 @@ class TrendingVideoItem {
     final resolvedLikesCount = likes > 0 ? likes : likeCount;
     final resolvedCommentsCount = comments > 0 ? comments : commentCount;
     final resolvedSharesCount = shares > 0 ? shares : shareCount;
+    final resolvedSavesCount = saves > 0 ? saves : saveCount;
 
     return {
       'id': id,
@@ -471,6 +488,12 @@ class TrendingVideoItem {
       'commentsCount': resolvedCommentsCount,
       'shares': displayShares,
       'sharesCount': resolvedSharesCount,
+      'saves': displaySaves,
+      'savesCount': resolvedSavesCount,
+      'saveCount': resolvedSavesCount,
+      'isSaved': isSaved,
+      'saved': isSaved,
+      'isBookmarked': isSaved,
       'musicName': displayMusicName,
       'avatarUrl': displayAvatar,
       'handle': resolvedHandle,
@@ -512,6 +535,34 @@ class TrendingVideoItem {
     if (json['userReaction']?.toString().toLowerCase() == 'like' ||
         json['user_reaction']?.toString().toLowerCase() == 'like') {
       return true;
+    }
+    return false;
+  }
+
+  static bool _extractIsSaved(Map<String, dynamic> json) {
+    final keys = [
+      'isSaved',
+      'is_saved',
+      'saved',
+      'hasSaved',
+      'has_saved',
+      'userSaved',
+      'user_saved',
+      'isUserSaved',
+      'is_user_saved',
+      'isBookmarked',
+      'is_bookmarked',
+      'bookmarked',
+    ];
+    for (final k in keys) {
+      final val = json[k];
+      if (val == true || val == 1 || val?.toString().toLowerCase() == 'true' || val?.toString() == '1') {
+        return true;
+      }
+    }
+    if (json['hero'] is Map) {
+      final hero = Map<String, dynamic>.from(json['hero'] as Map);
+      if (_extractIsSaved(hero)) return true;
     }
     return false;
   }
@@ -716,6 +767,8 @@ class TrendingVideoItem {
     final parsedComments = _extractComments(json);
     final parsedShares = _extractShares(json);
     final parsedViews = _extractViews(json);
+    final parsedSaves = _extractSaves(json);
+    final parsedIsSaved = _extractIsSaved(json);
     return TrendingVideoItem(
       id: json['id']?.toString() ?? '',
       title: json['title']?.toString() ?? '',
@@ -743,6 +796,9 @@ class TrendingVideoItem {
       shares: parsedShares,
       shareCount: parsedShares,
       sharesLabel: json['sharesLabel']?.toString() ?? (json['sharesCount'] is String ? json['sharesCount'] as String : null),
+      saves: parsedSaves,
+      saveCount: parsedSaves,
+      savesLabel: json['savesLabel']?.toString() ?? (json['savesCount'] is String ? json['savesCount'] as String : null),
       musicName: _extractMusicName(json),
       averageRating: json['averageRating']?.toString() ?? json['rating']?.toString(),
       talentScore: _extractTalentScore(json),
@@ -776,6 +832,7 @@ class TrendingVideoItem {
       ratingLabel: json['ratingLabel']?.toString(),
       isTrending: json['isTrending'] == true,
       isLiked: _extractIsLiked(json),
+      isSaved: parsedIsSaved,
     );
   }
 
@@ -876,6 +933,41 @@ class TrendingVideoItem {
     if (json['count'] is Map) {
       final map = Map<String, dynamic>.from(json['count'] as Map);
       for (final key in ['shares', 'share', 'sharesCount', 'shares_count', 'totalShares']) {
+        final val = _parseInt(map[key]);
+        if (val != null) return val;
+      }
+    }
+    return 0;
+  }
+
+  static int _extractSaves(Map<String, dynamic> json) {
+    final directKeys = [
+      'savesCount',
+      'saves_count',
+      'saveCount',
+      'save_count',
+      'totalSaves',
+      'total_saves',
+      'saves',
+    ];
+    for (final key in directKeys) {
+      final val = _parseInt(json[key]);
+      if (val != null) return val;
+    }
+    if (json['hero'] is Map) {
+      final val = _extractSaves(Map<String, dynamic>.from(json['hero'] as Map));
+      if (val > 0) return val;
+    }
+    if (json['_count'] is Map) {
+      final map = Map<String, dynamic>.from(json['_count'] as Map);
+      for (final key in ['saves', 'save', 'savesCount', 'saves_count', 'totalSaves', 'saveCount']) {
+        final val = _parseInt(map[key]);
+        if (val != null) return val;
+      }
+    }
+    if (json['count'] is Map) {
+      final map = Map<String, dynamic>.from(json['count'] as Map);
+      for (final key in ['saves', 'save', 'savesCount', 'saves_count', 'totalSaves', 'saveCount']) {
         final val = _parseInt(map[key]);
         if (val != null) return val;
       }

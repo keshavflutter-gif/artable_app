@@ -28,6 +28,7 @@ import 'loggers/user_detail_api_debug_logger.dart';
 import 'loggers/verify_otp_api_debug_logger.dart';
 import 'loggers/winners_api_debug_logger.dart';
 import 'loggers/profile_api_debug_logger.dart';
+import 'loggers/studio_filters_api_debug_logger.dart';
 
 class ApiClient {
   ApiClient({
@@ -432,6 +433,15 @@ class ApiClient {
       );
       return;
     }
+    if (path.startsWith('/app/studio')) {
+      StudioFiltersApiDebugLogger.logRequest(
+        method: method,
+        url: fullUrl,
+        headers: headers,
+        body: body,
+      );
+      return;
+    }
     if (path.startsWith('/app/videos')) {
       CreateVideoApiDebugLogger.logRequest(
         method: method,
@@ -806,6 +816,12 @@ class ApiClient {
       );
     } else if (path.startsWith('/app/videos/trending')) {
       TrendingVideosApiDebugLogger.logResponse(
+        statusCode: response.statusCode,
+        responseBody: response.body,
+        url: fullUrl,
+      );
+    } else if (path.startsWith('/app/studio')) {
+      StudioFiltersApiDebugLogger.logResponse(
         statusCode: response.statusCode,
         responseBody: response.body,
         url: fullUrl,

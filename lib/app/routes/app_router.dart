@@ -186,7 +186,7 @@ abstract final class AppRouter {
         GoRoute(
           path: AppRoutes.studioDrafts,
           builder: (context, state) => StudioDraftsScreen(
-            challengeId: state.uri.queryParameters['id'],
+            challengeId: state.uri.queryParameters['id'] ?? state.uri.queryParameters['challengeId'],
           ),
         ),
         GoRoute(

@@ -140,7 +140,7 @@ class VideosRepository {
     }
 
     // 2. Resolve Thumbnail (Priority: Manual selected thumbnail > Video-generated thumbnail)
-    String finalThumbnailUrl = 'https://images.unsplash.com/photo-1547153760-18fc86324498?w=600&q=80';
+    String finalThumbnailUrl = '';
     if (manualSelectedThumbnailPath != null &&
         manualSelectedThumbnailPath.trim().isNotEmpty &&
         manualSelectedThumbnailPath.trim() != 'null') {
