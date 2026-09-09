@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:just_audio/just_audio.dart';
 
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_gradients.dart';
@@ -31,15 +33,43 @@ class _StudioMusicScreenState extends State<StudioMusicScreen> {
   String? _playingTrackId;
   final _likedIds = <String>{};
 
+  AudioPlayer? _audioPlayer;
+  StreamSubscription<PlayerState>? _playerStateSub;
+
   @override
   void initState() {
     super.initState();
+    _initAudioPlayer();
     final cached = MusicApiService.cachedTracks;
     _tracks = (cached != null && cached.isNotEmpty)
         ? cached
         : MusicApiService.fallbackTracks;
     _isInitialLoad = false;
     _loadTracks();
+  }
+
+  void _initAudioPlayer() {
+    _audioPlayer = AudioPlayer();
+    _playerStateSub = _audioPlayer?.playerStateStream.listen((state) {
+      if (state.processingState == ProcessingState.completed) {
+        if (mounted) {
+          setState(() {
+            _playingTrackId = null;
+          });
+        }
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _playerStateSub?.cancel();
+    try {
+      _audioPlayer?.stop();
+      _audioPlayer?.dispose();
+    } catch (_) {}
+    _audioPlayer = null;
+    super.dispose();
   }
 
   Future<void> _loadTracks({bool forceRefresh = false}) async {
@@ -94,7 +124,46 @@ class _StudioMusicScreenState extends State<StudioMusicScreen> {
   }
 
   void _openTrimmer(FreeToUseTrack track) {
+    try {
+      _audioPlayer?.stop();
+    } catch (_) {}
+    setState(() => _playingTrackId = null);
     SongTrimmerSheet.show(context, track: track);
+  }
+
+  Future<void> _togglePlayTrack(FreeToUseTrack track) async {
+    final player = _audioPlayer ??= AudioPlayer();
+
+    if (_playingTrackId == track.id) {
+      try {
+        await player.pause();
+      } catch (_) {}
+      if (mounted) {
+        setState(() {
+          _playingTrackId = null;
+        });
+      }
+    } else {
+      if (mounted) {
+        setState(() {
+          _playingTrackId = track.id;
+        });
+      }
+      try {
+        await player.stop();
+        await player.setUrl(track.audioUrl);
+        if (mounted && _playingTrackId == track.id) {
+          await player.play();
+        }
+      } catch (e) {
+        debugPrint('Error playing audio track: $e');
+        if (mounted && _playingTrackId == track.id) {
+          setState(() {
+            _playingTrackId = null;
+          });
+        }
+      }
+    }
   }
 
   @override
@@ -295,12 +364,7 @@ class _StudioMusicScreenState extends State<StudioMusicScreen> {
                                     selected: isSelected,
                                     playing: isPlaying,
                                     liked: isLiked,
-                                    onPlay: () {
-                                      setState(() {
-                                        _playingTrackId =
-                                            isPlaying ? null : t.id;
-                                      });
-                                    },
+                                    onPlay: () => _togglePlayTrack(t),
                                     onLike: () {
                                       setState(() {
                                         if (isLiked) {

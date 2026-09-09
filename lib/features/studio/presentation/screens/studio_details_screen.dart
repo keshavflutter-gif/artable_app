@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -16,6 +17,7 @@ import 'package:artable_app/core/widgets/secondary_outline_button.dart';
 import 'package:artable_app/features/studio/presentation/widgets/recorded_video_preview.dart';
 import 'package:artable_app/features/studio/presentation/widgets/studio_shared_widgets.dart';
 import 'package:artable_app/features/challenges/presentation/bloc/challenges_cubit.dart';
+import 'package:artable_app/features/studio/data/services/studio_music_playback_service.dart';
 
 class StudioDetailsScreen extends StatefulWidget {
   const StudioDetailsScreen({
@@ -129,11 +131,44 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
     }
 
     if (controller != null) {
+      final validController = controller;
+      validController.addListener(_onVideoControllerUpdate);
+      final trimStart = studio.state.videoTrimStartSeconds;
+      if (trimStart > 0) {
+        validController.seekTo(Duration(milliseconds: (trimStart * 1000).round()));
+      }
       setState(() {
-        _videoController = controller;
+        _videoController = validController;
         _isVideoInitialized = true;
-        _playing = true;
+        _playing = validController.value.isPlaying;
       });
+    }
+  }
+
+  void _onVideoControllerUpdate() {
+    final controller = _videoController;
+    if (controller == null || !mounted) return;
+
+    final studio = context.read<StudioCubit>();
+    final trimStart = studio.state.videoTrimStartSeconds;
+    final trimEnd = studio.state.videoTrimEndSeconds;
+
+    if (trimEnd != null && trimEnd > trimStart) {
+      final startMs = (trimStart * 1000).round();
+      final endMs = (trimEnd * 1000).round();
+      final posMs = controller.value.position.inMilliseconds;
+
+      if (posMs >= endMs || posMs < startMs) {
+        controller.seekTo(Duration(milliseconds: startMs));
+        if (controller.value.isPlaying) {
+          controller.play();
+        }
+      }
+    }
+
+    final isPlaying = controller.value.isPlaying;
+    if (isPlaying != _playing) {
+      setState(() => _playing = isPlaying);
     }
   }
 
@@ -142,17 +177,33 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
     _titleController.dispose();
     _descriptionController.dispose();
     _hashtagsController.dispose();
+    _videoController?.removeListener(_onVideoControllerUpdate);
+    _videoController?.pause();
     _videoController?.dispose();
+    unawaited(StudioMusicPlaybackService.stop());
     super.dispose();
   }
 
   void _togglePlayPause() {
     final controller = _videoController;
     if (controller != null && _isVideoInitialized) {
+      final studio = context.read<StudioCubit>();
+      final trimStart = studio.state.videoTrimStartSeconds;
+      final trimEnd = studio.state.videoTrimEndSeconds;
+
       if (controller.value.isPlaying) {
         controller.pause();
         setState(() => _playing = false);
       } else {
+        if (trimEnd != null && trimEnd > trimStart) {
+          final startMs = (trimStart * 1000).round();
+          final endMs = (trimEnd * 1000).round();
+          final posMs = controller.value.position.inMilliseconds;
+
+          if (posMs >= endMs || posMs < startMs) {
+            controller.seekTo(Duration(milliseconds: startMs));
+          }
+        }
         controller.play();
         setState(() => _playing = true);
       }
@@ -195,6 +246,9 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
     if (!mounted) return;
 
     if (res != null) {
+      _videoController?.pause();
+      await StudioMusicPlaybackService.stop();
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Draft saved successfully'),
@@ -218,6 +272,9 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
       ReelHelpers.challengeById(_challengeId)!;
 
   String _getDuration(StudioCubit studio) {
+    if (studio.recordedDuration.isNotEmpty && studio.recordedDuration != '0:00') {
+      return studio.recordedDuration;
+    }
     final draft = _draft;
     if (draft != null) return draft['duration'] as String? ?? '0:00';
     return studio.recordedDuration;
@@ -635,7 +692,11 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
                             child: GradientButton(
                               label: 'Submit Entry',
                               onPressed: _canSubmit
-                                  ? () {
+                                  ? () async {
+                                      final studioCubit = context.read<StudioCubit>();
+                                      final router = GoRouter.of(context);
+                                      _videoController?.pause();
+                                      await StudioMusicPlaybackService.stop();
                                       final rawHashtags =
                                           _hashtagsController.text.trim();
                                       final effectiveHashtags =
@@ -645,19 +706,19 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
                                                   ? _hashtagChips.join(' ')
                                                   : '#dance #talent #artable');
 
-                                      context
-                                          .read<StudioCubit>()
-                                          .setVideoSubmissionDetails(
-                                            title: _titleController.text.trim(),
-                                            description:
-                                                _descriptionController.text.trim(),
-                                            categoryId: _categoryId,
-                                            hashtags: effectiveHashtags,
-                                            challengeId: _challengeId,
-                                          );
-                                      context.push(
-                                        '${AppRoutes.studioUpload}?id=$_challengeId',
+                                      studioCubit.setVideoSubmissionDetails(
+                                        title: _titleController.text.trim(),
+                                        description:
+                                            _descriptionController.text.trim(),
+                                        categoryId: _categoryId,
+                                        hashtags: effectiveHashtags,
+                                        challengeId: _challengeId,
                                       );
+                                      if (mounted) {
+                                        router.push(
+                                          '${AppRoutes.studioUpload}?id=$_challengeId',
+                                        );
+                                      }
                                     }
                                   : null,
                             ),

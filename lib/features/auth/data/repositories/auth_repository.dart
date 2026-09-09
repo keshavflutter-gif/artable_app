@@ -236,6 +236,34 @@ class AuthRepository {
     }
   }
 
+  Future<Map<String, dynamic>> deleteAccount({
+    required String password,
+    String? reason,
+    required String sessionToken,
+    required String refreshToken,
+  }) async {
+    final headers = ApiAuthHeaders.authenticated(
+      sessionToken: sessionToken,
+      refreshToken: refreshToken,
+    );
+
+    final body = <String, dynamic>{
+      'password': password,
+      if (reason != null && reason.trim().isNotEmpty) 'reason': reason.trim(),
+    };
+
+    try {
+      final data = await _apiClient.delete(
+        '/auth/delete-account',
+        body: body,
+        headers: headers,
+      );
+      return data;
+    } finally {
+      await clearStoredSession();
+    }
+  }
+
   Future<void> clearStoredSession() => _storageService.clearSession();
 
   Future<StoredAuthSession?> loadStoredSession() async {

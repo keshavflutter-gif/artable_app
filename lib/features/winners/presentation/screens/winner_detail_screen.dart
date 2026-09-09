@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:artable_app/app/theme/app_gradients.dart';
 import 'package:artable_app/core/utils/mock_helpers.dart';
 import 'package:artable_app/core/widgets/app_image.dart';
+import 'package:artable_app/features/winners/data/models/winners_response.dart';
+import 'package:artable_app/features/winners/presentation/bloc/winners_cubit.dart';
 
 class WinnerDetailScreen extends StatelessWidget {
   const WinnerDetailScreen({super.key, this.winnerId});
@@ -12,32 +15,44 @@ class WinnerDetailScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final w = MockHelpers.winnerById(winnerId)!;
-    final user = MockHelpers.creatorById(w['userId'] as String);
-    final challenge = MockHelpers.challengeById(w['challengeId'] as String);
-    final reel = MockHelpers.reelById(w['reelId'] as String?);
+    WinnerItem? winnerItem;
+    if (winnerId != null && winnerId!.isNotEmpty) {
+      try {
+        winnerItem = context.read<WinnersCubit>().getWinnerById(winnerId!);
+      } catch (_) {}
+    }
 
-    // Use default values matching Figma if data is missing
-    final userName = user?['name'] as String? ?? 'Maya R.';
-    final userHandle = user?['handle'] as String? ?? '@dance_hero';
-    final userAvatar = user?['avatarUrl'] as String? ?? 'https://i.pravatar.cc/120?u=dance_hero';
-    
-    // Figma image shows a boy smiling for winner details.
-    final heroImage = 'https://images.unsplash.com/photo-1503919545889-aef636e10ad4?w=600&auto=format&fit=crop&q=80'; 
+    Map<String, dynamic>? mockW;
+    if (winnerItem == null && winnerId != null) {
+      mockW = MockHelpers.winnerById(winnerId);
+    }
 
-    final challengeTitle = challenge?['title'] as String? ?? 'MONTHLY MEGA DANCE BATTLE';
-    final prizeText = w['prize'] as String? ?? '₹2,500 + Champion Badge';
+    final String? userId = winnerItem?.winner?.id ?? (mockW != null ? mockW['userId']?.toString() : null);
+    final String? challengeId = winnerItem?.challenge?.id ?? (mockW != null ? mockW['challengeId']?.toString() : null);
 
-    final positionText = '#${w['rank'] ?? 1}';
-    final avgRating = (w['avgRating'] as num? ?? 9.4).toStringAsFixed(1);
-    final totalVotes = (w['totalVotes'] as num? ?? 8420).toString();
+    final mockUser = userId != null ? MockHelpers.creatorById(userId) : null;
+    final mockChallenge = challengeId != null ? MockHelpers.challengeById(challengeId) : null;
 
-    final winDate = w['winDate'] as String? ?? '2026-07-15';
-    final talentScore = (w['talentScore'] as num? ?? 9.4).toStringAsFixed(1);
+    final userName = winnerItem?.displayName ?? (mockUser?['name'] as String?) ?? 'Winner';
+    final userHandle = winnerItem?.displayHandle ?? (mockUser?['handle'] as String?) ?? '';
+    final userAvatar = winnerItem?.displayAvatar ?? (mockUser?['avatarUrl'] as String?) ?? 'https://i.pravatar.cc/120?u=winner';
+    final heroImage = winnerItem?.displayBannerUrl ?? 'https://images.unsplash.com/photo-1503919545889-aef636e10ad4?w=600&auto=format&fit=crop&q=80';
+    final challengeTitle = winnerItem?.displayChallengeTitle ?? (mockChallenge?['title'] as String?) ?? 'MONTHLY MEGA DANCE BATTLE';
+    final prizeText = winnerItem?.displayPrize ?? (mockW?['prize'] as String?) ?? '₹2,500 + Champion Badge';
+    final positionText = winnerItem?.displayRankLabel ?? (mockW != null ? '#${mockW['rank'] ?? 1}' : '#1');
 
-    final viewsCount = reel?['views'] as String? ?? '0';
-    final likesCount = reel?['likes'] as String? ?? '0';
-    final videoThumbnail = reel?['imageUrl'] as String? ?? 'https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=480&q=80';
+    final avgRating = winnerItem?.displayRating ??
+        (mockW != null ? (mockW['avgRating'] as num? ?? 9.4).toStringAsFixed(1) : '9.4');
+
+    final totalVotes = (winnerItem?.stats?.ratingCount ?? mockW?['totalVotes'] as num? ?? 8420).toString();
+
+    final winDate = winnerItem?.wonOn ?? (mockW?['winDate'] as String? ?? '2026-08-21');
+    final talentScore = avgRating;
+
+    final reel = mockW != null ? MockHelpers.reelById(mockW['reelId'] as String?) : null;
+    final viewsCount = (winnerItem?.stats?.views ?? (reel?['views'] as num?)?.toInt() ?? 0).toString();
+    final likesCount = (winnerItem?.stats?.likes ?? (reel?['likes'] as num?)?.toInt() ?? 0).toString();
+    final videoThumbnail = winnerItem?.entry?.thumbnailUrl ?? (reel?['imageUrl'] as String?) ?? heroImage;
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -495,8 +510,8 @@ class WinnerDetailScreen extends StatelessWidget {
                   // View Profile Button
                   OutlinedButton.icon(
                     onPressed: () {
-                      if (user != null) {
-                        context.push('/profile?id=${user['id']}');
+                      if (userId != null && userId.isNotEmpty) {
+                        context.push('/profile?id=$userId');
                       }
                     },
                     icon: const Icon(Icons.person_outline_rounded, color: Color(0xFF8B3DFF), size: 18),

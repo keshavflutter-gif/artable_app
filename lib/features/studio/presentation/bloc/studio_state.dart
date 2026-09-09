@@ -20,6 +20,9 @@ class StudioState {
     this.selectedTrack,
     this.musicStartSeconds = 0.0,
     this.musicCropDuration = 30.0,
+    this.videoCropAspectRatio = '9:16',
+    this.videoTrimStartSeconds = 0.0,
+    this.videoTrimEndSeconds,
     this.cameraMode = StudioCameraMode.back,
     this.selectedFilter = 'natural',
     this.selectedSpeed = '1x',
@@ -53,6 +56,10 @@ class StudioState {
   final double musicStartSeconds;
   final double musicCropDuration;
 
+  final String videoCropAspectRatio;
+  final double videoTrimStartSeconds;
+  final double? videoTrimEndSeconds;
+
   final StudioCameraMode cameraMode;
   final String selectedFilter;
   final String selectedSpeed;
@@ -82,6 +89,9 @@ class StudioState {
         'filterId': recordingFilter,
         'beautyOn': recordingBeautyOn,
         'beautyIntensity': recordingBeautyIntensity,
+        'videoCropAspectRatio': videoCropAspectRatio,
+        'videoTrimStartSeconds': videoTrimStartSeconds,
+        'videoTrimEndSeconds': videoTrimEndSeconds,
       };
 
   StudioState copyWith({
@@ -98,6 +108,9 @@ class StudioState {
     FreeToUseTrack? selectedTrack,
     double? musicStartSeconds,
     double? musicCropDuration,
+    String? videoCropAspectRatio,
+    double? videoTrimStartSeconds,
+    double? videoTrimEndSeconds,
     StudioCameraMode? cameraMode,
     String? selectedFilter,
     String? selectedSpeed,
@@ -134,6 +147,9 @@ class StudioState {
       selectedTrack: clearSelectedMusic ? null : (selectedTrack ?? this.selectedTrack),
       musicStartSeconds: musicStartSeconds ?? this.musicStartSeconds,
       musicCropDuration: musicCropDuration ?? this.musicCropDuration,
+      videoCropAspectRatio: videoCropAspectRatio ?? this.videoCropAspectRatio,
+      videoTrimStartSeconds: videoTrimStartSeconds ?? this.videoTrimStartSeconds,
+      videoTrimEndSeconds: videoTrimEndSeconds ?? this.videoTrimEndSeconds,
       cameraMode: cameraMode ?? this.cameraMode,
       selectedFilter: selectedFilter ?? this.selectedFilter,
       selectedSpeed: selectedSpeed ?? this.selectedSpeed,

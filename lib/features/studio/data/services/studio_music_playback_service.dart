@@ -22,7 +22,7 @@ class StudioMusicPlaybackService {
       final session = await AudioSession.instance;
       await session.configure(
         const AudioSessionConfiguration(
-          avAudioSessionCategory: AVAudioSessionCategory.playback,
+          avAudioSessionCategory: AVAudioSessionCategory.playAndRecord,
           avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.mixWithOthers,
           avAudioSessionMode: AVAudioSessionMode.defaultMode,
           androidAudioAttributes: AndroidAudioAttributes(
@@ -36,6 +36,19 @@ class StudioMusicPlaybackService {
       _sessionConfigured = true;
     } catch (e) {
       debugPrint('StudioMusicPlaybackService session config error: $e');
+    }
+  }
+
+  /// Prepares audio session and player before camera recording starts.
+  static Future<void> prepareForRecordingStart() async {
+    try {
+      await _configureSession();
+      final player = _player;
+      if (player != null && player.playing) {
+        await player.pause();
+      }
+    } catch (e) {
+      debugPrint('StudioMusicPlaybackService prepareForRecordingStart error: $e');
     }
   }
 

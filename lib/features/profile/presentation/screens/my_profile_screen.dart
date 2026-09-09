@@ -850,6 +850,34 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
                       ),
                     ),
                   ),
+                  // Delete Overlay Button (Top-Right)
+                  Positioned(
+                    top: 8,
+                    right: 8,
+                    child: GestureDetector(
+                      onTap: () => _confirmAndDeleteVideo(context, video.id, title),
+                      child: Container(
+                        width: 26,
+                        height: 26,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.92),
+                          shape: BoxShape.circle,
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Color(0x33000000),
+                              blurRadius: 4,
+                              offset: Offset(0, 1),
+                            ),
+                          ],
+                        ),
+                        child: const Icon(
+                          Icons.delete_outline_rounded,
+                          size: 15,
+                          color: Color(0xFFFF3B30),
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -983,6 +1011,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
                         ],
                       ],
                     ),
+
                 ],
               ),
             ),
@@ -991,6 +1020,128 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
       ),
     );
   }
+
+  Future<void> _confirmAndDeleteVideo(
+    BuildContext context,
+    String videoId,
+    String videoTitle,
+  ) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        backgroundColor: Colors.white,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+        child: Padding(
+          padding: const EdgeInsets.all(22.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 60,
+                height: 60,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFFFF2F2),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.delete_outline_rounded,
+                  color: Color(0xFFFF3B30),
+                  size: 32,
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Delete Video?',
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF241E38),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Are you sure you want to delete "$videoTitle"? This action cannot be undone.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 12.5,
+                  color: Color(0xFF7A7090),
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 22),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(ctx).pop(false),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Color(0xFFECE8F5), width: 1.5),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      child: const Text(
+                        'Cancel',
+                        style: TextStyle(
+                          fontFamily: 'Poppins',
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF7A7090),
+                          fontSize: 13.5,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.of(ctx).pop(true),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFFF3B30),
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      child: const Text(
+                        'Delete',
+                        style: TextStyle(
+                          fontFamily: 'Poppins',
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                          fontSize: 13.5,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (confirm == true && context.mounted) {
+      final success = await context.read<ProfileCubit>().deleteVideo(videoId);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              success ? 'Video deleted successfully' : 'Failed to delete video',
+            ),
+            backgroundColor: success ? const Color(0xFF8B3DFF) : Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
 
   Widget _buildSmallActionButton({
     required IconData icon,

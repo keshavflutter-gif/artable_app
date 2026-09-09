@@ -398,11 +398,21 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
 
     var started = false;
     try {
+      await StudioMusicPlaybackService.prepareForRecordingStart();
       await _applyCameraRecordingSettings(controller);
       await controller.startVideoRecording(enablePersistentRecording: true);
       started = controller.value.isRecordingVideo;
     } catch (e) {
-      debugPrint('Error starting video recording: $e');
+      debugPrint('Error starting video recording (persistent): $e');
+    }
+
+    if (!started) {
+      try {
+        await controller.startVideoRecording();
+        started = controller.value.isRecordingVideo;
+      } catch (e) {
+        debugPrint('Error starting video recording (standard): $e');
+      }
     }
 
     if (!started) {

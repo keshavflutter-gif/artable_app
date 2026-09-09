@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -15,6 +16,8 @@ import 'package:artable_app/core/widgets/gradient_button.dart';
 import 'package:artable_app/core/widgets/secondary_outline_button.dart';
 import 'package:artable_app/features/studio/presentation/widgets/recorded_video_preview.dart';
 import 'package:artable_app/features/studio/presentation/widgets/song_trimmer_sheet.dart';
+import 'package:artable_app/features/studio/presentation/widgets/video_crop_sheet.dart';
+import 'package:artable_app/features/studio/presentation/widgets/video_trimmer_sheet.dart';
 
 class StudioPreviewScreen extends StatefulWidget {
   const StudioPreviewScreen({
@@ -48,6 +51,9 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
         filterId: draft['filterId'] as String?,
         beautyOn: draft['beautyOn'] as bool?,
         beautyIntensity: (draft['beautyIntensity'] as num?)?.toDouble(),
+        cropAspectRatio: draft['videoCropAspectRatio'] as String?,
+        trimStart: (draft['videoTrimStartSeconds'] as num?)?.toDouble(),
+        trimEnd: (draft['videoTrimEndSeconds'] as num?)?.toDouble(),
       );
       final path = draft['videoPath']?.toString();
       if (path != null && path.isNotEmpty) {
@@ -101,12 +107,17 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
     }
 
     if (controller != null) {
-      controller.addListener(_onVideoControllerUpdate);
+      final validController = controller;
+      validController.addListener(_onVideoControllerUpdate);
+      final trimStart = studio.state.videoTrimStartSeconds;
+      if (trimStart > 0) {
+        validController.seekTo(Duration(milliseconds: (trimStart * 1000).round()));
+      }
       setState(() {
-        _videoController = controller;
+        _videoController = validController;
         _isVideoInitialized = true;
         _videoError = false;
-        _playing = controller!.value.isPlaying;
+        _playing = validController.value.isPlaying;
       });
       debugPrint('VideoPlayer successfully initialized at $path');
     } else {
@@ -121,6 +132,24 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
   void _onVideoControllerUpdate() {
     final controller = _videoController;
     if (controller == null || !mounted) return;
+
+    final studio = context.read<StudioCubit>();
+    final trimStart = studio.state.videoTrimStartSeconds;
+    final trimEnd = studio.state.videoTrimEndSeconds;
+
+    if (trimEnd != null && trimEnd > trimStart) {
+      final startMs = (trimStart * 1000).round();
+      final endMs = (trimEnd * 1000).round();
+      final posMs = controller.value.position.inMilliseconds;
+
+      if (posMs >= endMs || posMs < startMs) {
+        controller.seekTo(Duration(milliseconds: startMs));
+        if (controller.value.isPlaying) {
+          controller.play();
+        }
+      }
+    }
+
     final isPlaying = controller.value.isPlaying;
     if (isPlaying != _playing) {
       setState(() => _playing = isPlaying);
@@ -130,17 +159,32 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
   @override
   void dispose() {
     _videoController?.removeListener(_onVideoControllerUpdate);
+    _videoController?.pause();
     _videoController?.dispose();
+    unawaited(StudioMusicPlaybackService.stop());
     super.dispose();
   }
 
   void _togglePlayPause() {
     final controller = _videoController;
     if (controller != null && _isVideoInitialized) {
+      final studio = context.read<StudioCubit>();
+      final trimStart = studio.state.videoTrimStartSeconds;
+      final trimEnd = studio.state.videoTrimEndSeconds;
+
       if (controller.value.isPlaying) {
         controller.pause();
         setState(() => _playing = false);
       } else {
+        if (trimEnd != null && trimEnd > trimStart) {
+          final startMs = (trimStart * 1000).round();
+          final endMs = (trimEnd * 1000).round();
+          final posMs = controller.value.position.inMilliseconds;
+
+          if (posMs >= endMs || posMs < startMs) {
+            controller.seekTo(Duration(milliseconds: startMs));
+          }
+        }
         controller.play();
         setState(() => _playing = true);
       }
@@ -164,6 +208,9 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
   }
 
   String _getDuration(StudioCubit studio) {
+    if (studio.recordedDuration.isNotEmpty && studio.recordedDuration != '0:00') {
+      return studio.recordedDuration;
+    }
     final draft = _draft;
     if (draft != null) return draft['duration'] as String? ?? '0:00';
     return studio.recordedDuration;
@@ -185,6 +232,9 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
     if (!mounted) return;
 
     if (res != null) {
+      _videoController?.pause();
+      await StudioMusicPlaybackService.stop();
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Draft saved successfully'),
@@ -238,6 +288,142 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
                       filterId: studio.recordingFilter,
                       beautyOn: studio.recordingBeautyOn,
                       beautyIntensity: studio.recordingBeautyIntensity,
+                      cropAspectRatio: studio.videoCropAspectRatio,
+                    ),
+                    const SizedBox(height: 12),
+                    // Video Editing Options: Crop & Trim
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF6F3FC),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: const Color(0xFFECE6F8)),
+                      ),
+                      child: Row(
+                        children: [
+                          // Crop Option Tile
+                          Expanded(
+                            child: InkWell(
+                              onTap: () => VideoCropSheet.show(context),
+                              borderRadius: BorderRadius.circular(12),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: const Color(0xFFE5DDF5)),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(7),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.purple.withValues(alpha: 0.1),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(Icons.crop, size: 15, color: AppColors.purple),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Text(
+                                            'Crop Video',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w700,
+                                              color: Color(0xFF231A38),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            'Ratio: ${studio.videoCropAspectRatio}',
+                                            style: const TextStyle(
+                                              fontSize: 10.5,
+                                              fontWeight: FontWeight.w600,
+                                              color: AppColors.purple,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          // Trim Option Tile
+                          Expanded(
+                            child: InkWell(
+                              onTap: () async {
+                                final studioCubit = context.read<StudioCubit>();
+                                await VideoTrimmerSheet.show(
+                                  context,
+                                  videoController: _videoController,
+                                );
+                                if (mounted && _videoController != null) {
+                                  final trimStart = studioCubit.state.videoTrimStartSeconds;
+                                  await _videoController!.seekTo(
+                                    Duration(milliseconds: (trimStart * 1000).round()),
+                                  );
+                                  _videoController!.play();
+                                  setState(() => _playing = true);
+                                }
+                              },
+                              borderRadius: BorderRadius.circular(12),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: const Color(0xFFE5DDF5)),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(7),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.purple.withValues(alpha: 0.1),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(Icons.content_cut_rounded, size: 15, color: AppColors.purple),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Text(
+                                            'Trim Video',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w700,
+                                              color: Color(0xFF231A38),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            duration,
+                                            style: const TextStyle(
+                                              fontSize: 10.5,
+                                              fontWeight: FontWeight.w600,
+                                              color: AppColors.purple,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                     if (music != null) ...[
                       const SizedBox(height: 12),
@@ -307,9 +493,12 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
                           child: SecondaryOutlineButton(
                             label: 'Retake',
                             icon: const Icon(Icons.refresh, size: 17),
-                            onPressed: () => context.push(
-                              '${AppRoutes.studioCamera}?id=${challenge['id']}',
-                            ),
+                            onPressed: () {
+                              _videoController?.pause();
+                              context.push(
+                                '${AppRoutes.studioCamera}?id=${challenge['id']}',
+                              );
+                            },
                           ),
                         ),
                         const SizedBox(width: 10),
@@ -317,9 +506,12 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
                           child: GradientButton(
                             label: 'Next',
                             icon: const Icon(Icons.arrow_forward, color: Colors.white, size: 18),
-                            onPressed: () => context.push(
-                              '${AppRoutes.studioDetails}?id=${challenge['id']}$draftParam',
-                            ),
+                            onPressed: () {
+                              _videoController?.pause();
+                              context.push(
+                                '${AppRoutes.studioDetails}?id=${challenge['id']}$draftParam',
+                              );
+                            },
                           ),
                         ),
                       ],

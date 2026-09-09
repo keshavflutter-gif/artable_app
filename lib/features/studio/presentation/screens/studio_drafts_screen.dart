@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -10,6 +11,7 @@ import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/core/utils/formatters.dart';
 import 'package:artable_app/core/widgets/app_network_image.dart';
 import 'package:artable_app/core/widgets/app_screen_header.dart';
+import 'package:artable_app/features/studio/data/services/studio_music_playback_service.dart';
 
 class StudioDraftsScreen extends StatefulWidget {
   const StudioDraftsScreen({super.key, this.challengeId});
@@ -24,6 +26,7 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
   @override
   void initState() {
     super.initState();
+    unawaited(StudioMusicPlaybackService.stop());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         context.read<StudioCubit>().fetchDraftsList(

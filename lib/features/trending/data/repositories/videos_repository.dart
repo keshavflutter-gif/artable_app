@@ -5,6 +5,7 @@ import 'package:artable_app/core/network/api_client.dart';
 import 'package:artable_app/core/network/api_session_callbacks_factory.dart';
 import 'package:artable_app/core/storage/auth_storage_service.dart';
 import 'package:artable_app/features/studio/data/services/video_thumbnail_generator.dart';
+import 'package:artable_app/data/datasources/mock_data.dart';
 import '../models/trending_videos_response.dart';
 
 class VideosRepository {
@@ -127,6 +128,8 @@ class VideosRepository {
     String? challengeId,
     String? sessionToken,
     String? refreshToken,
+    double? videoTrimStartSeconds,
+    double? videoTrimEndSeconds,
   }) async {
     // 1. Ensure video URL is ready
     String finalVideoUrl = videoPathOrUrl;
@@ -211,6 +214,10 @@ class VideosRepository {
         'hashtags': hashtagsList,
       if (challengeId != null && challengeId.trim().isNotEmpty)
         'challengeId': challengeId.trim(),
+      if (videoTrimStartSeconds != null)
+        'videoTrimStartSeconds': videoTrimStartSeconds,
+      if (videoTrimEndSeconds != null)
+        'videoTrimEndSeconds': videoTrimEndSeconds,
     };
 
     debugPrint('=== CREATE VIDEO === Create Video videoUrl: $finalVideoUrl');
@@ -225,6 +232,33 @@ class VideosRepository {
     final isSuccess = response['success'] == true || response['status'] == 200 || response['status'] == 201;
     final createdData = response['data'] is Map ? Map<String, dynamic>.from(response['data'] as Map) : null;
     final createdId = createdData?['id']?.toString() ?? 'N/A';
+
+    final newReelItem = <String, Object>{
+      'id': createdId != 'N/A' && createdId.isNotEmpty
+          ? createdId
+          : 'r_${DateTime.now().millisecondsSinceEpoch}',
+      'title': title,
+      'creator': 'You',
+      'handle': '@user',
+      'category': 'Dance',
+      'verified': true,
+      'imageUrl': finalThumbnailUrl,
+      'videoUrl': finalVideoUrl,
+      'avatarUrl': 'https://i.pravatar.cc/100?u=user',
+      'views': '1',
+      'challengeId': challengeId ?? 'c1',
+      'musicName': 'Original Sound',
+      'caption': title,
+      'likes': '0',
+      'comments': '0',
+      'shares': '0',
+      'talentScore': 8.0,
+      if (videoTrimStartSeconds != null)
+        'videoTrimStartSeconds': videoTrimStartSeconds,
+      if (videoTrimEndSeconds != null)
+        'videoTrimEndSeconds': videoTrimEndSeconds,
+    };
+    MockData.REELS.insert(0, newReelItem);
 
     debugPrint('=== CREATE VIDEO === Create Video API status: ${response['status'] ?? 200}');
     debugPrint('=== CREATE VIDEO === Create Video success: $isSuccess');

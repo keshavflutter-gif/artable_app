@@ -636,6 +636,56 @@ class AuthCubit extends Cubit<AuthState> {
     }
   }
 
+  Future<bool> deleteAccount({
+    required String password,
+    String? reason,
+  }) async {
+    if (state.isLoading) return false;
+
+    emit(state.copyWith(isLoading: true, clearError: true));
+
+    try {
+      await _authRepository.deleteAccount(
+        password: password,
+        reason: reason,
+        sessionToken: state.sessionToken ?? '',
+        refreshToken: state.refreshToken ?? '',
+      );
+
+      final clearedUser = Map<String, dynamic>.from(state.currentUser);
+      clearedUser['isLoggedIn'] = false;
+      clearedUser['name'] = '';
+      clearedUser['fullName'] = '';
+      clearedUser['handle'] = '';
+      clearedUser['username'] = '';
+      clearedUser['avatarUrl'] = '';
+      clearedUser['bio'] = '';
+
+      emit(state.copyWith(
+        isLoading: false,
+        clearSession: true,
+        currentUser: clearedUser,
+        clearError: true,
+      ));
+
+      return true;
+    } on ApiException catch (e) {
+      debugPrint('=== DELETE ACCOUNT API EXCEPTION ===: ${e.message}');
+      emit(state.copyWith(
+        isLoading: false,
+        errorMessage: e.message,
+      ));
+      return false;
+    } catch (e) {
+      debugPrint('=== DELETE ACCOUNT ERROR ===: $e');
+      emit(state.copyWith(
+        isLoading: false,
+        errorMessage: 'Unable to delete account. Please try again.',
+      ));
+      return false;
+    }
+  }
+
   Future<bool> saveProfile({
     required String fullName,
     required String username,

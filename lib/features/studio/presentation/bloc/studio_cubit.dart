@@ -199,7 +199,9 @@ class StudioCubit extends Cubit<StudioState> {
 
   Future<Map<String, dynamic>?> updateDraftDetails({
     required String videoId,
-    required Map<String, dynamic> challenge,
+    Map<String, dynamic>? challenge,
+    String? challengeId,
+    String? categoryId,
     String? title,
     String? description,
     String? thumbnailUrl,
@@ -214,9 +216,9 @@ class StudioCubit extends Cubit<StudioState> {
     final token = _authCubit?.sessionToken;
     final refresh = _authCubit?.refreshToken;
 
-    final cleanChallengeId = (challenge['id']?.toString() ?? state.videoChallengeId ?? '').trim();
-    final cleanCategoryId = (challenge['categoryId']?.toString() ?? state.videoCategoryId)?.trim();
-    final draftTitle = (title ?? challenge['title']?.toString() ?? 'My Dance Entry').trim();
+    final cleanChallengeId = (challengeId ?? challenge?['id']?.toString() ?? state.videoChallengeId ?? '').trim();
+    final cleanCategoryId = (categoryId ?? challenge?['categoryId']?.toString() ?? state.videoCategoryId)?.trim();
+    final draftTitle = (title ?? challenge?['title']?.toString() ?? 'My Dance Entry').trim();
     final draftDescription = description ?? 'This is my challenge performance.';
     final recVideoPath = (state.recordedVideoPath ?? '').trim();
 
@@ -236,7 +238,7 @@ class StudioCubit extends Cubit<StudioState> {
       }
     }
 
-    if (resolvedThumbPath.isEmpty) {
+    if (resolvedThumbPath.isEmpty && challenge != null) {
       resolvedThumbPath = (challenge['bannerUrl']?.toString() ?? challenge['imageUrl']?.toString() ?? '').trim();
     }
 
@@ -252,9 +254,9 @@ class StudioCubit extends Cubit<StudioState> {
       }
     }
 
-    final body = {
-      if (cleanChallengeId.isNotEmpty) 'challengeId': cleanChallengeId,
-      if (cleanCategoryId != null && cleanCategoryId.isNotEmpty) 'categoryId': cleanCategoryId,
+    final body = <String, dynamic>{
+      'challengeId': cleanChallengeId,
+      'categoryId': (cleanCategoryId != null && cleanCategoryId.isNotEmpty) ? cleanCategoryId : null,
       'title': draftTitle,
       'description': draftDescription,
       'thumbnailUrl': tUrl.startsWith('http') ? tUrl : 'https://storage.example/videos/demo-entry.jpg',
@@ -370,6 +372,7 @@ class StudioCubit extends Cubit<StudioState> {
   double get musicStartSeconds => state.musicStartSeconds;
   double get musicCropDuration => state.musicCropDuration;
   double get musicEndSeconds => state.musicEndSeconds;
+  String get videoCropAspectRatio => state.videoCropAspectRatio;
   StudioCameraMode get cameraMode => state.cameraMode;
   bool get isFrontCamera => state.isFrontCamera;
   String get selectedFilter => state.selectedFilter;
@@ -394,11 +397,17 @@ class StudioCubit extends Cubit<StudioState> {
     String? filterId,
     bool? beautyOn,
     double? beautyIntensity,
+    String? cropAspectRatio,
+    double? trimStart,
+    double? trimEnd,
   }) {
     emit(state.copyWith(
       recordingFilter: filterId ?? state.selectedFilter,
       recordingBeautyOn: beautyOn ?? state.beautyOn,
       recordingBeautyIntensity: beautyIntensity ?? state.beautyIntensity,
+      videoCropAspectRatio: cropAspectRatio ?? state.videoCropAspectRatio,
+      videoTrimStartSeconds: trimStart ?? state.videoTrimStartSeconds,
+      videoTrimEndSeconds: trimEnd ?? state.videoTrimEndSeconds,
     ));
   }
 
@@ -493,6 +502,22 @@ class StudioCubit extends Cubit<StudioState> {
     emit(state.copyWith(
       musicStartSeconds: start,
       musicCropDuration: duration,
+    ));
+  }
+
+  void setVideoCropAspectRatio(String aspectRatio) {
+    emit(state.copyWith(videoCropAspectRatio: aspectRatio));
+  }
+
+  void setVideoTrimRange({
+    required double start,
+    required double end,
+    required String formattedDuration,
+  }) {
+    emit(state.copyWith(
+      videoTrimStartSeconds: start,
+      videoTrimEndSeconds: end,
+      recordedDuration: formattedDuration,
     ));
   }
 

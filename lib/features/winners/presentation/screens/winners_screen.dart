@@ -65,7 +65,7 @@ class _WinnersScreenState extends State<WinnersScreen> {
                   }
                 }
 
-                nonFeaturedList.sort((a, b) => a.rank.compareTo(b.rank));
+                nonFeaturedList.sort((a, b) => a.displayRank.compareTo(b.displayRank));
 
                 return RefreshIndicator(
                   onRefresh: () => cubit.loadWinners(forceRefresh: true),

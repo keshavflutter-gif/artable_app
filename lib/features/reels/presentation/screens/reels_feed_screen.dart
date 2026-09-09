@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -294,6 +295,8 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
                     videoUrl: videoUrl,
                     thumbnailUrl: imageUrl,
                     isActive: isActive,
+                    trimStart: (reel['videoTrimStartSeconds'] as num?)?.toDouble(),
+                    trimEnd: (reel['videoTrimEndSeconds'] as num?)?.toDouble(),
                   ),
                   DecoratedBox(
                     decoration: BoxDecoration(
@@ -649,11 +652,15 @@ class _ReelVideoPlayer extends StatefulWidget {
     required this.videoUrl,
     required this.thumbnailUrl,
     required this.isActive,
+    this.trimStart,
+    this.trimEnd,
   });
 
   final String videoUrl;
   final String thumbnailUrl;
   final bool isActive;
+  final double? trimStart;
+  final double? trimEnd;
 
   @override
   State<_ReelVideoPlayer> createState() => _ReelVideoPlayerState();
@@ -694,10 +701,13 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer> {
       return null;
     }
 
+    var cleanFilePath = clean.startsWith('file://') ? clean.replaceFirst('file://', '') : clean;
+    if (File(cleanFilePath).existsSync() || clean.startsWith('/data/') || clean.startsWith('/storage/')) {
+      return clean;
+    }
+
     String fullUrl;
-    if (clean.startsWith('http://') ||
-        clean.startsWith('https://') ||
-        clean.startsWith('file://')) {
+    if (clean.startsWith('http://') || clean.startsWith('https://')) {
       fullUrl = clean;
     } else if (clean.startsWith('/')) {
       fullUrl = 'http://server.keshavinfotechdemo2.com:3055$clean';
@@ -749,18 +759,31 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer> {
     }
 
     debugPrint('=== VIDEO PLAYBACK === Playback videoUrl: $resolvedUrl');
-    debugPrint('=== VIDEO PLAYBACK === Network player initialization started');
     setState(() {
       _isInitializing = true;
       _hasError = false;
     });
 
     try {
-      final uri = Uri.parse(resolvedUrl);
-      final controller = VideoPlayerController.networkUrl(uri);
+      VideoPlayerController controller;
+      var cleanFilePath = resolvedUrl.startsWith('file://') ? resolvedUrl.replaceFirst('file://', '') : resolvedUrl;
+      final localFile = File(cleanFilePath);
+
+      if (resolvedUrl.startsWith('file://') || localFile.existsSync() || resolvedUrl.startsWith('/data/') || resolvedUrl.startsWith('/storage/')) {
+        controller = VideoPlayerController.file(localFile);
+      } else {
+        final uri = Uri.parse(resolvedUrl);
+        controller = VideoPlayerController.networkUrl(uri);
+      }
+
       _controller = controller;
-      await controller.initialize().timeout(const Duration(seconds: 6));
+      await controller.initialize().timeout(const Duration(seconds: 8));
       if (!mounted) return;
+      controller.addListener(_onVideoControllerUpdate);
+      final trimStart = widget.trimStart ?? 0.0;
+      if (trimStart > 0) {
+        await controller.seekTo(Duration(milliseconds: (trimStart * 1000).round()));
+      }
       controller.setLooping(true);
       controller.setVolume(1.0);
       if (widget.isActive) {
@@ -783,7 +806,29 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer> {
     }
   }
 
+  void _onVideoControllerUpdate() {
+    final controller = _controller;
+    if (controller == null || !mounted) return;
+
+    final trimStart = widget.trimStart ?? 0.0;
+    final trimEnd = widget.trimEnd;
+
+    if (trimEnd != null && trimEnd > trimStart) {
+      final startMs = (trimStart * 1000).round();
+      final endMs = (trimEnd * 1000).round();
+      final posMs = controller.value.position.inMilliseconds;
+
+      if (posMs >= endMs || posMs < startMs) {
+        controller.seekTo(Duration(milliseconds: startMs));
+        if (controller.value.isPlaying) {
+          controller.play();
+        }
+      }
+    }
+  }
+
   void _disposeController() {
+    _controller?.removeListener(_onVideoControllerUpdate);
     _controller?.pause();
     _controller?.dispose();
     _controller = null;

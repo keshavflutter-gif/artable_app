@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:just_audio/just_audio.dart';
 
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_text_styles.dart';
@@ -60,6 +61,9 @@ class _SongTrimmerSheetState extends State<SongTrimmerSheet> {
   Timer? _previewTimer;
   double _previewProgress = 0.0;
 
+  AudioPlayer? _audioPlayer;
+  StreamSubscription<PlayerState>? _playerStateSub;
+
   final List<double> _presetDurations = [15.0, 30.0, 60.0];
 
   @override
@@ -70,11 +74,27 @@ class _SongTrimmerSheetState extends State<SongTrimmerSheet> {
     if (_cropDuration > widget.track.duration) {
       _cropDuration = widget.track.duration;
     }
+    _initAudioPlayer();
+  }
+
+  void _initAudioPlayer() {
+    _audioPlayer = AudioPlayer();
+    _playerStateSub = _audioPlayer?.playerStateStream.listen((state) {
+      if (state.processingState == ProcessingState.completed) {
+        _stopPreview();
+      }
+    });
   }
 
   @override
   void dispose() {
     _previewTimer?.cancel();
+    _playerStateSub?.cancel();
+    try {
+      _audioPlayer?.stop();
+      _audioPlayer?.dispose();
+    } catch (_) {}
+    _audioPlayer = null;
     super.dispose();
   }
 
@@ -92,12 +112,27 @@ class _SongTrimmerSheetState extends State<SongTrimmerSheet> {
     }
   }
 
-  void _startPreview() {
+  Future<void> _startPreview() async {
     _previewTimer?.cancel();
-    setState(() {
-      _isPlaying = true;
-      _previewProgress = 0.0;
-    });
+    if (mounted) {
+      setState(() {
+        _isPlaying = true;
+        _previewProgress = 0.0;
+      });
+    }
+
+    final player = _audioPlayer ??= AudioPlayer();
+    try {
+      await player.stop();
+      await player.setUrl(widget.track.audioUrl);
+      final startMs = (_startSeconds * 1000).round();
+      await player.seek(Duration(milliseconds: startMs));
+      if (mounted && _isPlaying) {
+        await player.play();
+      }
+    } catch (e) {
+      debugPrint('SongTrimmerSheet audio play error: $e');
+    }
 
     const stepMs = 100;
     final totalSteps = (_cropDuration * 1000) / stepMs;
@@ -108,15 +143,20 @@ class _SongTrimmerSheetState extends State<SongTrimmerSheet> {
       if (currentStep >= totalSteps) {
         _stopPreview();
       } else {
-        setState(() {
-          _previewProgress = currentStep / totalSteps;
-        });
+        if (mounted) {
+          setState(() {
+            _previewProgress = currentStep / totalSteps;
+          });
+        }
       }
     });
   }
 
-  void _stopPreview() {
+  Future<void> _stopPreview() async {
     _previewTimer?.cancel();
+    try {
+      await _audioPlayer?.stop();
+    } catch (_) {}
     if (mounted) {
       setState(() {
         _isPlaying = false;
@@ -318,7 +358,10 @@ class _SongTrimmerSheetState extends State<SongTrimmerSheet> {
           // Action Button
           GradientButton(
             label: 'Done — Apply Song (${_cropDuration.toInt()}s)',
-            onPressed: () => widget.onApply(_startSeconds, _cropDuration),
+            onPressed: () {
+              _stopPreview();
+              widget.onApply(_startSeconds, _cropDuration);
+            },
           ),
         ],
       ),

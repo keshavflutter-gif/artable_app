@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:artable_app/app/theme/app_gradients.dart';
@@ -6,6 +7,7 @@ import 'package:artable_app/core/widgets/app_back_header.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
 import 'package:artable_app/core/widgets/gradient_button.dart';
 import 'package:artable_app/data/datasources/mock_data.dart';
+import 'package:artable_app/features/wallet/presentation/bloc/wallet_cubit.dart';
 
 class WithdrawalRequestScreen extends StatefulWidget {
   const WithdrawalRequestScreen({super.key});
@@ -41,8 +43,8 @@ class _WithdrawalRequestScreenState extends State<WithdrawalRequestScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final wallet = MockData.WALLET_SUMMARY;
-    final availableStr = wallet['availableBalance'] ?? '₹1,240';
+    final walletState = context.watch<WalletCubit>().state;
+    final availableStr = walletState.walletData?.displayAvailableBalance ?? MockData.WALLET_SUMMARY['availableBalance'] as String;
 
     if (_success) {
       return AppScreen(

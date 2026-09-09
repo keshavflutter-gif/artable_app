@@ -105,6 +105,10 @@ class _StudioUploadScreenState extends State<StudioUploadScreen> {
         challengeId: challengeId,
         sessionToken: authCubit.sessionToken,
         refreshToken: authCubit.refreshToken,
+        videoTrimStartSeconds: studioCubit.state.videoTrimStartSeconds > 0
+            ? studioCubit.state.videoTrimStartSeconds
+            : null,
+        videoTrimEndSeconds: studioCubit.state.videoTrimEndSeconds,
       );
 
       // Step 3: Submitting Entry & Feed Refresh

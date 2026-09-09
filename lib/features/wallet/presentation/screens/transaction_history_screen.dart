@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/core/utils/format_utils.dart';
@@ -6,6 +7,8 @@ import 'package:artable_app/core/widgets/app_back_header.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
 import 'package:artable_app/core/widgets/filter_pills.dart';
 import 'package:artable_app/data/datasources/mock_data.dart';
+import 'package:artable_app/features/wallet/presentation/bloc/wallet_cubit.dart';
+import 'package:artable_app/features/wallet/presentation/bloc/wallet_state.dart';
 
 class TransactionHistoryScreen extends StatefulWidget {
   const TransactionHistoryScreen({super.key});
@@ -15,18 +18,28 @@ class TransactionHistoryScreen extends StatefulWidget {
 }
 
 class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
-  static const _filters = ['All', 'Credit', 'Debit', 'Withdrawn'];
-  var _filter = 'All';
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final cubit = context.read<WalletCubit>();
+      if (!cubit.state.hasTransactionsLoaded) {
+        cubit.loadWalletTransactions();
+      }
+    });
+  }
 
   IconData _iconForCategory(String category) {
-    switch (category) {
+    switch (category.toLowerCase()) {
       case 'challenge_win':
         return Icons.emoji_events_outlined;
       case 'referral':
         return Icons.person_add_alt_1_outlined;
       case 'daily_bonus':
+      case 'bonus':
         return Icons.local_fire_department_outlined;
       case 'withdrawal':
+      case 'withdrawn':
         return Icons.account_balance_wallet_outlined;
       case 'voucher':
         return Icons.confirmation_number_outlined;
@@ -37,71 +50,105 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final rawTransactions = MockData.TRANSACTIONS;
-    final List<Map<String, dynamic>> filteredList;
-
-    if (_filter == 'All') {
-      filteredList = rawTransactions;
-    } else {
-      final filterType = _filter.toLowerCase();
-      filteredList = rawTransactions.where((tx) => tx['type'] == filterType).toList();
-    }
-
     return AppScreen(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const AppBackHeader(title: 'Transaction History'),
-          const SizedBox(height: 8),
-          
-          // Custom Filter Pills
-          FilterPills(
-            items: _filters,
-            selected: _filter,
-            onSelected: (f) => setState(() => _filter = f),
-          ),
-          const SizedBox(height: 16),
+      child: BlocBuilder<WalletCubit, WalletState>(
+        builder: (context, state) {
+          final cubit = context.read<WalletCubit>();
+          final filterItems = state.transactionTabs.isNotEmpty
+              ? state.transactionTabs
+              : const ['All', 'Credit', 'Debit', 'Withdrawal'];
 
-          // Scrollable List
-          Expanded(
-            child: filteredList.isEmpty
-                ? const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 22, vertical: 32),
-                    child: Center(
-                      child: Text(
-                        'No transactions found.',
-                        style: TextStyle(
-                          fontFamily: 'Inter',
-                          color: AppColors.textSoft,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ),
-                  )
-                : ListView.builder(
-                    physics: const ClampingScrollPhysics(),
-                    padding: const EdgeInsets.symmetric(horizontal: 22),
-                    itemCount: filteredList.length + 1, // Add +1 for the Ad Banner
-                    itemBuilder: (context, index) {
-                      if (index == filteredList.length) {
-                        return _buildAdBanner();
-                      }
+          final rawList = state.hasTransactionsLoaded
+              ? state.transactions.map((tx) => tx.toUiMap()).toList()
+              : MockData.TRANSACTIONS;
 
-                      final tx = filteredList[index];
-                      return _buildTransactionCard(tx);
-                    },
-                  ),
-          ),
-        ],
+          final selectedFilter = state.selectedTransactionTab;
+
+          final List<Map<String, dynamic>> filteredList;
+          if (selectedFilter.toLowerCase() == 'all') {
+            filteredList = rawList;
+          } else {
+            final fType = selectedFilter.toLowerCase();
+            filteredList = rawList.where((tx) {
+              final type = (tx['type'] as String? ?? '').toLowerCase();
+              final cat = (tx['category'] as String? ?? '').toLowerCase();
+              if (fType == 'withdrawal' || fType == 'withdrawn') {
+                return type == 'debit' || cat == 'withdrawal' || type == 'withdrawal' || type == 'withdrawn';
+              }
+              return type == fType || cat == fType;
+            }).toList();
+          }
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const AppBackHeader(title: 'Transaction History'),
+              const SizedBox(height: 8),
+
+              // Dynamic Filter Pills from API
+              FilterPills(
+                items: filterItems,
+                selected: selectedFilter,
+                onSelected: (f) => cubit.selectTransactionTab(f),
+              ),
+              const SizedBox(height: 16),
+
+              // Scrollable List with Pull-to-Refresh
+              Expanded(
+                child: RefreshIndicator(
+                  onRefresh: () => cubit.loadWalletTransactions(forceRefresh: true),
+                  color: const Color(0xFFFF5487),
+                  child: state.isTransactionsLoading && !state.hasTransactionsLoaded
+                      ? const Center(
+                          child: CircularProgressIndicator(color: AppColors.purple),
+                        )
+                      : filteredList.isEmpty
+                          ? ListView(
+                              physics: const AlwaysScrollableScrollPhysics(),
+                              children: const [
+                                Padding(
+                                  padding: EdgeInsets.symmetric(horizontal: 22, vertical: 60),
+                                  child: Center(
+                                    child: Text(
+                                      'No transactions found.',
+                                      style: TextStyle(
+                                        fontFamily: 'Inter',
+                                        color: AppColors.textSoft,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            )
+                          : ListView.builder(
+                              physics: const AlwaysScrollableScrollPhysics(),
+                              padding: const EdgeInsets.symmetric(horizontal: 22),
+                              itemCount: filteredList.length + 1, // Add +1 for the Ad Banner
+                              itemBuilder: (context, index) {
+                                if (index == filteredList.length) {
+                                  return _buildAdBanner();
+                                }
+
+                                final tx = filteredList[index];
+                                return _buildTransactionCard(tx);
+                              },
+                            ),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
 
   Widget _buildTransactionCard(Map<String, dynamic> tx) {
-    final type = tx['type'] as String? ?? 'credit';
-    final isCredit = type == 'credit' || (tx['amount'] as String? ?? '').startsWith('+');
-    final status = tx['status'] as String? ?? 'completed';
-    
+    final type = (tx['type'] as String? ?? 'credit').toLowerCase();
+    final amountStr = tx['amount'] as String? ?? '';
+    final isCredit = type == 'credit' || amountStr.startsWith('+');
+    final status = (tx['status'] as String? ?? 'completed').toLowerCase();
+
     // Status Badge Details
     final String statusStr;
     final Color badgeBg;
@@ -111,7 +158,7 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
       statusStr = 'PENDING';
       badgeBg = const Color(0xFFFFF2E6);
       badgeText = const Color(0xFFE68A00);
-    } else if (type == 'withdrawn') {
+    } else if (type == 'debit' || type == 'withdrawal' || type == 'withdrawn' || tx['category'] == 'withdrawal') {
       statusStr = 'WITHDRAWN';
       badgeBg = const Color(0xFFE8F0FE);
       badgeText = const Color(0xFF1A73E8);
@@ -121,8 +168,10 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
       badgeText = const Color(0xFF00C897);
     }
 
-    final formattedDate = FormatUtils.formatDateTime(tx['date'] as String? ?? '')
-        .replaceAll('·', '-');
+    final rawDate = tx['date'] as String? ?? '';
+    final formattedDate = rawDate.isNotEmpty
+        ? FormatUtils.formatDateTime(rawDate).replaceAll('·', '-')
+        : '';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -156,7 +205,7 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
             ),
           ),
           const SizedBox(width: 14),
-          
+
           // Transaction Details
           Expanded(
             child: Column(
@@ -173,16 +222,18 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  formattedDate,
-                  style: const TextStyle(
-                    fontFamily: 'Inter',
-                    color: Color(0xFF8B849C),
-                    fontWeight: FontWeight.w500,
-                    fontSize: 10.5,
+                if (formattedDate.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    formattedDate,
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      color: Color(0xFF8B849C),
+                      fontWeight: FontWeight.w500,
+                      fontSize: 10.5,
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ),
@@ -193,7 +244,7 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                tx['amount'] as String? ?? '',
+                amountStr,
                 style: TextStyle(
                   fontFamily: 'Poppins',
                   color: isCredit ? const Color(0xFF00C897) : const Color(0xFFFF3D77),
@@ -231,7 +282,7 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
       margin: const EdgeInsets.only(top: 8, bottom: 24),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFF8EC), // Soft cream/yellow tint
+        color: const Color(0xFFFFF8EC),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: const Color(0xFFFBEFD7), width: 1.2),
         boxShadow: [
@@ -244,7 +295,6 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
       ),
       child: Row(
         children: [
-          // Sneaker Product Image
           ClipRRect(
             borderRadius: BorderRadius.circular(16),
             child: Image.network(
@@ -256,7 +306,6 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
           ),
           const SizedBox(width: 14),
 
-          // Tagline & Button
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -274,7 +323,6 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
                       ),
                     ),
                     const Spacer(),
-                    // Ad tag badge
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
                       decoration: BoxDecoration(
@@ -305,7 +353,6 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                // Shop Now Button
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
                   decoration: BoxDecoration(

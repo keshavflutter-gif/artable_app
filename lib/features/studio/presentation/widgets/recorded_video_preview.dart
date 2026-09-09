@@ -16,6 +16,7 @@ class RecordedVideoPreview extends StatelessWidget {
     required this.filterId,
     required this.beautyOn,
     required this.beautyIntensity,
+    this.cropAspectRatio = '9:16',
     this.hasError = false,
     this.onRetry,
   });
@@ -29,13 +30,28 @@ class RecordedVideoPreview extends StatelessWidget {
   final String filterId;
   final bool beautyOn;
   final double beautyIntensity;
+  final String cropAspectRatio;
   final bool hasError;
   final VoidCallback? onRetry;
+
+  double get _targetContainerRatio {
+    switch (cropAspectRatio) {
+      case '1:1':
+        return 1.0;
+      case '4:5':
+        return 4 / 5;
+      case '16:9':
+        return 16 / 9;
+      case '9:16':
+      default:
+        return 3 / 4;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return AspectRatio(
-      aspectRatio: 3 / 4,
+      aspectRatio: _targetContainerRatio,
       child: Stack(
         fit: StackFit.expand,
         children: [
@@ -48,9 +64,15 @@ class RecordedVideoPreview extends StatelessWidget {
                 color: Colors.black,
                 child: Center(
                   child: AspectRatio(
-                    aspectRatio: videoController!.value.aspectRatio > 0
-                        ? videoController!.value.aspectRatio
-                        : 9 / 16,
+                    aspectRatio: cropAspectRatio == '1:1'
+                        ? 1.0
+                        : cropAspectRatio == '4:5'
+                            ? 4 / 5
+                            : cropAspectRatio == '16:9'
+                                ? 16 / 9
+                                : (videoController!.value.aspectRatio > 0
+                                    ? videoController!.value.aspectRatio
+                                    : 9 / 16),
                     child: AppFilterUtils.buildFilteredView(
                       filterId: filterId,
                       beautyOn: beautyOn,
