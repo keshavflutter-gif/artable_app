@@ -6,7 +6,6 @@ import 'package:video_player/video_player.dart';
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_text_styles.dart';
 import 'package:artable_app/features/studio/presentation/bloc/studio_cubit.dart';
-import 'package:artable_app/data/datasources/mock_data.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/features/studio/data/services/studio_music_playback_service.dart';
 import 'package:artable_app/core/utils/reel_helpers.dart';
@@ -193,7 +192,8 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
 
   Map<String, dynamic>? get _draft {
     if (widget.draftId == null) return null;
-    for (final d in MockData.DRAFTS) {
+    final studioDrafts = context.read<StudioCubit>().state.drafts;
+    for (final d in studioDrafts) {
       if (d['id'] == widget.draftId) return d;
     }
     return null;
@@ -201,8 +201,9 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
 
   Map<String, dynamic> get _challenge {
     final draft = _draft;
-    if (draft != null) {
-      return ReelHelpers.challengeById(draft['challengeId'] as String)!;
+    if (draft != null && draft['challengeId'] != null) {
+      return ReelHelpers.challengeById(draft['challengeId'] as String) ??
+          ReelHelpers.challengeById(widget.challengeId ?? 'c1')!;
     }
     return ReelHelpers.challengeById(widget.challengeId ?? 'c1')!;
   }
@@ -245,13 +246,114 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
       context.push('${AppRoutes.studioDrafts}?id=${challenge['id']}');
     } else {
       final errorMsg = studio.state.saveDraftError ?? 'Failed to save draft';
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(errorMsg),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
+      if (errorMsg.contains('Draft limit') || studio.state.drafts.length >= StudioCubit.maxDraftsLimit) {
+        _showDraftLimitDialog(context, challenge['id'] as String?);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(errorMsg),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
     }
+  }
+
+  Future<void> _showDraftLimitDialog(BuildContext context, String? challengeId) async {
+    return showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24),
+          side: const BorderSide(color: Color(0xFFECE8F5), width: 1.2),
+        ),
+        backgroundColor: Colors.white,
+        elevation: 16,
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 64,
+                height: 64,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFFFF3E0),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.warning_amber_rounded,
+                  color: Color(0xFFFF9800),
+                  size: 36,
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Draft Limit Reached (20/20)',
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.text,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Maximum 20 drafts can be saved in studio gallery. Please delete an existing draft to save a new video.',
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 13,
+                  color: AppColors.textSoft,
+                  height: 1.4,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.purple,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onPressed: () {
+                        Navigator.of(ctx).pop();
+                        final route = (challengeId != null && challengeId.isNotEmpty)
+                            ? '${AppRoutes.studioDrafts}?id=$challengeId'
+                            : AppRoutes.studioDrafts;
+                        context.push(route);
+                      },
+                      child: const Text(
+                        'Manage Drafts',
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override

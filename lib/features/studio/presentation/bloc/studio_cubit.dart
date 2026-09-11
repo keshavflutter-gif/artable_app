@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:video_player/video_player.dart';
 
-import 'package:artable_app/data/datasources/mock_data.dart';
 import 'package:artable_app/data/datasources/music_api_service.dart';
 import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
 import 'package:artable_app/features/studio/data/models/studio_filters_response.dart';
@@ -96,6 +95,8 @@ class StudioCubit extends Cubit<StudioState> {
     }
   }
 
+  static const int maxDraftsLimit = 20;
+
   Future<Map<String, dynamic>?> saveDraftFromPreview({
     required Map<String, dynamic> challenge,
     String? title,
@@ -105,6 +106,14 @@ class StudioCubit extends Cubit<StudioState> {
     List<String>? hashtags,
     int? durationSeconds,
   }) async {
+    if (state.drafts.length >= maxDraftsLimit) {
+      emit(state.copyWith(
+        isSavingDraft: false,
+        saveDraftError: 'Draft limit reached (Max $maxDraftsLimit drafts). Please delete an existing draft to save a new video.',
+      ));
+      return null;
+    }
+
     emit(state.copyWith(isSavingDraft: true, clearSaveDraftError: true));
 
     final token = _authCubit?.sessionToken;
@@ -154,8 +163,8 @@ class StudioCubit extends Cubit<StudioState> {
       if (cleanCategoryId != null && cleanCategoryId.isNotEmpty) 'categoryId': cleanCategoryId,
       'title': draftTitle,
       'description': draftDescription,
-      'videoUrl': vUrl.startsWith('http') ? vUrl : 'https://storage.example/videos/demo-entry.mp4',
-      'thumbnailUrl': tUrl.startsWith('http') ? tUrl : 'https://storage.example/videos/demo-entry.jpg',
+      'videoUrl': vUrl,
+      'thumbnailUrl': tUrl,
       'hashtags': (hashtags != null && hashtags.isNotEmpty) ? hashtags : ['dance', 'talent', 'artable'],
       'durationSeconds': durSecs > 0 ? durSecs : 42,
     };
@@ -169,6 +178,9 @@ class StudioCubit extends Cubit<StudioState> {
 
       if (res.success && res.data != null) {
         final uiDraftMap = res.data!.toUiMap();
+        if ((uiDraftMap['thumbnailUrl'] == null || uiDraftMap['thumbnailUrl'].toString().contains('storage.example')) && tUrl.isNotEmpty) {
+          uiDraftMap['thumbnailUrl'] = tUrl;
+        }
         addDraft(uiDraftMap);
         emit(state.copyWith(isSavingDraft: false));
         return uiDraftMap;
@@ -259,7 +271,7 @@ class StudioCubit extends Cubit<StudioState> {
       'categoryId': (cleanCategoryId != null && cleanCategoryId.isNotEmpty) ? cleanCategoryId : null,
       'title': draftTitle,
       'description': draftDescription,
-      'thumbnailUrl': tUrl.startsWith('http') ? tUrl : 'https://storage.example/videos/demo-entry.jpg',
+      'thumbnailUrl': tUrl,
       'hashtags': (hashtags != null && hashtags.isNotEmpty) ? hashtags : ['dance', 'talent', 'artable'],
       'durationSeconds': durSecs > 0 ? durSecs : 42,
     };
@@ -274,6 +286,9 @@ class StudioCubit extends Cubit<StudioState> {
 
       if (res.success && res.data != null) {
         final uiDraftMap = res.data!.toUiMap();
+        if ((uiDraftMap['thumbnailUrl'] == null || uiDraftMap['thumbnailUrl'].toString().contains('storage.example')) && tUrl.isNotEmpty) {
+          uiDraftMap['thumbnailUrl'] = tUrl;
+        }
 
         final updatedDrafts = state.drafts.map((d) {
           if (d['id'] == cleanVideoId) {
@@ -549,11 +564,9 @@ class StudioCubit extends Cubit<StudioState> {
   }
 
   void addDraft(Map<String, dynamic> draft) {
+    if (state.drafts.length >= maxDraftsLimit) return;
     final updated = List<Map<String, dynamic>>.from(state.drafts);
     updated.insert(0, draft);
-    if (!MockData.DRAFTS.contains(draft)) {
-      MockData.DRAFTS.insert(0, draft);
-    }
     emit(state.copyWith(drafts: updated));
   }
 
@@ -564,7 +577,6 @@ class StudioCubit extends Cubit<StudioState> {
     final previousDrafts = List<Map<String, dynamic>>.from(state.drafts);
     final updated = List<Map<String, dynamic>>.from(state.drafts)
       ..removeWhere((d) => d['id'] == cleanId);
-    MockData.DRAFTS.removeWhere((d) => d['id'] == cleanId);
     emit(state.copyWith(drafts: updated));
 
     final token = _authCubit?.sessionToken;

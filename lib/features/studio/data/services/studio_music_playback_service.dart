@@ -61,14 +61,13 @@ class StudioMusicPlaybackService {
 
     if (_loadedTrackId == track.id) return;
 
-    if (_preloadFuture != null) {
-      await _preloadFuture;
-      if (_loadedTrackId == track.id) return;
-    }
+    if (_preloadFuture != null) return;
 
     _preloadFuture = _loadTrack(track);
     try {
       await _preloadFuture;
+    } catch (e) {
+      debugPrint('StudioMusicPlaybackService preload error: $e');
     } finally {
       _preloadFuture = null;
     }
@@ -77,7 +76,11 @@ class StudioMusicPlaybackService {
   static Future<void> _loadTrack(FreeToUseTrack track) async {
     try {
       await _configureSession();
-      await _audioPlayer.setUrl(track.audioUrl);
+      final player = _audioPlayer;
+      try {
+        await player.stop();
+      } catch (_) {}
+      await player.setUrl(track.audioUrl).timeout(const Duration(seconds: 4));
       _loadedTrackId = track.id;
     } catch (e) {
       debugPrint('StudioMusicPlaybackService preload error: $e');

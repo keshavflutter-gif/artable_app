@@ -123,12 +123,14 @@ class _StudioMusicScreenState extends State<StudioMusicScreen> {
     }).toList();
   }
 
-  void _openTrimmer(FreeToUseTrack track) {
+  Future<void> _openTrimmer(FreeToUseTrack track) async {
     try {
-      _audioPlayer?.stop();
+      await _audioPlayer?.stop();
     } catch (_) {}
-    setState(() => _playingTrackId = null);
-    SongTrimmerSheet.show(context, track: track);
+    if (mounted) {
+      setState(() => _playingTrackId = null);
+      SongTrimmerSheet.show(context, track: track);
+    }
   }
 
   Future<void> _togglePlayTrack(FreeToUseTrack track) async {
@@ -502,7 +504,16 @@ class _StudioMusicScreenState extends State<StudioMusicScreen> {
                         fullWidth: false,
                         height: 38,
                         padding: const EdgeInsets.symmetric(horizontal: 16),
-                        onPressed: () => context.pop(),
+                        onPressed: () async {
+                          try {
+                            await _audioPlayer?.stop();
+                            await _audioPlayer?.dispose();
+                          } catch (_) {}
+                          _audioPlayer = null;
+                          if (context.mounted) {
+                            context.pop();
+                          }
+                        },
                       ),
                     ],
                   ),

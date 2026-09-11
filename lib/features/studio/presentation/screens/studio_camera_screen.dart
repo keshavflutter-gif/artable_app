@@ -87,7 +87,7 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
     final trackId = studio.selectedTrack?.id;
     if (trackId == null || trackId == _lastPreloadedTrackId) return;
     _lastPreloadedTrackId = trackId;
-    StudioMusicPlaybackService.preloadForStudio(studio);
+    unawaited(StudioMusicPlaybackService.preloadForStudio(studio));
   }
 
   @override

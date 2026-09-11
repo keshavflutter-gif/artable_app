@@ -46,7 +46,8 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
 
   Map<String, dynamic>? get _draft {
     if (widget.draftId == null) return null;
-    for (final d in MockData.DRAFTS) {
+    final studioDrafts = context.read<StudioCubit>().state.drafts;
+    for (final d in studioDrafts) {
       if (d['id'] == widget.draftId) return d;
     }
     return null;
@@ -259,13 +260,114 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
       context.push('${AppRoutes.studioDrafts}?id=$_challengeId');
     } else {
       final errorMsg = studio.state.saveDraftError ?? 'Failed to save draft';
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(errorMsg),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
+      if (errorMsg.contains('Draft limit') || studio.state.drafts.length >= StudioCubit.maxDraftsLimit) {
+        _showDraftLimitDialog(context, _challengeId);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(errorMsg),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
     }
+  }
+
+  Future<void> _showDraftLimitDialog(BuildContext context, String? challengeId) async {
+    return showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24),
+          side: const BorderSide(color: Color(0xFFECE8F5), width: 1.2),
+        ),
+        backgroundColor: Colors.white,
+        elevation: 16,
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 64,
+                height: 64,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFFFF3E0),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.warning_amber_rounded,
+                  color: Color(0xFFFF9800),
+                  size: 36,
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Draft Limit Reached (20/20)',
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.text,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Maximum 20 drafts can be saved in studio gallery. Please delete an existing draft to save a new video.',
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 13,
+                  color: AppColors.textSoft,
+                  height: 1.4,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.purple,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onPressed: () {
+                        Navigator.of(ctx).pop();
+                        final route = (challengeId != null && challengeId.isNotEmpty)
+                            ? '${AppRoutes.studioDrafts}?id=$challengeId'
+                            : AppRoutes.studioDrafts;
+                        context.push(route);
+                      },
+                      child: const Text(
+                        'Manage Drafts',
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Map<String, dynamic> get _selectedChallenge =>

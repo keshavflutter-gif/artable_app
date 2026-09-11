@@ -12,6 +12,7 @@ import 'package:artable_app/core/utils/formatters.dart';
 import 'package:artable_app/core/widgets/app_network_image.dart';
 import 'package:artable_app/core/widgets/app_screen_header.dart';
 import 'package:artable_app/features/studio/data/services/studio_music_playback_service.dart';
+import 'package:artable_app/core/utils/reel_helpers.dart';
 
 class StudioDraftsScreen extends StatefulWidget {
   const StudioDraftsScreen({super.key, this.challengeId});
@@ -41,7 +42,7 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
   Widget build(BuildContext context) {
     final studio = context.watch<StudioCubit>();
     final drafts = studio.state.drafts;
-    final isLoading = studio.state.isLoadingDrafts && drafts.isEmpty;
+    final isLoading = studio.state.isLoadingDrafts;
 
     return Scaffold(
       backgroundColor: AppColors.bg,
@@ -49,6 +50,67 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
         child: Column(
           children: [
             const AppScreenHeader(title: 'Drafts'),
+            if (drafts.length >= StudioCubit.maxDraftsLimit)
+              Container(
+                margin: const EdgeInsets.symmetric(horizontal: 22, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF3E0),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFFFB74D), width: 1),
+                ),
+                child: Row(
+                  children: const [
+                    Icon(Icons.warning_amber_rounded, color: Color(0xFFE65100), size: 20),
+                    SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Draft gallery full (20/20). Delete a draft to save a new video.',
+                        style: TextStyle(
+                          fontFamily: 'Poppins',
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFFE65100),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            else if (drafts.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 6),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Saved Drafts',
+                      style: TextStyle(
+                        fontFamily: 'Poppins',
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.text,
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: AppColors.purple.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        '${drafts.length} / ${StudioCubit.maxDraftsLimit}',
+                        style: const TextStyle(
+                          fontFamily: 'Poppins',
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.purple,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             Expanded(
               child: isLoading
                   ? const Center(
@@ -226,7 +288,17 @@ class _DraftCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final thumbnailUrl = (draft['thumbnailUrl'] as String?) ?? (draft['imageUrl'] as String?) ?? '';
+    String thumbnailUrl = (draft['thumbnailUrl'] as String?) ?? (draft['imageUrl'] as String?) ?? '';
+    final challengeId = (draft['challengeId'] as String?) ?? '';
+    if (thumbnailUrl.isEmpty || thumbnailUrl.contains('storage.example')) {
+      if (challengeId.isNotEmpty) {
+        final challenge = ReelHelpers.challengeById(challengeId);
+        if (challenge != null) {
+          thumbnailUrl = (challenge['bannerUrl'] as String?) ?? (challenge['imageUrl'] as String?) ?? '';
+        }
+      }
+    }
+
     final title = (draft['challengeTitle'] as String?) ?? (draft['title'] as String?) ?? 'Draft Entry';
     final dateStr = (draft['recordedAt'] as String?) ?? (draft['createdAt'] as String?) ?? '';
     final formattedDate = dateStr.isNotEmpty ? AppFormatters.formatDateTime(dateStr) : '';

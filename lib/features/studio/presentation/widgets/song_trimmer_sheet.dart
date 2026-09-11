@@ -358,8 +358,12 @@ class _SongTrimmerSheetState extends State<SongTrimmerSheet> {
           // Action Button
           GradientButton(
             label: 'Done — Apply Song (${_cropDuration.toInt()}s)',
-            onPressed: () {
-              _stopPreview();
+            onPressed: () async {
+              await _stopPreview();
+              try {
+                await _audioPlayer?.dispose();
+              } catch (_) {}
+              _audioPlayer = null;
               widget.onApply(_startSeconds, _cropDuration);
             },
           ),
