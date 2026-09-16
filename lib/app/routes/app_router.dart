@@ -226,6 +226,7 @@ abstract final class AppRouter {
           path: AppRoutes.studioUpload,
           builder: (context, state) => StudioUploadScreen(
             challengeId: state.uri.queryParameters['id'],
+            draftId: state.uri.queryParameters['draft'],
           ),
         ),
         GoRoute(

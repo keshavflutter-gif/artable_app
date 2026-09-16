@@ -11,6 +11,7 @@ import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/core/utils/formatters.dart';
 import 'package:artable_app/core/widgets/app_network_image.dart';
 import 'package:artable_app/core/widgets/app_screen_header.dart';
+import 'package:artable_app/core/widgets/gradient_button.dart';
 import 'package:artable_app/features/studio/data/services/studio_music_playback_service.dart';
 import 'package:artable_app/core/utils/reel_helpers.dart';
 
@@ -24,6 +25,10 @@ class StudioDraftsScreen extends StatefulWidget {
 }
 
 class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
+  bool _isSelectionMode = false;
+  final Set<String> _selectedDraftIds = {};
+  bool _isMerging = false;
+
   @override
   void initState() {
     super.initState();
@@ -38,6 +43,43 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
     });
   }
 
+  Future<void> _handleMergeSelected() async {
+    if (_selectedDraftIds.length < 2) return;
+    setState(() => _isMerging = true);
+
+    final studio = context.read<StudioCubit>();
+    final merged = await studio.mergeDrafts(draftIds: _selectedDraftIds.toList());
+
+    if (!mounted) return;
+    setState(() => _isMerging = false);
+
+    if (merged != null) {
+      final count = _selectedDraftIds.length;
+      setState(() {
+        _isSelectionMode = false;
+        _selectedDraftIds.clear();
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Successfully merged $count drafts into 1 video!'),
+          backgroundColor: AppColors.purple,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      context.push(
+        '${AppRoutes.studioPreview}?draft=${merged['id']}&id=${merged['challengeId']}',
+      );
+    } else {
+      final error = studio.state.saveDraftError ?? 'Failed to merge drafts';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final studio = context.watch<StudioCubit>();
@@ -46,6 +88,84 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.bg,
+      bottomNavigationBar: _isSelectionMode
+          ? Container(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.08),
+                    blurRadius: 12,
+                    offset: const Offset(0, -4),
+                  ),
+                ],
+                border: const Border(top: BorderSide(color: AppColors.inputBorder)),
+              ),
+              child: SafeArea(
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '${_selectedDraftIds.length} Drafts Selected',
+                            style: const TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.text,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Builder(
+                            builder: (context) {
+                              int totalSecs = 0;
+                              final selected = drafts.where((d) => _selectedDraftIds.contains(d['id'])).toList();
+                              for (final d in selected) {
+                                final dur = d['duration']?.toString() ?? '0:00';
+                                final parts = dur.split(':');
+                                if (parts.length == 2) {
+                                  final m = int.tryParse(parts[0]) ?? 0;
+                                  final s = int.tryParse(parts[1]) ?? 0;
+                                  totalSecs += (m * 60 + s);
+                                }
+                              }
+                              final mins = totalSecs ~/ 60;
+                              final secs = totalSecs % 60;
+                              final durStr = '$mins:${secs.toString().padLeft(2, '0')}';
+
+                              return Text(
+                                _selectedDraftIds.length < 2
+                                    ? 'Select 2+ drafts to combine'
+                                    : 'Total Duration: $durStr (1 video)',
+                                style: const TextStyle(
+                                  fontFamily: 'Poppins',
+                                  fontSize: 11,
+                                  color: AppColors.textSoft,
+                                ),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                    GradientButton(
+                      label: _isMerging ? 'Merging...' : 'Merge Selected (${_selectedDraftIds.length})',
+                      fullWidth: false,
+                      height: 40,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      onPressed: (_selectedDraftIds.length < 2 || _isMerging)
+                          ? null
+                          : _handleMergeSelected,
+                    ),
+                  ],
+                ),
+              ),
+            )
+          : null,
       body: SafeArea(
         child: Column(
           children: [
@@ -76,37 +196,72 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
                     ),
                   ],
                 ),
-              )
-            else if (drafts.isNotEmpty)
+              ),
+            if (drafts.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 6),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text(
-                      'Saved Drafts',
-                      style: TextStyle(
+                    Text(
+                      _isSelectionMode ? 'Select Drafts to Merge' : 'Saved Drafts',
+                      style: const TextStyle(
                         fontFamily: 'Poppins',
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
                         color: AppColors.text,
                       ),
                     ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: AppColors.purple.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        '${drafts.length} / ${StudioCubit.maxDraftsLimit}',
-                        style: const TextStyle(
-                          fontFamily: 'Poppins',
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.purple,
+                    Row(
+                      children: [
+                        if (drafts.length >= 2)
+                          TextButton.icon(
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _isSelectionMode = !_isSelectionMode;
+                                if (!_isSelectionMode) {
+                                  _selectedDraftIds.clear();
+                                }
+                              });
+                            },
+                            icon: Icon(
+                              _isSelectionMode ? Icons.close : Icons.call_merge_rounded,
+                              size: 15,
+                              color: AppColors.purple,
+                            ),
+                            label: Text(
+                              _isSelectionMode ? 'Cancel' : 'Merge',
+                              style: const TextStyle(
+                                fontFamily: 'Poppins',
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.purple,
+                              ),
+                            ),
+                          ),
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: AppColors.purple.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            '${drafts.length} / ${StudioCubit.maxDraftsLimit}',
+                            style: const TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.purple,
+                            ),
+                          ),
                         ),
-                      ),
+                      ],
                     ),
                   ],
                 ),
@@ -129,16 +284,27 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
                             itemCount: drafts.length,
                             itemBuilder: (context, i) {
                               final draft = drafts[i];
+                              final draftId = draft['id'] as String;
                               return Padding(
                                 padding: EdgeInsets.only(top: i == 0 ? 0 : 10),
                                 child: _DraftCard(
                                   draft: draft,
+                                  isSelectionMode: _isSelectionMode,
+                                  isSelected: _selectedDraftIds.contains(draftId),
+                                  onToggleSelect: () {
+                                    setState(() {
+                                      if (_selectedDraftIds.contains(draftId)) {
+                                        _selectedDraftIds.remove(draftId);
+                                      } else {
+                                        _selectedDraftIds.add(draftId);
+                                      }
+                                    });
+                                  },
                                   onDelete: () async {
                                     final confirm = await _showDeleteConfirmDialog(context);
                                     if (confirm != true) return;
 
                                     if (!context.mounted) return;
-                                    final draftId = draft['id'] as String;
                                     final success = await context.read<StudioCubit>().deleteDraft(draftId);
                                     if (context.mounted) {
                                       ScaffoldMessenger.of(context).showSnackBar(
@@ -280,11 +446,17 @@ class _DraftCard extends StatelessWidget {
     required this.draft,
     required this.onDelete,
     required this.onContinue,
+    this.isSelectionMode = false,
+    this.isSelected = false,
+    this.onToggleSelect,
   });
 
   final Map<String, dynamic> draft;
   final VoidCallback onDelete;
   final VoidCallback onContinue;
+  final bool isSelectionMode;
+  final bool isSelected;
+  final VoidCallback? onToggleSelect;
 
   @override
   Widget build(BuildContext context) {
@@ -304,14 +476,19 @@ class _DraftCard extends StatelessWidget {
     final formattedDate = dateStr.isNotEmpty ? AppFormatters.formatDateTime(dateStr) : '';
     final duration = (draft['duration'] as String?) ?? '0:42';
 
-    return Container(
+    final cardContent = Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFFFFFFFF), Color(0xFFFBF6FF)],
+        gradient: LinearGradient(
+          colors: isSelected
+              ? [const Color(0xFFF3EBFF), const Color(0xFFEADBFF)]
+              : [const Color(0xFFFFFFFF), const Color(0xFFFBF6FF)],
         ),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.purple.withValues(alpha: 0.1)),
+        border: Border.all(
+          color: isSelected ? AppColors.purple : AppColors.purple.withValues(alpha: 0.1),
+          width: isSelected ? 1.8 : 1.0,
+        ),
         boxShadow: [
           BoxShadow(
             color: const Color(0xFF5E2EAA).withValues(alpha: 0.12),
@@ -322,6 +499,25 @@ class _DraftCard extends StatelessWidget {
       ),
       child: Row(
         children: [
+          if (isSelectionMode)
+            Padding(
+              padding: const EdgeInsets.only(right: 10),
+              child: Container(
+                width: 22,
+                height: 22,
+                decoration: BoxDecoration(
+                  color: isSelected ? AppColors.purple : Colors.white,
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: isSelected ? AppColors.purple : const Color(0xFFC7C0D8),
+                    width: 2,
+                  ),
+                ),
+                child: isSelected
+                    ? const Icon(Icons.check, size: 14, color: Colors.white)
+                    : null,
+              ),
+            ),
           ClipRRect(
             borderRadius: BorderRadius.circular(12),
             child: AppNetworkImage(
@@ -367,44 +563,53 @@ class _DraftCard extends StatelessWidget {
               ],
             ),
           ),
-          Column(
-            children: [
-              GestureDetector(
-                onTap: onContinue,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  decoration: BoxDecoration(
-                    gradient: AppGradients.button,
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: const Text(
-                    'Continue',
-                    style: TextStyle(
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.white,
+          if (!isSelectionMode)
+            Column(
+              children: [
+                GestureDetector(
+                  onTap: onContinue,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      gradient: AppGradients.button,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: const Text(
+                      'Continue',
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                      ),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              GestureDetector(
-                onTap: onDelete,
-                child: Container(
-                  width: 28,
-                  height: 28,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFFCEDEE),
-                    shape: BoxShape.circle,
+                const SizedBox(height: 8),
+                GestureDetector(
+                  onTap: onDelete,
+                  child: Container(
+                    width: 28,
+                    height: 28,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFFCEDEE),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.delete_outline, size: 13, color: Color(0xFFE0405A)),
                   ),
-                  child: const Icon(Icons.delete_outline, size: 13, color: Color(0xFFE0405A)),
                 ),
-              ),
-            ],
-          ),
+              ],
+            ),
         ],
       ),
     );
+
+    if (isSelectionMode) {
+      return GestureDetector(
+        onTap: onToggleSelect,
+        child: cardContent,
+      );
+    }
+    return cardContent;
   }
 }
 

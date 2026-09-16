@@ -8,6 +8,7 @@ import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
 import 'package:artable_app/features/studio/data/models/studio_filters_response.dart';
 import 'package:artable_app/features/studio/data/repositories/studio_repository.dart';
 import 'package:artable_app/features/studio/data/services/video_thumbnail_generator.dart';
+import 'package:artable_app/core/utils/studio_video_player_utils.dart';
 import 'studio_state.dart';
 
 class StudioCubit extends Cubit<StudioState> {
@@ -97,6 +98,95 @@ class StudioCubit extends Cubit<StudioState> {
 
   static const int maxDraftsLimit = 20;
 
+  Future<Map<String, dynamic>?> mergeDrafts({
+    required List<String> draftIds,
+    String? customTitle,
+  }) async {
+    if (draftIds.length < 2) return null;
+
+    if (state.drafts.length >= maxDraftsLimit) {
+      emit(state.copyWith(
+        isSavingDraft: false,
+        saveDraftError: 'Draft limit reached (Max $maxDraftsLimit drafts). Please delete a draft to save a merged video.',
+      ));
+      return null;
+    }
+
+    final selectedDrafts = state.drafts.where((d) => draftIds.contains(d['id'])).toList();
+    if (selectedDrafts.isEmpty) return null;
+
+    int totalSecs = 0;
+    for (final d in selectedDrafts) {
+      final dur = d['duration']?.toString() ?? '0:30';
+      final parts = dur.split(':');
+      if (parts.length == 2) {
+        final m = int.tryParse(parts[0]) ?? 0;
+        final s = int.tryParse(parts[1]) ?? 0;
+        totalSecs += (m * 60 + s);
+      } else {
+        totalSecs += (d['durationSeconds'] as num?)?.toInt() ?? 30;
+      }
+    }
+
+    final first = selectedDrafts.first;
+    final title1 = first['challengeTitle']?.toString() ?? first['title']?.toString() ?? 'Draft';
+    final mergedTitle = customTitle ?? '$title1 (Merged ${selectedDrafts.length} Clips)';
+
+    String resolvedThumb = first['thumbnailUrl']?.toString() ?? first['imageUrl']?.toString() ?? '';
+    if (resolvedThumb.isEmpty || resolvedThumb.contains('storage.example')) {
+      for (final d in selectedDrafts) {
+        final t = d['thumbnailUrl']?.toString() ?? d['imageUrl']?.toString() ?? '';
+        if (t.isNotEmpty && !t.contains('storage.example')) {
+          resolvedThumb = t;
+          break;
+        }
+      }
+    }
+
+    final mins = totalSecs ~/ 60;
+    final secs = totalSecs % 60;
+    final formattedDur = '$mins:${secs.toString().padLeft(2, '0')}';
+
+    final mergedClipPaths = selectedDrafts
+        .map((d) => (d['videoPath']?.toString() ?? d['videoUrl']?.toString() ?? '').trim())
+        .where((p) => p.isNotEmpty)
+        .toList();
+
+    final combinedFile = await StudioVideoPlayerUtils.combineVideoFiles(mergedClipPaths);
+    final finalVideoPath = (combinedFile != null && await combinedFile.exists())
+        ? combinedFile.path
+        : (mergedClipPaths.isNotEmpty ? mergedClipPaths.first : '');
+
+    emit(state.copyWith(
+      recordedDuration: formattedDur,
+      videoTrimStartSeconds: 0.0,
+      videoTrimEndSeconds: totalSecs.toDouble(),
+      recordedVideoPath: finalVideoPath.isNotEmpty ? finalVideoPath : null,
+      mergedClipPaths: mergedClipPaths,
+    ));
+
+    final res = await saveDraftFromPreview(
+      challenge: {'id': first['challengeId'] ?? 'c1', 'title': mergedTitle},
+      title: mergedTitle,
+      description: 'Merged video from ${selectedDrafts.length} drafts',
+      videoUrl: finalVideoPath.isNotEmpty ? finalVideoPath : null,
+      thumbnailUrl: resolvedThumb.isNotEmpty ? resolvedThumb : null,
+      durationSeconds: totalSecs,
+    );
+
+    if (res != null) {
+      res['duration'] = formattedDur;
+      res['durationSeconds'] = totalSecs;
+      res['videoTrimStartSeconds'] = 0.0;
+      res['videoTrimEndSeconds'] = totalSecs.toDouble();
+      res['videoPath'] = finalVideoPath;
+      res['videoUrl'] = finalVideoPath;
+      res['mergedClipPaths'] = mergedClipPaths;
+    }
+
+    return res;
+  }
+
   Future<Map<String, dynamic>?> saveDraftFromPreview({
     required Map<String, dynamic> challenge,
     String? title,
@@ -145,8 +235,59 @@ class StudioCubit extends Cubit<StudioState> {
       resolvedThumbPath = (challenge['bannerUrl']?.toString() ?? challenge['imageUrl']?.toString() ?? '').trim();
     }
 
-    final vUrl = recVideoPath.isNotEmpty ? recVideoPath : 'https://storage.example/videos/demo-entry.mp4';
-    final tUrl = resolvedThumbPath.isNotEmpty ? resolvedThumbPath : 'https://storage.example/videos/demo-entry.jpg';
+    final sToken = (token != null && token != 'design_preview') ? token : null;
+    final rToken = (refresh != null && refresh != 'design_preview') ? refresh : null;
+
+    String vUrl = recVideoPath;
+    if (vUrl.isNotEmpty) {
+      final cleanVPath = vUrl.replaceFirst('file://', '').trim();
+      final isLocalV = !cleanVPath.startsWith('http://') && !cleanVPath.startsWith('https://');
+      if (isLocalV && await File(cleanVPath).exists()) {
+        try {
+          debugPrint('=== DRAFT SAVE PRESIGNED URL === Uploading local video file to storage: $cleanVPath');
+          final uploadedVUrl = await _repository.uploadFile(
+            cleanVPath,
+            isVideo: true,
+            sessionToken: sToken,
+            refreshToken: rToken,
+          );
+          if (uploadedVUrl.isNotEmpty) {
+            vUrl = uploadedVUrl;
+            debugPrint('=== DRAFT SAVE PRESIGNED URL === Real video URL obtained: $vUrl');
+          }
+        } catch (e) {
+          debugPrint('=== DRAFT SAVE PRESIGNED URL === Video upload warning: $e');
+        }
+      }
+    }
+
+    String tUrl = resolvedThumbPath;
+    if (tUrl.isNotEmpty) {
+      final cleanTPath = tUrl.replaceFirst('file://', '').trim();
+      final isLocalT = !cleanTPath.startsWith('http://') && !cleanTPath.startsWith('https://');
+      if (isLocalT && await File(cleanTPath).exists()) {
+        try {
+          debugPrint('=== DRAFT SAVE PRESIGNED URL === Uploading local thumbnail file to storage: $cleanTPath');
+          final uploadedTUrl = await _repository.uploadFile(
+            cleanTPath,
+            isVideo: false,
+            sessionToken: sToken,
+            refreshToken: rToken,
+          );
+          if (uploadedTUrl.isNotEmpty) {
+            tUrl = uploadedTUrl;
+            debugPrint('=== DRAFT SAVE PRESIGNED URL === Real thumbnail URL obtained: $tUrl');
+          }
+        } catch (e) {
+          debugPrint('=== DRAFT SAVE PRESIGNED URL === Thumbnail upload warning: $e');
+        }
+      }
+    }
+
+
+    if (tUrl.isEmpty || tUrl.contains('storage.example')) {
+      tUrl = 'https://loremflickr.com/700/440/talent,stage?lock=501';
+    }
 
     int durSecs = durationSeconds ?? 42;
     if (durationSeconds == null) {
@@ -172,8 +313,8 @@ class StudioCubit extends Cubit<StudioState> {
     try {
       final res = await _repository.saveDraft(
         body: body,
-        sessionToken: (token != null && token != 'design_preview') ? token : null,
-        refreshToken: (refresh != null && refresh != 'design_preview') ? refresh : null,
+        sessionToken: sToken,
+        refreshToken: rToken,
       );
 
       if (res.success && res.data != null) {
@@ -254,7 +395,34 @@ class StudioCubit extends Cubit<StudioState> {
       resolvedThumbPath = (challenge['bannerUrl']?.toString() ?? challenge['imageUrl']?.toString() ?? '').trim();
     }
 
-    final tUrl = resolvedThumbPath.isNotEmpty ? resolvedThumbPath : 'https://storage.example/videos/demo-entry.jpg';
+    final sToken = (token != null && token != 'design_preview') ? token : null;
+    final rToken = (refresh != null && refresh != 'design_preview') ? refresh : null;
+
+    String tUrl = resolvedThumbPath;
+    if (tUrl.isNotEmpty) {
+      final cleanTPath = tUrl.replaceFirst('file://', '').trim();
+      final isLocalT = !cleanTPath.startsWith('http://') && !cleanTPath.startsWith('https://');
+      if (isLocalT && await File(cleanTPath).exists()) {
+        try {
+          debugPrint('=== DRAFT UPDATE PRESIGNED URL === Uploading thumbnail file to storage: $cleanTPath');
+          final uploadedTUrl = await _repository.uploadFile(
+            cleanTPath,
+            isVideo: false,
+            sessionToken: sToken,
+            refreshToken: rToken,
+          );
+          if (uploadedTUrl.isNotEmpty) {
+            tUrl = uploadedTUrl;
+          }
+        } catch (e) {
+          debugPrint('=== DRAFT UPDATE PRESIGNED URL === Thumbnail upload warning: $e');
+        }
+      }
+    }
+
+    if (tUrl.isEmpty || tUrl.contains('storage.example')) {
+      tUrl = 'https://loremflickr.com/700/440/talent,stage?lock=501';
+    }
 
     int durSecs = durationSeconds ?? 42;
     if (durationSeconds == null) {
@@ -359,6 +527,16 @@ class StudioCubit extends Cubit<StudioState> {
   String? get videoChallengeId => state.videoChallengeId;
   VideoPlayerController? get activeVideoController => state.activeVideoController;
 
+  String? get activeDraftId => state.activeDraftId;
+
+  void setActiveDraftId(String? draftId) {
+    if (draftId == null) {
+      emit(state.copyWith(clearActiveDraftId: true));
+    } else {
+      emit(state.copyWith(activeDraftId: draftId));
+    }
+  }
+
   void setSelectedThumbnailPath(String? path) {
     if (path == null) {
       emit(state.copyWith(clearSelectedThumbnailPath: true));
@@ -373,6 +551,7 @@ class StudioCubit extends Cubit<StudioState> {
     String? categoryId,
     String? hashtags,
     String? challengeId,
+    String? draftId,
   }) {
     emit(state.copyWith(
       videoTitle: title,
@@ -380,6 +559,7 @@ class StudioCubit extends Cubit<StudioState> {
       videoCategoryId: categoryId,
       videoHashtags: hashtags,
       videoChallengeId: challengeId,
+      activeDraftId: draftId,
     ));
   }
   String? get selectedMusic => state.selectedMusic;
@@ -430,16 +610,21 @@ class StudioCubit extends Cubit<StudioState> {
     emit(state.copyWith(recordedDuration: duration));
   }
 
-  void setRecordedVideoPath(String? path) {
+  void setRecordedVideoPath(String? path, {List<String>? mergedClipPaths, bool clearMergedClips = true}) {
     if (path == null) {
       emit(state.copyWith(
         clearRecordedVideoPath: true,
+        clearMergedClipPaths: true,
         recordingFilter: state.selectedFilter,
         recordingBeautyOn: state.beautyOn,
         recordingBeautyIntensity: state.beautyIntensity,
       ));
     } else {
-      emit(state.copyWith(recordedVideoPath: path));
+      emit(state.copyWith(
+        recordedVideoPath: path,
+        mergedClipPaths: mergedClipPaths,
+        clearMergedClipPaths: clearMergedClips && (mergedClipPaths == null || mergedClipPaths.isEmpty),
+      ));
     }
   }
 

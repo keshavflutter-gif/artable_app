@@ -15,6 +15,7 @@ import 'package:artable_app/core/utils/reel_helpers.dart';
 import 'package:artable_app/core/widgets/app_network_image.dart';
 import 'package:artable_app/features/reels/presentation/widgets/creator_info_row.dart';
 import 'package:artable_app/features/reels/presentation/widgets/talent_rating_slider.dart';
+import 'package:artable_app/features/studio/data/services/studio_music_playback_service.dart';
 
 class ReelsFeedScreen extends StatefulWidget {
   const ReelsFeedScreen({super.key, this.initialReelId});
@@ -670,7 +671,6 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer> {
   VideoPlayerController? _controller;
   bool _isInitializing = false;
   bool _isInitialized = false;
-  bool _hasError = false;
 
   @override
   void initState() {
@@ -706,18 +706,12 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer> {
       return clean;
     }
 
-    String fullUrl;
     if (clean.startsWith('http://') || clean.startsWith('https://')) {
-      fullUrl = clean;
+      return clean;
     } else if (clean.startsWith('/')) {
-      fullUrl = 'http://server.keshavinfotechdemo2.com:3055$clean';
+      return 'http://server.keshavinfotechdemo2.com:3055$clean';
     } else {
-      fullUrl = 'http://server.keshavinfotechdemo2.com:3055/$clean';
-    }
-    try {
-      return Uri.encodeFull(fullUrl);
-    } catch (_) {
-      return fullUrl;
+      return 'http://server.keshavinfotechdemo2.com:3055/$clean';
     }
   }
 
@@ -746,11 +740,12 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer> {
   }
 
   Future<void> _initVideo() async {
+    await StudioMusicPlaybackService.releaseForVideoPlayback();
     final resolvedUrl = _resolvePlayableUrl(widget.videoUrl);
+
     if (resolvedUrl == null || resolvedUrl.isEmpty) {
       if (mounted) {
         setState(() {
-          _hasError = true;
           _isInitializing = false;
           _isInitialized = false;
         });
@@ -759,10 +754,11 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer> {
     }
 
     debugPrint('=== VIDEO PLAYBACK === Playback videoUrl: $resolvedUrl');
-    setState(() {
-      _isInitializing = true;
-      _hasError = false;
-    });
+    if (mounted) {
+      setState(() {
+        _isInitializing = true;
+      });
+    }
 
     try {
       VideoPlayerController controller;
@@ -773,11 +769,14 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer> {
         controller = VideoPlayerController.file(localFile);
       } else {
         final uri = Uri.parse(resolvedUrl);
-        controller = VideoPlayerController.networkUrl(uri);
+        controller = VideoPlayerController.networkUrl(
+          uri,
+          videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
+        );
       }
 
       _controller = controller;
-      await controller.initialize().timeout(const Duration(seconds: 8));
+      await controller.initialize().timeout(const Duration(seconds: 25));
       if (!mounted) return;
       controller.addListener(_onVideoControllerUpdate);
       final trimStart = widget.trimStart ?? 0.0;
@@ -790,19 +789,22 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer> {
         await controller.play();
       }
       debugPrint('=== VIDEO PLAYBACK === Network player initialized: true');
-      setState(() {
-        _isInitialized = true;
-        _isInitializing = false;
-      });
-    } catch (e) {
-      debugPrint('=== VIDEO PLAYBACK === Network player error: $e');
       if (mounted) {
         setState(() {
-          _hasError = true;
+          _isInitialized = true;
           _isInitializing = false;
-          _isInitialized = false;
         });
       }
+      return;
+    } catch (e) {
+      debugPrint('=== VIDEO PLAYBACK === Primary player error: $e');
+    }
+
+    if (mounted) {
+      setState(() {
+        _isInitializing = false;
+        _isInitialized = false;
+      });
     }
   }
 
@@ -834,7 +836,6 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer> {
     _controller = null;
     _isInitialized = false;
     _isInitializing = false;
-    _hasError = false;
   }
 
   @override
@@ -937,38 +938,7 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer> {
               ),
             ),
 
-          // 5. Fallback Error State Overlay
-          if (_hasError && !_isInitialized)
-            Positioned(
-              bottom: 120,
-              left: 20,
-              right: 20,
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.6),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.info_outline,
-                        color: Colors.white70, size: 16),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Video playback unavailable',
-                      style: TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 12,
-                        color: Colors.white.withValues(alpha: 0.85),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+
         ],
       ),
     );

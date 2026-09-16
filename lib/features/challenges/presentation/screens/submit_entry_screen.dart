@@ -23,8 +23,6 @@ class SubmitEntryScreen extends StatefulWidget {
 }
 
 class _SubmitEntryScreenState extends State<SubmitEntryScreen> {
-  bool _showDrafts = false;
-  int? _selectedDraft;
   bool _rulesConfirmed = false;
 
   Map<String, dynamic> get _challenge {
@@ -35,25 +33,7 @@ class _SubmitEntryScreenState extends State<SubmitEntryScreen> {
         MockData.CHALLENGES.first;
   }
 
-  static const _drafts = [
-    {
-      'name': 'Studio Take — Jul 9',
-      'meta': '0:42 · Recorded in-app',
-      'imageUrl': 'https://loremflickr.com/100/100/dance,rehearsal?lock=701',
-    },
-    {
-      'name': 'Studio Take — Jul 6',
-      'meta': '0:55 · Recorded in-app',
-      'imageUrl': 'https://loremflickr.com/100/100/dance,practice?lock=702',
-    },
-    {
-      'name': 'Studio Take — Jul 2',
-      'meta': '0:38 · Recorded in-app',
-      'imageUrl': 'https://loremflickr.com/100/100/dance,studio?lock=703',
-    },
-  ];
-
-  bool get _canSubmit => _selectedDraft != null && _rulesConfirmed;
+  bool get _canSubmit => _rulesConfirmed;
 
   void _goBack() {
     if (context.canPop()) {
@@ -127,7 +107,10 @@ class _SubmitEntryScreenState extends State<SubmitEntryScreen> {
                         ),
                         const SizedBox(height: 10),
                         OutlinedButton.icon(
-                          onPressed: () => setState(() => _showDrafts = !_showDrafts),
+                          onPressed: () {
+                            final cId = widget.challengeId ?? challenge['id']?.toString() ?? 'c1';
+                            context.push('${AppRoutes.studioDrafts}?id=$cId');
+                          },
                           style: OutlinedButton.styleFrom(
                             minimumSize: const Size.fromHeight(56),
                             side: const BorderSide(color: AppColors.inputBorder, width: 1.5),
@@ -144,84 +127,6 @@ class _SubmitEntryScreenState extends State<SubmitEntryScreen> {
                             ),
                           ),
                         ),
-                        if (_showDrafts) ...[
-                          const SizedBox(height: 12),
-                          ..._drafts.asMap().entries.map((entry) {
-                            final index = entry.key;
-                            final draft = entry.value;
-                            final selected = _selectedDraft == index;
-                            return GestureDetector(
-                              onTap: () => setState(() => _selectedDraft = index),
-                              child: Container(
-                                margin: const EdgeInsets.only(bottom: 10),
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(14),
-                                  border: Border.all(
-                                    color: selected ? AppColors.purple : AppColors.inputBorder,
-                                    width: 1.5,
-                                  ),
-                                  boxShadow: selected
-                                      ? [
-                                          BoxShadow(
-                                            color: AppColors.purple.withValues(alpha: 0.14),
-                                            blurRadius: 0,
-                                            spreadRadius: 3,
-                                          ),
-                                        ]
-                                      : null,
-                                ),
-                                child: Row(
-                                  children: [
-                                    NetworkImageWidget(
-                                      url: draft['imageUrl'] as String,
-                                      width: 46,
-                                      height: 46,
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            draft['name'] as String,
-                                            style: AppTypography.body(
-                                              fontSize: 13,
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                          ),
-                                          Text(
-                                            draft['meta'] as String,
-                                            style: AppTypography.body(
-                                              fontSize: 11,
-                                              color: AppColors.textSoft,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    Container(
-                                      width: 20,
-                                      height: 20,
-                                      decoration: BoxDecoration(
-                                        shape: BoxShape.circle,
-                                        border: Border.all(
-                                          color: selected ? AppColors.purple : AppColors.inputBorder,
-                                          width: 2,
-                                        ),
-                                        color: selected ? AppColors.purple : Colors.transparent,
-                                      ),
-                                      child: selected
-                                          ? const Icon(Icons.check, size: 12, color: Colors.white)
-                                          : null,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          }),
-                        ],
                       ],
                     ),
                   ),

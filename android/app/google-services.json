@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "530452506731",
+    "project_id": "coffee-spark-ai-barista-5e2cd",
+    "storage_bucket": "coffee-spark-ai-barista-5e2cd.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:530452506731:android:6fa76cbe09cc705f67a92e",
+        "android_client_info": {
+          "package_name": "com.artable"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAO1vSm0sXYvyMJT0YnpQNvn60CqDhc08M"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

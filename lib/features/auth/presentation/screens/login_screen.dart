@@ -336,7 +336,22 @@ class _LoginScreenState extends State<LoginScreen> {
                         child: _SocialButton(
                           asset: 'assets/google.svg',
                           label: 'Google',
-                          onTap: () {},
+                          onTap: () async {
+                            final auth = context.read<AuthCubit>();
+                            final success = await auth.loginWithGoogle();
+                            if (!context.mounted) return;
+                            if (success) {
+                              context.go(AppRoutes.home);
+                            } else if (auth.errorMessage != null &&
+                                auth.errorMessage!.isNotEmpty) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(auth.errorMessage!),
+                                  backgroundColor: Colors.redAccent,
+                                ),
+                              );
+                            }
+                          },
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -344,7 +359,22 @@ class _LoginScreenState extends State<LoginScreen> {
                         child: _SocialButton(
                           asset: 'assets/apple.svg',
                           label: 'Apple',
-                          onTap: () {},
+                          onTap: () async {
+                            final auth = context.read<AuthCubit>();
+                            final success = await auth.loginWithApple();
+                            if (!context.mounted) return;
+                            if (success) {
+                              context.go(AppRoutes.home);
+                            } else if (auth.errorMessage != null &&
+                                auth.errorMessage!.isNotEmpty) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(auth.errorMessage!),
+                                  backgroundColor: Colors.redAccent,
+                                ),
+                              );
+                            }
+                          },
                         ),
                       ),
                     ],

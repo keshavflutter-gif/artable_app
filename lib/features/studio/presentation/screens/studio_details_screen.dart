@@ -43,6 +43,10 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
   bool _playing = false;
   late String _categoryId;
   late String _challengeId;
+  List<String> _mergedClipPaths = [];
+  final List<VideoPlayerController> _clipControllers = [];
+  int _currentClipIndex = 0;
+  bool _isSwitchingClip = false;
 
   Map<String, dynamic>? get _draft {
     if (widget.draftId == null) return null;
@@ -113,9 +117,15 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
 
   Future<void> _initVideoPlayer() async {
     final studio = context.read<StudioCubit>();
-    String? path = studio.recordedVideoPath ?? _draft?['videoPath']?.toString();
+    final draft = _draft;
 
-    if (path == null || path.isEmpty) return;
+    if (draft != null && draft['mergedClipPaths'] is List && (draft['mergedClipPaths'] as List).isNotEmpty) {
+      _mergedClipPaths = List<String>.from(draft['mergedClipPaths'] as List);
+    } else if (studio.state.mergedClipPaths != null && studio.state.mergedClipPaths!.isNotEmpty) {
+      _mergedClipPaths = List<String>.from(studio.state.mergedClipPaths!);
+    } else {
+      _mergedClipPaths = [];
+    }
 
     if (_videoController != null) {
       try {
@@ -124,7 +134,45 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
       _videoController = null;
     }
 
-    final controller = await StudioVideoPlayerUtils.initializeRecordedVideo(path);
+    if (_mergedClipPaths.length > 1) {
+      debugPrint('StudioDetailsScreen loading multi-clip playlist: ${_mergedClipPaths.length} clips');
+      for (final c in _clipControllers) {
+        c.removeListener(_onVideoControllerUpdate);
+        c.dispose();
+      }
+      _clipControllers.clear();
+
+      for (final p in _mergedClipPaths) {
+        try {
+          final c = await StudioVideoPlayerUtils.initializeClipController(p, autoPlay: false, loop: false);
+          if (c != null) _clipControllers.add(c);
+        } catch (e) {
+          debugPrint('Error preloading clip $p: $e');
+        }
+      }
+
+      if (_clipControllers.isNotEmpty) {
+        _currentClipIndex = 0;
+        final firstController = _clipControllers.first;
+        firstController.addListener(_onVideoControllerUpdate);
+        await firstController.play();
+        if (mounted) {
+          setState(() {
+            _videoController = firstController;
+            _isVideoInitialized = true;
+            _playing = true;
+          });
+        }
+        return;
+      }
+    }
+
+    String? path = studio.recordedVideoPath ?? draft?['videoPath']?.toString();
+
+    if (path == null || path.isEmpty) return;
+
+    var controller = await StudioVideoPlayerUtils.initializeRecordedVideo(path);
+
 
     if (!mounted) {
       await controller?.dispose();
@@ -148,39 +196,83 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
 
   void _onVideoControllerUpdate() {
     final controller = _videoController;
-    if (controller == null || !mounted) return;
-
-    final studio = context.read<StudioCubit>();
-    final trimStart = studio.state.videoTrimStartSeconds;
-    final trimEnd = studio.state.videoTrimEndSeconds;
-
-    if (trimEnd != null && trimEnd > trimStart) {
-      final startMs = (trimStart * 1000).round();
-      final endMs = (trimEnd * 1000).round();
-      final posMs = controller.value.position.inMilliseconds;
-
-      if (posMs >= endMs || posMs < startMs) {
-        controller.seekTo(Duration(milliseconds: startMs));
-        if (controller.value.isPlaying) {
-          controller.play();
-        }
-      }
-    }
+    if (controller == null || !mounted || _isSwitchingClip) return;
 
     final isPlaying = controller.value.isPlaying;
     if (isPlaying != _playing) {
       setState(() => _playing = isPlaying);
     }
+
+    if (_clipControllers.isNotEmpty) {
+      final posMs = controller.value.position.inMilliseconds;
+      final durMs = controller.value.duration.inMilliseconds;
+      if (durMs > 0 && posMs >= durMs - 250) {
+        _advanceToNextMergedClip();
+        return;
+      }
+    } else {
+      final studio = context.read<StudioCubit>();
+      final trimStart = studio.state.videoTrimStartSeconds;
+      final trimEnd = studio.state.videoTrimEndSeconds;
+
+      if (trimEnd != null && trimEnd > trimStart) {
+        final startMs = (trimStart * 1000).round();
+        final endMs = (trimEnd * 1000).round();
+        final posMs = controller.value.position.inMilliseconds;
+
+        if (posMs >= endMs || posMs < startMs) {
+          controller.seekTo(Duration(milliseconds: startMs));
+          if (controller.value.isPlaying) {
+            controller.play();
+          }
+        }
+      }
+    }
+  }
+
+  Future<void> _advanceToNextMergedClip() async {
+    if (_isSwitchingClip || _clipControllers.isEmpty) return;
+    _isSwitchingClip = true;
+
+    try {
+      final oldController = _videoController;
+      oldController?.removeListener(_onVideoControllerUpdate);
+      await oldController?.pause();
+
+      _currentClipIndex = (_currentClipIndex + 1) % _clipControllers.length;
+      final nextController = _clipControllers[_currentClipIndex];
+
+      await nextController.seekTo(Duration.zero);
+      nextController.addListener(_onVideoControllerUpdate);
+      await nextController.play();
+
+      if (mounted) {
+        setState(() {
+          _videoController = nextController;
+          _isVideoInitialized = true;
+          _playing = true;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error advancing merged clip in details: $e');
+    } finally {
+      _isSwitchingClip = false;
+    }
   }
 
   @override
   void dispose() {
-    _titleController.dispose();
-    _descriptionController.dispose();
-    _hashtagsController.dispose();
+    for (final c in _clipControllers) {
+      c.removeListener(_onVideoControllerUpdate);
+      c.pause();
+      c.dispose();
+    }
     _videoController?.removeListener(_onVideoControllerUpdate);
     _videoController?.pause();
     _videoController?.dispose();
+    _titleController.dispose();
+    _descriptionController.dispose();
+    _hashtagsController.dispose();
     unawaited(StudioMusicPlaybackService.stop());
     super.dispose();
   }
@@ -808,6 +900,7 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
                                                   ? _hashtagChips.join(' ')
                                                   : '#dance #talent #artable');
 
+                                      final targetDraftId = widget.draftId ?? _draft?['id'] as String?;
                                       studioCubit.setVideoSubmissionDetails(
                                         title: _titleController.text.trim(),
                                         description:
@@ -815,10 +908,14 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
                                         categoryId: _categoryId,
                                         hashtags: effectiveHashtags,
                                         challengeId: _challengeId,
+                                        draftId: targetDraftId,
                                       );
                                       if (mounted) {
+                                        final draftQuery = (targetDraftId != null && targetDraftId.isNotEmpty)
+                                            ? '&draft=$targetDraftId'
+                                            : '';
                                         router.push(
-                                          '${AppRoutes.studioUpload}?id=$_challengeId',
+                                          '${AppRoutes.studioUpload}?id=$_challengeId$draftQuery',
                                         );
                                       }
                                     }

@@ -1,4 +1,4 @@
-package com.example.artable_app
+package com.artable
 
 import io.flutter.embedding.android.FlutterActivity
 

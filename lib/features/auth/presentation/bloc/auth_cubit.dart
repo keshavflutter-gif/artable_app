@@ -1,6 +1,11 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:firebase_auth/firebase_auth.dart' hide UserInfo;
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
+import 'package:crypto/crypto.dart';
 
 import 'package:artable_app/core/network/api_exception.dart';
 import 'package:artable_app/features/auth/data/models/change_password_request.dart';
@@ -219,6 +224,153 @@ class AuthCubit extends Cubit<AuthState> {
       ));
       return false;
     }
+  }
+
+  Future<bool> loginWithGoogle() async {
+    emit(state.copyWith(isLoading: true, clearError: true));
+
+    try {
+      final GoogleSignIn googleSignIn = GoogleSignIn();
+      final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
+
+      if (googleUser == null) {
+        emit(state.copyWith(isLoading: false));
+        return false;
+      }
+
+      final GoogleSignInAuthentication googleAuth =
+          await googleUser.authentication;
+      final AuthCredential credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      final UserCredential userCredential =
+          await FirebaseAuth.instance.signInWithCredential(credential);
+      final User? firebaseUser = userCredential.user;
+
+      final name =
+          firebaseUser?.displayName ?? googleUser.displayName ?? 'Google User';
+      final email = firebaseUser?.email ?? googleUser.email;
+      final photoUrl = firebaseUser?.photoURL ?? googleUser.photoUrl;
+      final uid = firebaseUser?.uid ?? googleUser.id;
+      final token = googleAuth.idToken ?? 'google_session_token';
+
+      final updatedUser = Map<String, dynamic>.from(state.currentUser);
+      updatedUser['name'] = name;
+      updatedUser['initials'] = _initialsFromName(name);
+      final emailPrefix = email.contains('@') ? email.split('@').first : email;
+      updatedUser['handle'] = '@$emailPrefix';
+      if (photoUrl != null && photoUrl.isNotEmpty) {
+        updatedUser['avatarUrl'] = photoUrl;
+      }
+      updatedUser['isLoggedIn'] = true;
+
+      await _authRepository.saveSocialSession(
+        sessionToken: token,
+        refreshToken: token,
+        userId: uid,
+        displayName: name,
+      );
+
+      emit(state.copyWith(
+        isLoading: false,
+        sessionToken: token,
+        refreshToken: token,
+        userId: uid,
+        currentUser: updatedUser,
+      ));
+
+      return true;
+    } catch (e) {
+      emit(state.copyWith(
+        isLoading: false,
+        errorMessage: 'Google Sign-In failed: ${e.toString()}',
+      ));
+      return false;
+    }
+  }
+
+  Future<bool> loginWithApple() async {
+    emit(state.copyWith(isLoading: true, clearError: true));
+
+    try {
+      final rawNonce = _generateNonce();
+      final nonce = sha256.convert(utf8.encode(rawNonce)).toString();
+
+      final appleCredential = await SignInWithApple.getAppleIDCredential(
+        scopes: [
+          AppleIDAuthorizationScopes.email,
+          AppleIDAuthorizationScopes.fullName,
+        ],
+        nonce: nonce,
+      );
+
+      final OAuthCredential credential = OAuthProvider('apple.com').credential(
+        idToken: appleCredential.identityToken,
+        rawNonce: rawNonce,
+      );
+
+      final UserCredential userCredential =
+          await FirebaseAuth.instance.signInWithCredential(credential);
+      final User? firebaseUser = userCredential.user;
+
+      final String appleName = [
+        appleCredential.givenName,
+        appleCredential.familyName,
+      ].where((e) => e != null && e.isNotEmpty).join(' ');
+
+      final name = firebaseUser?.displayName ??
+          (appleName.isNotEmpty ? appleName : 'Apple User');
+      final email = firebaseUser?.email ?? appleCredential.email ?? '';
+      final photoUrl = firebaseUser?.photoURL;
+      final uid = firebaseUser?.uid ?? appleCredential.userIdentifier ?? '';
+      final token = appleCredential.identityToken ?? 'apple_session_token';
+
+      final updatedUser = Map<String, dynamic>.from(state.currentUser);
+      updatedUser['name'] = name;
+      updatedUser['initials'] = _initialsFromName(name);
+      final emailPrefix =
+          email.contains('@') ? email.split('@').first : 'apple_user';
+      updatedUser['handle'] = '@$emailPrefix';
+      if (photoUrl != null && photoUrl.isNotEmpty) {
+        updatedUser['avatarUrl'] = photoUrl;
+      }
+      updatedUser['isLoggedIn'] = true;
+
+      await _authRepository.saveSocialSession(
+        sessionToken: token,
+        refreshToken: token,
+        userId: uid,
+        displayName: name,
+      );
+
+      emit(state.copyWith(
+        isLoading: false,
+        sessionToken: token,
+        refreshToken: token,
+        userId: uid,
+        currentUser: updatedUser,
+      ));
+
+      return true;
+    } catch (e) {
+      emit(state.copyWith(
+        isLoading: false,
+        errorMessage: 'Apple Sign-In failed: ${e.toString()}',
+      ));
+      return false;
+    }
+  }
+
+  String _generateNonce([int length = 32]) {
+    const charset =
+        '0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._';
+    final random = Random.secure();
+    return List.generate(
+      length,
+      (_) => charset[random.nextInt(charset.length)],
+    ).join();
   }
 
   Future<RegisterResponse?> register({

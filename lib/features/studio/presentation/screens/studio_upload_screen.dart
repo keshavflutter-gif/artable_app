@@ -15,9 +15,10 @@ import 'package:artable_app/features/trending/presentation/bloc/trending_videos_
 import 'package:artable_app/features/trending/data/repositories/videos_repository.dart';
 
 class StudioUploadScreen extends StatefulWidget {
-  const StudioUploadScreen({super.key, this.challengeId});
+  const StudioUploadScreen({super.key, this.challengeId, this.draftId});
 
   final String? challengeId;
+  final String? draftId;
 
   @override
   State<StudioUploadScreen> createState() => _StudioUploadScreenState();
@@ -118,6 +119,17 @@ class _StudioUploadScreenState extends State<StudioUploadScreen> {
       });
 
       debugPrint('Create Video API success: $res');
+
+      final targetDraftId = widget.draftId ?? studioCubit.activeDraftId;
+      if (targetDraftId != null && targetDraftId.trim().isNotEmpty) {
+        debugPrint('Deleting uploaded draft $targetDraftId after successful upload...');
+        try {
+          await studioCubit.deleteDraft(targetDraftId);
+          studioCubit.setActiveDraftId(null);
+        } catch (e) {
+          debugPrint('Error deleting uploaded draft $targetDraftId: $e');
+        }
+      }
 
       if (mounted) {
         final homeCubit = context.read<HomeCubit>();

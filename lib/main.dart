@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'app/app.dart';
 import 'data/datasources/music_api_service.dart';
 
 void main() async {
   // 1. Ensure Flutter Engine binding is initialized before async startup tasks
   final binding = WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp();
 
   // 2. Preserve native splash screen until font pre-loading is completed
   FlutterNativeSplash.preserve(widgetsBinding: binding);
@@ -21,7 +23,7 @@ void main() async {
   // 5. Initialize application
   runApp(const ArtableApp());
 
-  // 6. Prefetch music tracks in background so Add Music screen opens instantly
+  // 6. Prefetch music tracks in background so Add Music screen open`s instantly
   MusicApiService.prefetchTracks();
 
   // 7. Remove native splash screen AFTER fonts are guaranteed loaded and ready

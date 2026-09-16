@@ -66,6 +66,20 @@ class AuthRepository {
     return response;
   }
 
+  Future<void> saveSocialSession({
+    required String sessionToken,
+    required String refreshToken,
+    required String userId,
+    required String displayName,
+  }) async {
+    await _storageService.saveSession(
+      sessionToken: sessionToken,
+      refreshToken: refreshToken,
+      userId: userId,
+      displayName: displayName,
+    );
+  }
+
   Future<UserInfo> getUserDetails({
     required String userId,
     required String sessionToken,

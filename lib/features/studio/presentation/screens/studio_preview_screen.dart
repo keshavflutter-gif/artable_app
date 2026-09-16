@@ -36,27 +36,70 @@ class StudioPreviewScreen extends StatefulWidget {
 
 class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
   VideoPlayerController? _videoController;
+  List<VideoPlayerController> _clipControllers = [];
   bool _isVideoInitialized = false;
   bool _videoError = false;
   bool _playing = false;
+  List<String> _mergedClipPaths = [];
+  int _currentClipIndex = 0;
+  bool _isSwitchingClip = false;
 
   @override
   void initState() {
     super.initState();
+    final studio = context.read<StudioCubit>();
     final draft = _draft;
+
     if (draft != null) {
-      final studio = context.read<StudioCubit>();
+      if (draft['mergedClipPaths'] is List && (draft['mergedClipPaths'] as List).isNotEmpty) {
+        _mergedClipPaths = List<String>.from(draft['mergedClipPaths'] as List);
+      } else {
+        _mergedClipPaths = [];
+      }
+    } else {
+      if (studio.state.mergedClipPaths != null && studio.state.mergedClipPaths!.isNotEmpty) {
+        _mergedClipPaths = List<String>.from(studio.state.mergedClipPaths!);
+      } else {
+        _mergedClipPaths = [];
+      }
+    }
+
+    if (draft != null) {
+      String durStr = (draft['duration'] as String?) ?? '';
+      if (durStr.isEmpty && draft['durationSeconds'] != null) {
+        final sec = (draft['durationSeconds'] as num).toInt();
+        durStr = '${sec ~/ 60}:${(sec % 60).toString().padLeft(2, '0')}';
+      }
+      if (durStr.isNotEmpty) {
+        studio.setRecordedDuration(durStr);
+      }
+
+      double? trimEnd = (draft['videoTrimEndSeconds'] as num?)?.toDouble();
+      if (trimEnd == null || trimEnd <= 0) {
+        final parts = durStr.split(':');
+        if (parts.length == 2) {
+          final m = int.tryParse(parts[0]) ?? 0;
+          final s = int.tryParse(parts[1]) ?? 0;
+          final totalS = m * 60 + s;
+          if (totalS > 0) trimEnd = totalS.toDouble();
+        }
+      }
+
       studio.restoreRecordingEffects(
         filterId: draft['filterId'] as String?,
         beautyOn: draft['beautyOn'] as bool?,
         beautyIntensity: (draft['beautyIntensity'] as num?)?.toDouble(),
         cropAspectRatio: draft['videoCropAspectRatio'] as String?,
-        trimStart: (draft['videoTrimStartSeconds'] as num?)?.toDouble(),
-        trimEnd: (draft['videoTrimEndSeconds'] as num?)?.toDouble(),
+        trimStart: (draft['videoTrimStartSeconds'] as num?)?.toDouble() ?? 0.0,
+        trimEnd: trimEnd,
       );
-      final path = draft['videoPath']?.toString();
+      final path = (draft['videoPath'] as String?) ?? (draft['videoUrl'] as String?);
       if (path != null && path.isNotEmpty) {
-        studio.setRecordedVideoPath(path);
+        studio.setRecordedVideoPath(
+          path,
+          mergedClipPaths: _mergedClipPaths.isNotEmpty ? _mergedClipPaths : null,
+          clearMergedClips: _mergedClipPaths.isEmpty,
+        );
       }
     }
     _initVideoPlayer();
@@ -73,6 +116,41 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
     });
 
     final studio = context.read<StudioCubit>();
+
+    if (_mergedClipPaths.length > 1) {
+      debugPrint('StudioPreviewScreen loading preloaded multi-clip playlist: ${_mergedClipPaths.length} clips');
+      List<VideoPlayerController> loaded = [];
+      for (final p in _mergedClipPaths) {
+        final c = await StudioVideoPlayerUtils.initializeClipController(
+          p,
+          autoPlay: false,
+          loop: false,
+        );
+        if (c != null) loaded.add(c);
+      }
+
+      if (!mounted) {
+        for (final c in loaded) {
+          await c.dispose();
+        }
+        return;
+      }
+
+      if (loaded.isNotEmpty) {
+        _clipControllers = loaded;
+        _currentClipIndex = 0;
+        _videoController = _clipControllers[0];
+        _videoController!.addListener(_onVideoControllerUpdate);
+        await _videoController!.play();
+        setState(() {
+          _isVideoInitialized = true;
+          _videoError = false;
+          _playing = true;
+        });
+        return;
+      }
+    }
+
     String? path = studio.recordedVideoPath ??
         widget.videoPath ??
         _draft?['videoPath']?.toString();
@@ -99,6 +177,8 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
       debugPrint('StudioPreviewScreen video init error: $e');
       controller = null;
     }
+
+
 
     if (!mounted) {
       await controller?.dispose();
@@ -130,33 +210,77 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
 
   void _onVideoControllerUpdate() {
     final controller = _videoController;
-    if (controller == null || !mounted) return;
-
-    final studio = context.read<StudioCubit>();
-    final trimStart = studio.state.videoTrimStartSeconds;
-    final trimEnd = studio.state.videoTrimEndSeconds;
-
-    if (trimEnd != null && trimEnd > trimStart) {
-      final startMs = (trimStart * 1000).round();
-      final endMs = (trimEnd * 1000).round();
-      final posMs = controller.value.position.inMilliseconds;
-
-      if (posMs >= endMs || posMs < startMs) {
-        controller.seekTo(Duration(milliseconds: startMs));
-        if (controller.value.isPlaying) {
-          controller.play();
-        }
-      }
-    }
+    if (controller == null || !mounted || _isSwitchingClip) return;
 
     final isPlaying = controller.value.isPlaying;
     if (isPlaying != _playing) {
       setState(() => _playing = isPlaying);
     }
+
+    if (_clipControllers.isNotEmpty) {
+      final posMs = controller.value.position.inMilliseconds;
+      final durMs = controller.value.duration.inMilliseconds;
+      if (durMs > 0 && posMs >= durMs - 250) {
+        _advanceToNextMergedClip();
+        return;
+      }
+    } else {
+      final studio = context.read<StudioCubit>();
+      final trimStart = studio.state.videoTrimStartSeconds;
+      final trimEnd = studio.state.videoTrimEndSeconds;
+
+      if (trimEnd != null && trimEnd > trimStart) {
+        final startMs = (trimStart * 1000).round();
+        final endMs = (trimEnd * 1000).round();
+        final posMs = controller.value.position.inMilliseconds;
+
+        if (posMs >= endMs || posMs < startMs) {
+          controller.seekTo(Duration(milliseconds: startMs));
+          if (controller.value.isPlaying) {
+            controller.play();
+          }
+        }
+      }
+    }
+  }
+
+  Future<void> _advanceToNextMergedClip() async {
+    if (_isSwitchingClip || _clipControllers.isEmpty) return;
+    _isSwitchingClip = true;
+
+    try {
+      final oldController = _videoController;
+      oldController?.removeListener(_onVideoControllerUpdate);
+      await oldController?.pause();
+
+      _currentClipIndex = (_currentClipIndex + 1) % _clipControllers.length;
+      final nextController = _clipControllers[_currentClipIndex];
+
+      await nextController.seekTo(Duration.zero);
+      nextController.addListener(_onVideoControllerUpdate);
+      await nextController.play();
+
+      if (mounted) {
+        setState(() {
+          _videoController = nextController;
+          _isVideoInitialized = true;
+          _playing = true;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error advancing merged clip: $e');
+    } finally {
+      _isSwitchingClip = false;
+    }
   }
 
   @override
   void dispose() {
+    for (final c in _clipControllers) {
+      c.removeListener(_onVideoControllerUpdate);
+      c.pause();
+      c.dispose();
+    }
     _videoController?.removeListener(_onVideoControllerUpdate);
     _videoController?.pause();
     _videoController?.dispose();
@@ -167,25 +291,17 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
   void _togglePlayPause() {
     final controller = _videoController;
     if (controller != null && _isVideoInitialized) {
-      final studio = context.read<StudioCubit>();
-      final trimStart = studio.state.videoTrimStartSeconds;
-      final trimEnd = studio.state.videoTrimEndSeconds;
-
       if (controller.value.isPlaying) {
         controller.pause();
         setState(() => _playing = false);
       } else {
-        if (trimEnd != null && trimEnd > trimStart) {
-          final startMs = (trimStart * 1000).round();
-          final endMs = (trimEnd * 1000).round();
-          final posMs = controller.value.position.inMilliseconds;
-
-          if (posMs >= endMs || posMs < startMs) {
-            controller.seekTo(Duration(milliseconds: startMs));
-          }
+        if (_clipControllers.isNotEmpty &&
+            controller.value.position.inMilliseconds >= controller.value.duration.inMilliseconds - 250) {
+          _advanceToNextMergedClip();
+        } else {
+          controller.play();
+          setState(() => _playing = true);
         }
-        controller.play();
-        setState(() => _playing = true);
       }
     }
   }

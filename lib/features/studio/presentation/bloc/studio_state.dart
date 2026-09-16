@@ -7,7 +7,7 @@ enum StudioCameraMode { back, front }
 
 class StudioState {
   StudioState({
-    this.recordedDuration = '0:42',
+    this.recordedDuration = '0:00',
     this.recordedVideoPath,
     this.selectedThumbnailPath,
     this.videoTitle,
@@ -38,6 +38,8 @@ class StudioState {
     this.isSavingDraft = false,
     this.saveDraftError,
     this.isLoadingDrafts = false,
+    this.mergedClipPaths,
+    this.activeDraftId,
     List<Map<String, dynamic>>? drafts,
   }) : drafts = drafts ?? const [];
 
@@ -79,6 +81,8 @@ class StudioState {
   final bool isSavingDraft;
   final String? saveDraftError;
   final bool isLoadingDrafts;
+  final List<String>? mergedClipPaths;
+  final String? activeDraftId;
 
   final List<Map<String, dynamic>> drafts;
 
@@ -126,12 +130,16 @@ class StudioState {
     bool? isSavingDraft,
     String? saveDraftError,
     bool? isLoadingDrafts,
+    List<String>? mergedClipPaths,
+    String? activeDraftId,
     List<Map<String, dynamic>>? drafts,
     bool clearRecordedVideoPath = false,
     bool clearSelectedThumbnailPath = false,
     bool clearSelectedMusic = false,
     bool clearActiveVideoController = false,
     bool clearSaveDraftError = false,
+    bool clearMergedClipPaths = false,
+    bool clearActiveDraftId = false,
   }) {
     return StudioState(
       recordedDuration: recordedDuration ?? this.recordedDuration,
@@ -165,6 +173,8 @@ class StudioState {
       isSavingDraft: isSavingDraft ?? this.isSavingDraft,
       saveDraftError: clearSaveDraftError ? null : (saveDraftError ?? this.saveDraftError),
       isLoadingDrafts: isLoadingDrafts ?? this.isLoadingDrafts,
+      mergedClipPaths: clearMergedClipPaths ? null : (mergedClipPaths ?? this.mergedClipPaths),
+      activeDraftId: clearActiveDraftId ? null : (activeDraftId ?? this.activeDraftId),
       drafts: drafts ?? this.drafts,
     );
   }
