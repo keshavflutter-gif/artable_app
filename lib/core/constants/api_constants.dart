@@ -7,6 +7,7 @@ class ApiConstants {
 
   // Endpoints
   static const String login = '/auth/login';
+  static const String socialLogin = '/auth/social-login';
   static const String register = '/auth/register';
   static const String verifyOtp = '/auth/verify-otp';
   static const String resendOtp = '/auth/resend-otp';

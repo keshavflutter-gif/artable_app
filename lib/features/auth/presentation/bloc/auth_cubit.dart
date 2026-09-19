@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -8,6 +9,7 @@ import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:crypto/crypto.dart';
 
 import 'package:artable_app/core/network/api_exception.dart';
+import 'package:artable_app/features/auth/data/apple_auth_config.dart';
 import 'package:artable_app/features/auth/data/models/change_password_request.dart';
 import 'package:artable_app/features/auth/data/models/forgot_password_request.dart';
 import 'package:artable_app/features/auth/data/models/forgot_password_response.dart';
@@ -19,6 +21,7 @@ import 'package:artable_app/features/auth/data/models/resend_otp_request.dart';
 import 'package:artable_app/features/auth/data/models/resend_otp_response.dart';
 import 'package:artable_app/features/auth/data/models/reset_password_request.dart';
 import 'package:artable_app/features/auth/data/models/reset_password_response.dart';
+import 'package:artable_app/features/auth/data/models/social_login_request.dart';
 import 'package:artable_app/features/auth/data/models/token_verify_request.dart';
 import 'package:artable_app/features/auth/data/models/token_verify_response.dart';
 import 'package:artable_app/features/auth/data/models/update_profile_request.dart';
@@ -231,6 +234,8 @@ class AuthCubit extends Cubit<AuthState> {
 
     try {
       final GoogleSignIn googleSignIn = GoogleSignIn();
+      // Clear cached Google account so the picker is shown after logout.
+      await googleSignIn.signOut();
       final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
 
       if (googleUser == null) {
@@ -253,35 +258,74 @@ class AuthCubit extends Cubit<AuthState> {
           firebaseUser?.displayName ?? googleUser.displayName ?? 'Google User';
       final email = firebaseUser?.email ?? googleUser.email;
       final photoUrl = firebaseUser?.photoURL ?? googleUser.photoUrl;
-      final uid = firebaseUser?.uid ?? googleUser.id;
-      final token = googleAuth.idToken ?? 'google_session_token';
+      final providerId = googleUser.id.isNotEmpty
+          ? googleUser.id
+          : (firebaseUser?.uid ?? '');
+
+      if (email.isEmpty || providerId.isEmpty) {
+        emit(state.copyWith(
+          isLoading: false,
+          errorMessage: 'Google Sign-In did not return required account info.',
+        ));
+        return false;
+      }
+
+      final (firstName, middleName, lastName) = _splitFullNameParts(name);
+
+      final response = await _authRepository.socialLogin(
+        SocialLoginRequest(
+          provider: 'GOOGLE',
+          providerId: providerId,
+          email: email,
+          fullName: name,
+          firstName: firstName,
+          middleName: middleName,
+          lastName: lastName,
+          profilePhotoUrl: photoUrl,
+          deviceType: Platform.isIOS ? 'ios' : 'android',
+          deviceVersion: Platform.operatingSystemVersion,
+        ),
+      );
 
       final updatedUser = Map<String, dynamic>.from(state.currentUser);
-      updatedUser['name'] = name;
-      updatedUser['initials'] = _initialsFromName(name);
-      final emailPrefix = email.contains('@') ? email.split('@').first : email;
-      updatedUser['handle'] = '@$emailPrefix';
-      if (photoUrl != null && photoUrl.isNotEmpty) {
-        updatedUser['avatarUrl'] = photoUrl;
-      }
-      updatedUser['isLoggedIn'] = true;
+      String? newUserId = response.userInfo?.id ?? state.userId;
+      String? lastRegisteredName = state.lastRegisteredFullName;
 
-      await _authRepository.saveSocialSession(
-        sessionToken: token,
-        refreshToken: token,
-        userId: uid,
-        displayName: name,
+      final (userMap, newRegisteredName, updatedUid) = _applyUserInfoToState(
+        updatedUser,
+        response.userInfo,
+        lastRegisteredName,
+        newUserId,
       );
+
+      if (response.userInfo == null) {
+        userMap['name'] = name;
+        userMap['initials'] = _initialsFromName(name);
+        final emailPrefix = email.contains('@') ? email.split('@').first : email;
+        userMap['handle'] = '@$emailPrefix';
+        if (photoUrl != null && photoUrl.isNotEmpty) {
+          userMap['avatarUrl'] = photoUrl;
+        }
+      }
+      userMap['isLoggedIn'] = true;
 
       emit(state.copyWith(
         isLoading: false,
-        sessionToken: token,
-        refreshToken: token,
-        userId: uid,
-        currentUser: updatedUser,
+        sessionToken: response.sessionToken,
+        refreshToken: response.refreshToken,
+        userId: updatedUid,
+        currentUser: userMap,
+        lastRegisteredFullName: newRegisteredName,
       ));
 
+      if (updatedUid != null && updatedUid.isNotEmpty) {
+        fetchUserDetails();
+      }
+
       return true;
+    } on ApiException catch (e) {
+      emit(state.copyWith(isLoading: false, errorMessage: e.message));
+      return false;
     } catch (e) {
       emit(state.copyWith(
         isLoading: false,
@@ -295,6 +339,24 @@ class AuthCubit extends Cubit<AuthState> {
     emit(state.copyWith(isLoading: true, clearError: true));
 
     try {
+      if (Platform.isAndroid && !AppleAuthConfig.isAndroidConfigured) {
+        emit(state.copyWith(
+          isLoading: false,
+          errorMessage:
+              'Apple Sign-In is not configured yet. Add Services ID and redirect URI when the client provides them.',
+        ));
+        return false;
+      }
+
+      final isAvailable = await SignInWithApple.isAvailable();
+      if (!isAvailable) {
+        emit(state.copyWith(
+          isLoading: false,
+          errorMessage: 'Apple Sign-In is not available on this device.',
+        ));
+        return false;
+      }
+
       final rawNonce = _generateNonce();
       final nonce = sha256.convert(utf8.encode(rawNonce)).toString();
 
@@ -304,6 +366,12 @@ class AuthCubit extends Cubit<AuthState> {
           AppleIDAuthorizationScopes.fullName,
         ],
         nonce: nonce,
+        webAuthenticationOptions: Platform.isAndroid
+            ? WebAuthenticationOptions(
+                clientId: AppleAuthConfig.clientId,
+                redirectUri: Uri.parse(AppleAuthConfig.redirectUri),
+              )
+            : null,
       );
 
       final OAuthCredential credential = OAuthProvider('apple.com').credential(
@@ -315,45 +383,100 @@ class AuthCubit extends Cubit<AuthState> {
           await FirebaseAuth.instance.signInWithCredential(credential);
       final User? firebaseUser = userCredential.user;
 
-      final String appleName = [
-        appleCredential.givenName,
-        appleCredential.familyName,
-      ].where((e) => e != null && e.isNotEmpty).join(' ');
+      final firstName = appleCredential.givenName?.trim() ?? '';
+      final lastName = appleCredential.familyName?.trim() ?? '';
+      final appleName = [firstName, lastName]
+          .where((e) => e.isNotEmpty)
+          .join(' ');
 
       final name = firebaseUser?.displayName ??
           (appleName.isNotEmpty ? appleName : 'Apple User');
-      final email = firebaseUser?.email ?? appleCredential.email ?? '';
+      final email = (firebaseUser?.email ?? appleCredential.email ?? '').trim();
       final photoUrl = firebaseUser?.photoURL;
-      final uid = firebaseUser?.uid ?? appleCredential.userIdentifier ?? '';
-      final token = appleCredential.identityToken ?? 'apple_session_token';
+      final providerId = (appleCredential.userIdentifier?.isNotEmpty == true)
+          ? appleCredential.userIdentifier!
+          : (firebaseUser?.uid ?? '');
+
+      if (email.isEmpty || providerId.isEmpty) {
+        emit(state.copyWith(
+          isLoading: false,
+          errorMessage: 'Apple Sign-In did not return required account info.',
+        ));
+        return false;
+      }
+
+      final splitParts = appleName.isNotEmpty
+          ? (firstName, '', lastName)
+          : _splitFullNameParts(name);
+      final resolvedFirst = splitParts.$1;
+      final resolvedMiddle = splitParts.$2;
+      final resolvedLast = splitParts.$3;
+
+      final response = await _authRepository.socialLogin(
+        SocialLoginRequest(
+          provider: 'APPLE',
+          providerId: providerId,
+          email: email,
+          fullName: name,
+          firstName: resolvedFirst,
+          middleName: resolvedMiddle,
+          lastName: resolvedLast,
+          profilePhotoUrl: photoUrl,
+          deviceType: Platform.isIOS ? 'ios' : 'android',
+          deviceVersion: Platform.operatingSystemVersion,
+        ),
+      );
 
       final updatedUser = Map<String, dynamic>.from(state.currentUser);
-      updatedUser['name'] = name;
-      updatedUser['initials'] = _initialsFromName(name);
-      final emailPrefix =
-          email.contains('@') ? email.split('@').first : 'apple_user';
-      updatedUser['handle'] = '@$emailPrefix';
-      if (photoUrl != null && photoUrl.isNotEmpty) {
-        updatedUser['avatarUrl'] = photoUrl;
-      }
-      updatedUser['isLoggedIn'] = true;
+      String? newUserId = response.userInfo?.id ?? state.userId;
+      String? lastRegisteredName = state.lastRegisteredFullName;
 
-      await _authRepository.saveSocialSession(
-        sessionToken: token,
-        refreshToken: token,
-        userId: uid,
-        displayName: name,
+      final (userMap, newRegisteredName, updatedUid) = _applyUserInfoToState(
+        updatedUser,
+        response.userInfo,
+        lastRegisteredName,
+        newUserId,
       );
+
+      if (response.userInfo == null) {
+        userMap['name'] = name;
+        userMap['initials'] = _initialsFromName(name);
+        final emailPrefix =
+            email.contains('@') ? email.split('@').first : 'apple_user';
+        userMap['handle'] = '@$emailPrefix';
+        if (photoUrl != null && photoUrl.isNotEmpty) {
+          userMap['avatarUrl'] = photoUrl;
+        }
+      }
+      userMap['isLoggedIn'] = true;
 
       emit(state.copyWith(
         isLoading: false,
-        sessionToken: token,
-        refreshToken: token,
-        userId: uid,
-        currentUser: updatedUser,
+        sessionToken: response.sessionToken,
+        refreshToken: response.refreshToken,
+        userId: updatedUid,
+        currentUser: userMap,
+        lastRegisteredFullName: newRegisteredName,
       ));
 
+      if (updatedUid != null && updatedUid.isNotEmpty) {
+        fetchUserDetails();
+      }
+
       return true;
+    } on SignInWithAppleAuthorizationException catch (e) {
+      if (e.code == AuthorizationErrorCode.canceled) {
+        emit(state.copyWith(isLoading: false));
+        return false;
+      }
+      emit(state.copyWith(
+        isLoading: false,
+        errorMessage: 'Apple Sign-In failed: ${e.message}',
+      ));
+      return false;
+    } on ApiException catch (e) {
+      emit(state.copyWith(isLoading: false, errorMessage: e.message));
+      return false;
     } catch (e) {
       emit(state.copyWith(
         isLoading: false,
@@ -732,6 +855,8 @@ class AuthCubit extends Cubit<AuthState> {
         refreshToken: state.refreshToken,
       );
 
+      await _signOutSocialProviders();
+
       final clearedUser = Map<String, dynamic>.from(state.currentUser);
       clearedUser['isLoggedIn'] = false;
       clearedUser['name'] = '';
@@ -751,6 +876,7 @@ class AuthCubit extends Cubit<AuthState> {
       return response;
     } on ApiException catch (e) {
       debugPrint('=== LOGOUT API EXCEPTION ===: ${e.message}');
+      await _signOutSocialProviders();
       final clearedUser = Map<String, dynamic>.from(state.currentUser);
       clearedUser['isLoggedIn'] = false;
       clearedUser['name'] = '';
@@ -769,6 +895,7 @@ class AuthCubit extends Cubit<AuthState> {
       return null;
     } catch (e) {
       debugPrint('=== LOGOUT ERROR ===: $e');
+      await _signOutSocialProviders();
       final clearedUser = Map<String, dynamic>.from(state.currentUser);
       clearedUser['isLoggedIn'] = false;
       clearedUser['name'] = '';
@@ -804,6 +931,8 @@ class AuthCubit extends Cubit<AuthState> {
         refreshToken: state.refreshToken ?? '',
       );
 
+      await _signOutSocialProviders();
+
       final clearedUser = Map<String, dynamic>.from(state.currentUser);
       clearedUser['isLoggedIn'] = false;
       clearedUser['name'] = '';
@@ -835,6 +964,19 @@ class AuthCubit extends Cubit<AuthState> {
         errorMessage: 'Unable to delete account. Please try again.',
       ));
       return false;
+    }
+  }
+
+  Future<void> _signOutSocialProviders() async {
+    try {
+      await GoogleSignIn().signOut();
+    } catch (e) {
+      debugPrint('Google signOut failed: $e');
+    }
+    try {
+      await FirebaseAuth.instance.signOut();
+    } catch (e) {
+      debugPrint('Firebase signOut failed: $e');
     }
   }
 

@@ -319,6 +319,16 @@ class ApiClient {
       );
       return;
     }
+    if (path == '/auth/social-login') {
+      AuthApiDebugLogger.logRequest(
+        method: method,
+        url: fullUrl,
+        headers: headers,
+        body: body,
+        apiLabel: 'SOCIAL LOGIN',
+      );
+      return;
+    }
     if (path == '/auth/register') {
       AuthApiDebugLogger.logRequest(
         method: method,
@@ -495,6 +505,7 @@ class ApiClient {
 
   String _methodForPath(String path, Map<String, dynamic>? body) {
     if (path == '/auth/login' ||
+        path == '/auth/social-login' ||
         path == '/auth/register' ||
         path == '/auth/verify-otp' ||
         path == '/auth/resend-otp' ||
@@ -536,6 +547,25 @@ class ApiClient {
         responseData: responseData,
       );
       LoginApiDebugLogger.logResponse(
+        statusCode: response.statusCode,
+        responseBody: response.body,
+        url: fullUrl,
+        responseData: responseData,
+      );
+    } else if (path == '/auth/social-login') {
+      Map<String, dynamic>? responseData;
+      if (response.body.isNotEmpty) {
+        try {
+          final raw = jsonDecode(response.body);
+          if (raw is Map<String, dynamic>) {
+            responseData = raw;
+          } else if (raw is Map) {
+            responseData = Map<String, dynamic>.from(raw);
+          }
+        } catch (_) {}
+      }
+      AuthApiDebugLogger.logResponse(
+        apiLabel: 'SOCIAL LOGIN',
         statusCode: response.statusCode,
         responseBody: response.body,
         url: fullUrl,

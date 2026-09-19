@@ -17,6 +17,7 @@ import '../models/resend_otp_request.dart';
 import '../models/resend_otp_response.dart';
 import '../models/reset_password_request.dart';
 import '../models/reset_password_response.dart';
+import '../models/social_login_request.dart';
 import '../models/token_verify_request.dart';
 import '../models/token_verify_response.dart';
 import '../models/update_profile_request.dart';
@@ -53,6 +54,30 @@ class AuthRepository {
 
     if (response.sessionToken.isEmpty || response.refreshToken.isEmpty) {
       throw ApiException('Login response did not include session tokens.');
+    }
+
+    await _storageService.saveSession(
+      sessionToken: response.sessionToken,
+      refreshToken: response.refreshToken,
+      userId: response.userInfo?.id,
+      displayName: response.userInfo?.displayName,
+    );
+    await _persistUserProfile(response.userInfo);
+
+    return response;
+  }
+
+  Future<LoginResponse> socialLogin(SocialLoginRequest request) async {
+    final data = await _apiClient.post(
+      ApiConstants.socialLogin,
+      body: request.toJson(),
+    );
+    final response = LoginResponse.fromJson(data);
+
+    if (response.sessionToken.isEmpty || response.refreshToken.isEmpty) {
+      throw ApiException(
+        'Social login response did not include session tokens.',
+      );
     }
 
     await _storageService.saveSession(
