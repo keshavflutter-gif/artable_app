@@ -488,48 +488,53 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
                     left: 16,
                     right: 78,
                     bottom: 26,
-                    child: GestureDetector(
-                      onTap: () => context
-                          .push('${AppRoutes.videoDetail}?id=$reelId'),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          CreatorInfoRow(reel: reel, lightText: true),
-                          if (challengeTitle != null && challengeTitle.isNotEmpty) ...[
-                            const SizedBox(height: 8),
-                            _MetaRow(
-                              icon: Icons.emoji_events_outlined,
-                              text: challengeTitle,
-                            ),
-                          ],
-                          const SizedBox(height: 8),
-                          _MetaRow(
-                            icon: Icons.music_note,
-                            text: soundText,
-                          ),
-                          if ((reel['caption'] as String?)?.isNotEmpty == true ||
-                              (reel['description'] as String?)?.isNotEmpty == true) ...[
-                            const SizedBox(height: 8),
-                            Text(
-                              ((reel['caption'] as String?)?.isNotEmpty == true
-                                      ? reel['caption'] as String
-                                      : reel['description'] as String)
-                                  .replaceAll(RegExp(r'#+'), '#'),
-                              style: TextStyle(
-                                fontSize: 12.5,
-                                height: 1.4,
-                                color: Colors.white.withValues(alpha: 0.92),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        CreatorInfoRow(reel: reel, lightText: true),
+                        GestureDetector(
+                          onTap: () => context
+                              .push('${AppRoutes.videoDetail}?id=$reelId'),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (challengeTitle != null && challengeTitle.isNotEmpty) ...[
+                                const SizedBox(height: 8),
+                                _MetaRow(
+                                  icon: Icons.emoji_events_outlined,
+                                  text: challengeTitle,
+                                ),
+                              ],
+                              const SizedBox(height: 8),
+                              _MetaRow(
+                                icon: Icons.music_note,
+                                text: soundText,
                               ),
-                            ),
-                          ],
-                          const SizedBox(height: 8),
-                          _MetaRow(
-                            icon: Icons.remove_red_eye_outlined,
-                            text: '$viewsText views',
-                            muted: true,
+                              if ((reel['caption'] as String?)?.isNotEmpty == true ||
+                                  (reel['description'] as String?)?.isNotEmpty == true) ...[
+                                const SizedBox(height: 8),
+                                Text(
+                                  ((reel['caption'] as String?)?.isNotEmpty == true
+                                          ? reel['caption'] as String
+                                          : reel['description'] as String)
+                                      .replaceAll(RegExp(r'#+'), '#'),
+                                  style: TextStyle(
+                                    fontSize: 12.5,
+                                    height: 1.4,
+                                    color: Colors.white.withValues(alpha: 0.92),
+                                  ),
+                                ),
+                              ],
+                              const SizedBox(height: 8),
+                              _MetaRow(
+                                icon: Icons.remove_red_eye_outlined,
+                                text: '$viewsText views',
+                                muted: true,
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
                 ],

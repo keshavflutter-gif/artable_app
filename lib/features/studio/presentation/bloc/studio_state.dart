@@ -31,6 +31,7 @@ class StudioState {
     this.recordingFilter = 'natural',
     this.recordingBeautyOn = false,
     this.recordingBeautyIntensity = 50,
+    this.isMuted = false,
     this.filtersConfig,
     this.isLoadingFilters = false,
     this.studioSetup,
@@ -71,6 +72,7 @@ class StudioState {
   final String recordingFilter;
   final bool recordingBeautyOn;
   final double recordingBeautyIntensity;
+  final bool isMuted;
 
   final StudioFiltersConfig? filtersConfig;
   final bool isLoadingFilters;
@@ -96,6 +98,8 @@ class StudioState {
         'videoCropAspectRatio': videoCropAspectRatio,
         'videoTrimStartSeconds': videoTrimStartSeconds,
         'videoTrimEndSeconds': videoTrimEndSeconds,
+        'isMuted': isMuted,
+        'selectedSpeed': selectedSpeed,
       };
 
   StudioState copyWith({
@@ -123,6 +127,7 @@ class StudioState {
     String? recordingFilter,
     bool? recordingBeautyOn,
     double? recordingBeautyIntensity,
+    bool? isMuted,
     StudioFiltersConfig? filtersConfig,
     bool? isLoadingFilters,
     StudioSetupData? studioSetup,
@@ -166,6 +171,7 @@ class StudioState {
       recordingFilter: recordingFilter ?? this.recordingFilter,
       recordingBeautyOn: recordingBeautyOn ?? this.recordingBeautyOn,
       recordingBeautyIntensity: recordingBeautyIntensity ?? this.recordingBeautyIntensity,
+      isMuted: isMuted ?? this.isMuted,
       filtersConfig: filtersConfig ?? this.filtersConfig,
       isLoadingFilters: isLoadingFilters ?? this.isLoadingFilters,
       studioSetup: studioSetup ?? this.studioSetup,

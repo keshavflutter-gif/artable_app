@@ -99,6 +99,7 @@ class StudioMusicPlaybackService {
       }
       final startMs = (studio.musicStartSeconds * 1000).round();
       await _audioPlayer.seek(Duration(milliseconds: startMs));
+      await _audioPlayer.setSpeed(studio.speedMultiplier);
       await _audioPlayer.play();
     } catch (e) {
       debugPrint('StudioMusicPlaybackService play error: $e');

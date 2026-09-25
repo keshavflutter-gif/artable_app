@@ -110,24 +110,32 @@ class AuthRepository {
     required String sessionToken,
     required String refreshToken,
   }) async {
-    final headers = ApiAuthHeaders.authenticated(
-      sessionToken: sessionToken,
-      refreshToken: refreshToken,
-    );
+    String? sToken = sessionToken;
+    String? rToken = refreshToken;
+    if (sToken.isEmpty || rToken.isEmpty) {
+      sToken = await _storageService.getSessionToken();
+      rToken = await _storageService.getRefreshToken();
+    }
 
-    Map<String, dynamic> data;
-    try {
-      if (userId.isNotEmpty) {
-        data = await _apiClient.get('/user/$userId', headers: headers);
-      } else {
-        data = await _apiClient.get('/user', headers: headers);
-      }
-    } catch (_) {
-      data = await _apiClient.get('/user', headers: headers);
+    final headers = (sToken != null && sToken.isNotEmpty && rToken != null && rToken.isNotEmpty)
+        ? ApiAuthHeaders.authenticated(
+            sessionToken: sToken,
+            refreshToken: rToken,
+          )
+        : null;
+
+    final String path = userId.isNotEmpty ? '/user/$userId' : '/user';
+    final data = await _apiClient.get(path, headers: headers);
+
+    if (data['data'] == null && data['user'] == null && data['id'] == null && data['_id'] == null) {
+      throw Exception('User details not found for ID: $userId');
     }
 
     final userInfo = UserInfo.fromApiResponse(data);
-    await _persistUserProfile(userInfo);
+    final savedUserId = await _storageService.getUserId();
+    if (userId.isEmpty || userId == savedUserId) {
+      await _persistUserProfile(userInfo);
+    }
     return userInfo;
   }
 

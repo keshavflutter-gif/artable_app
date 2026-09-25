@@ -17,6 +17,7 @@ class RecordedVideoPreview extends StatelessWidget {
     required this.beautyOn,
     required this.beautyIntensity,
     this.cropAspectRatio = '9:16',
+    this.isMuted = false,
     this.hasError = false,
     this.onRetry,
   });
@@ -31,6 +32,7 @@ class RecordedVideoPreview extends StatelessWidget {
   final bool beautyOn;
   final double beautyIntensity;
   final String cropAspectRatio;
+  final bool isMuted;
   final bool hasError;
   final VoidCallback? onRetry;
 
@@ -157,6 +159,38 @@ class RecordedVideoPreview extends StatelessWidget {
               ),
             ),
           ),
+          if (isMuted)
+            Positioned(
+              top: 12,
+              right: 12,
+              child: IgnorePointer(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withValues(alpha: 0.8),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(
+                        Icons.volume_off,
+                        size: 12,
+                        color: Colors.white,
+                      ),
+                      SizedBox(width: 4),
+                      Text(
+                        'Muted',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           Center(
             child: IgnorePointer(
               child: AnimatedOpacity(

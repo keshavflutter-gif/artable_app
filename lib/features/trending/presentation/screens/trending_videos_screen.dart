@@ -33,25 +33,15 @@ class _TrendingVideosScreenState extends State<TrendingVideosScreen> {
   @override
   Widget build(BuildContext context) {
     final trendingProvider = context.watch<TrendingVideosCubit>();
-    final homeCubitTrendingReels = context.select<HomeCubit, List<Map<String, dynamic>>>(
-      (vm) => vm.trendingReels,
-    );
-    final hero = trendingProvider.hero;
     final apiVideos = trendingProvider.videos;
+
+    final hero = trendingProvider.hero ?? (apiVideos.isNotEmpty ? apiVideos.first : null);
 
     final List<TrendingVideoItem> videos = [];
     final Set<String> seenIds = {};
 
     if (hero != null && hero.id.isNotEmpty) {
       seenIds.add(hero.id);
-    }
-
-    for (final itemMap in homeCubitTrendingReels) {
-      final id = itemMap['id']?.toString() ?? '';
-      if (id.isNotEmpty && !seenIds.contains(id)) {
-        seenIds.add(id);
-        videos.add(TrendingVideoItem.fromJson(itemMap));
-      }
     }
 
     for (final v in apiVideos) {
@@ -61,7 +51,7 @@ class _TrendingVideosScreenState extends State<TrendingVideosScreen> {
       }
     }
 
-    final isLoading = trendingProvider.isLoading && !trendingProvider.hasLoaded;
+    final isLoading = trendingProvider.isLoading && (apiVideos.isEmpty && hero == null);
 
     return AppScreen(
       child: Column(
@@ -136,16 +126,42 @@ class _TrendingVideosScreenState extends State<TrendingVideosScreen> {
                           ),
                         ),
                       ] else if (hero == null) ...[
-                        const Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 22, vertical: 40),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 40),
                           child: Center(
-                            child: Text(
-                              'No trending videos available.',
-                              style: TextStyle(
-                                fontFamily: 'Inter',
-                                color: Color(0xFF8B849C),
-                                fontSize: 14,
-                              ),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.movie_filter_outlined,
+                                  size: 48,
+                                  color: Color(0xFF8B849C),
+                                ),
+                                const SizedBox(height: 12),
+                                const Text(
+                                  'No trending videos available right now.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontFamily: 'Inter',
+                                    color: Color(0xFF8B849C),
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+                                ElevatedButton.icon(
+                                  onPressed: () => trendingProvider.loadTrendingVideos(forceRefresh: true),
+                                  icon: const Icon(Icons.refresh, size: 18),
+                                  label: const Text('Refresh Data'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: AppColors.purple,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ),

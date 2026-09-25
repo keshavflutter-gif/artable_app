@@ -577,8 +577,22 @@ class StudioCubit extends Cubit<StudioState> {
   String get recordingFilter => state.recordingFilter;
   bool get recordingBeautyOn => state.recordingBeautyOn;
   double get recordingBeautyIntensity => state.recordingBeautyIntensity;
+  bool get isMuted => state.isMuted;
   List<Map<String, dynamic>> get drafts => state.drafts;
   Map<String, dynamic> get recordingEffectsPayload => state.recordingEffectsPayload;
+
+  void toggleMute() {
+    emit(state.copyWith(isMuted: !state.isMuted));
+  }
+
+  void setMuted(bool value) {
+    emit(state.copyWith(isMuted: value));
+  }
+
+  double get speedMultiplier {
+    final clean = state.selectedSpeed.replaceAll('x', '').trim();
+    return double.tryParse(clean) ?? 1.0;
+  }
 
   void snapshotRecordingEffects() {
     emit(state.copyWith(
@@ -595,6 +609,8 @@ class StudioCubit extends Cubit<StudioState> {
     String? cropAspectRatio,
     double? trimStart,
     double? trimEnd,
+    bool? isMuted,
+    String? speed,
   }) {
     emit(state.copyWith(
       recordingFilter: filterId ?? state.selectedFilter,
@@ -603,6 +619,8 @@ class StudioCubit extends Cubit<StudioState> {
       videoCropAspectRatio: cropAspectRatio ?? state.videoCropAspectRatio,
       videoTrimStartSeconds: trimStart ?? state.videoTrimStartSeconds,
       videoTrimEndSeconds: trimEnd ?? state.videoTrimEndSeconds,
+      isMuted: isMuted ?? state.isMuted,
+      selectedSpeed: speed ?? state.selectedSpeed,
     ));
   }
 
@@ -806,6 +824,7 @@ class StudioCubit extends Cubit<StudioState> {
       recordingFilter: 'natural',
       recordingBeautyOn: false,
       recordingBeautyIntensity: 50,
+      isMuted: false,
       drafts: state.drafts,
     ));
   }

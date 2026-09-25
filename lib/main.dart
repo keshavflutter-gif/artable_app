@@ -46,10 +46,7 @@ Future<void> _preloadFonts() async {
       ..addFont(rootBundle.load('assets/fonts/Inter-SemiBold.ttf'))
       ..addFont(rootBundle.load('assets/fonts/Inter-Bold.ttf'));
 
-    await Future.wait([
-      poppinsLoader.load(),
-      interLoader.load(),
-    ]);
+    await Future.wait([poppinsLoader.load(), interLoader.load()]);
   } catch (e) {
     debugPrint('Font preloading note: $e');
   }

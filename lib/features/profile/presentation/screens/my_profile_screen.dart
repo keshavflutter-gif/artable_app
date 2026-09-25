@@ -78,6 +78,12 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
                 : ''));
 
     final isPrime = user?.isPrime ?? false;
+    final isVerified = user?.isVerified == true ||
+        user?.isBlueTick == true ||
+        auth.isBlueTick ||
+        auth.isVerified ||
+        currentUser['isBlueTick'] == true ||
+        currentUser['isVerified'] == true;
 
     final dynamic socialSource = user?.socialLinks ?? auth.socialLinks ?? currentUser['socialLinks'];
     String socialLabel = 'Website';
@@ -147,16 +153,29 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
                     // 2. Name & ★ PRIME Badge
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(
-                          name,
-                          style: const TextStyle(
-                            fontFamily: 'Poppins',
-                            fontSize: 20,
-                            fontWeight: FontWeight.w800,
-                            color: AppColors.text,
+                        Flexible(
+                          child: Text(
+                            name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 20,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.text,
+                            ),
                           ),
                         ),
+                        if (isVerified) ...[
+                          const SizedBox(width: 6),
+                          const Icon(
+                            Icons.verified_rounded,
+                            color: AppColors.blue,
+                            size: 18,
+                          ),
+                        ],
                         if (isPrime) ...[
                           const SizedBox(width: 8),
                           Container(

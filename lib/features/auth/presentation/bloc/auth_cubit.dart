@@ -26,6 +26,8 @@ import 'package:artable_app/features/auth/data/models/token_verify_request.dart'
 import 'package:artable_app/features/auth/data/models/token_verify_response.dart';
 import 'package:artable_app/features/auth/data/models/update_profile_request.dart';
 import 'package:artable_app/features/auth/data/models/user_info.dart';
+import 'package:artable_app/features/profile/data/models/follow_response.dart';
+import 'package:artable_app/features/profile/data/repositories/profile_repository.dart';
 import 'package:artable_app/features/auth/data/models/verify_otp_request.dart';
 import 'package:artable_app/features/auth/data/models/verify_otp_response.dart';
 import 'package:artable_app/features/auth/data/repositories/auth_repository.dart';
@@ -59,6 +61,8 @@ class AuthCubit extends Cubit<AuthState> {
   String get coverUrl => state.coverUrl;
   String get avatarUrl => state.avatarUrl;
   dynamic get socialLinks => state.socialLinks;
+  bool get isBlueTick => state.isBlueTick;
+  bool get isVerified => state.isVerified;
   String? get sessionToken => state.sessionToken;
   String? get refreshToken => state.refreshToken;
   String? get userId => state.userId;
@@ -1245,6 +1249,12 @@ class AuthCubit extends Cubit<AuthState> {
     if (userInfo.socialLinks != null) {
       currentUser['socialLinks'] = userInfo.socialLinks;
     }
+    if (userInfo.isBlueTick != null) {
+      currentUser['isBlueTick'] = userInfo.isBlueTick == true;
+    }
+    if (userInfo.isVerified != null) {
+      currentUser['isVerified'] = userInfo.isVerified == true;
+    }
 
     return (currentUser, regName, uid);
   }
@@ -1360,6 +1370,18 @@ class AuthCubit extends Cubit<AuthState> {
       }
     } catch (_) {}
     return null;
+  }
+
+  Future<FollowResponse> toggleFollow(String profileId) async {
+    final repo = ProfileRepository(
+      onTokensRefreshed: applyRefreshedTokens,
+      onSessionRefreshFailed: handleSessionRefreshFailed,
+    );
+    return await repo.toggleFollow(
+      profileId: profileId,
+      sessionToken: state.sessionToken,
+      refreshToken: state.refreshToken,
+    );
   }
 
   static String _initialsFromName(String name) {

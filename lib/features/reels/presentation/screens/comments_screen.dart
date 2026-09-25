@@ -493,7 +493,15 @@ class _CommentItem extends StatelessWidget {
                         color: AppColors.text,
                       ),
                     ),
-                    if (comment['isBlueTick'] == true || (comment['user'] is Map && comment['user']['isBlueTick'] == true)) ...[
+                    if (comment['isBlueTick'] == true ||
+                        comment['is_blue_tick'] == true ||
+                        comment['isVerified'] == true ||
+                        comment['is_verified'] == true ||
+                        (comment['user'] is Map &&
+                            ((comment['user'] as Map)['isBlueTick'] == true ||
+                             (comment['user'] as Map)['is_blue_tick'] == true ||
+                             (comment['user'] as Map)['isVerified'] == true ||
+                             (comment['user'] as Map)['is_verified'] == true))) ...[
                       const SizedBox(width: 4),
                       const Icon(
                         Icons.verified,

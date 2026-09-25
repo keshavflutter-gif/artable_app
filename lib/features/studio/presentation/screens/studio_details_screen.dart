@@ -181,6 +181,10 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
 
     if (controller != null) {
       final validController = controller;
+      validController.setVolume(studio.isMuted ? 0.0 : 1.0);
+      try {
+        await validController.setPlaybackSpeed(studio.speedMultiplier);
+      } catch (_) {}
       validController.addListener(_onVideoControllerUpdate);
       final trimStart = studio.state.videoTrimStartSeconds;
       if (trimStart > 0) {
@@ -640,6 +644,7 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
                       filterId: studio.recordingFilter,
                       beautyOn: studio.recordingBeautyOn,
                       beautyIntensity: studio.recordingBeautyIntensity,
+                      isMuted: studio.isMuted,
                     ),
                     if (music != null) ...[
                       const SizedBox(height: 8),

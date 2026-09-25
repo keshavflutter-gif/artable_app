@@ -18,6 +18,19 @@ class MockHelpers {
     }
   }
 
+  static Map<String, dynamic>? creatorByHandle(String? handle) {
+    if (handle == null || handle.trim().isEmpty) return null;
+    final clean = handle.trim().toLowerCase().replaceAll('@', '');
+    try {
+      return MockData.CREATORS.firstWhere((u) {
+        final h = (u['handle'] as String?)?.trim().toLowerCase().replaceAll('@', '');
+        return h == clean;
+      });
+    } catch (_) {
+      return null;
+    }
+  }
+
   static Map<String, dynamic>? challengeById(String? id) {
     if (id == null) return null;
     try {

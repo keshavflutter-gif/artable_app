@@ -138,6 +138,9 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
 
       if (loaded.isNotEmpty) {
         _clipControllers = loaded;
+        for (final c in _clipControllers) {
+          c.setVolume(studio.isMuted ? 0.0 : 1.0);
+        }
         _currentClipIndex = 0;
         _videoController = _clipControllers[0];
         _videoController!.addListener(_onVideoControllerUpdate);
@@ -178,8 +181,6 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
       controller = null;
     }
 
-
-
     if (!mounted) {
       await controller?.dispose();
       return;
@@ -187,6 +188,10 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
 
     if (controller != null) {
       final validController = controller;
+      validController.setVolume(studio.isMuted ? 0.0 : 1.0);
+      try {
+        await validController.setPlaybackSpeed(studio.speedMultiplier);
+      } catch (_) {}
       validController.addListener(_onVideoControllerUpdate);
       final trimStart = studio.state.videoTrimStartSeconds;
       if (trimStart > 0) {
@@ -507,11 +512,12 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
                       beautyOn: studio.recordingBeautyOn,
                       beautyIntensity: studio.recordingBeautyIntensity,
                       cropAspectRatio: studio.videoCropAspectRatio,
+                      isMuted: studio.isMuted,
                     ),
                     const SizedBox(height: 12),
-                    // Video Editing Options: Crop & Trim
+                    // Video Editing Options: Crop, Trim & Mute
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
                       decoration: BoxDecoration(
                         color: const Color(0xFFF6F3FC),
                         borderRadius: BorderRadius.circular(16),
@@ -525,7 +531,7 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
                               onTap: () => VideoCropSheet.show(context),
                               borderRadius: BorderRadius.circular(12),
                               child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
                                 decoration: BoxDecoration(
                                   color: Colors.white,
                                   borderRadius: BorderRadius.circular(12),
@@ -534,32 +540,32 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
                                 child: Row(
                                   children: [
                                     Container(
-                                      padding: const EdgeInsets.all(7),
+                                      padding: const EdgeInsets.all(6),
                                       decoration: BoxDecoration(
                                         color: AppColors.purple.withValues(alpha: 0.1),
                                         shape: BoxShape.circle,
                                       ),
-                                      child: const Icon(Icons.crop, size: 15, color: AppColors.purple),
+                                      child: const Icon(Icons.crop, size: 14, color: AppColors.purple),
                                     ),
-                                    const SizedBox(width: 8),
+                                    const SizedBox(width: 6),
                                     Expanded(
                                       child: Column(
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
                                           const Text(
-                                            'Crop Video',
+                                            'Crop',
                                             style: TextStyle(
-                                              fontSize: 12,
+                                              fontSize: 11.5,
                                               fontWeight: FontWeight.w700,
                                               color: Color(0xFF231A38),
                                             ),
                                           ),
-                                          const SizedBox(height: 2),
+                                          const SizedBox(height: 1),
                                           Text(
-                                            'Ratio: ${studio.videoCropAspectRatio}',
+                                            studio.videoCropAspectRatio,
                                             style: const TextStyle(
-                                              fontSize: 10.5,
+                                              fontSize: 10,
                                               fontWeight: FontWeight.w600,
                                               color: AppColors.purple,
                                             ),
@@ -572,7 +578,7 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
                               ),
                             ),
                           ),
-                          const SizedBox(width: 10),
+                          const SizedBox(width: 6),
                           // Trim Option Tile
                           Expanded(
                             child: InkWell(
@@ -593,7 +599,7 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
                               },
                               borderRadius: BorderRadius.circular(12),
                               child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
                                 decoration: BoxDecoration(
                                   color: Colors.white,
                                   borderRadius: BorderRadius.circular(12),
@@ -602,34 +608,113 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
                                 child: Row(
                                   children: [
                                     Container(
-                                      padding: const EdgeInsets.all(7),
+                                      padding: const EdgeInsets.all(6),
                                       decoration: BoxDecoration(
                                         color: AppColors.purple.withValues(alpha: 0.1),
                                         shape: BoxShape.circle,
                                       ),
-                                      child: const Icon(Icons.content_cut_rounded, size: 15, color: AppColors.purple),
+                                      child: const Icon(Icons.content_cut_rounded, size: 14, color: AppColors.purple),
                                     ),
-                                    const SizedBox(width: 8),
+                                    const SizedBox(width: 6),
                                     Expanded(
                                       child: Column(
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
                                           const Text(
-                                            'Trim Video',
+                                            'Trim',
                                             style: TextStyle(
-                                              fontSize: 12,
+                                              fontSize: 11.5,
                                               fontWeight: FontWeight.w700,
                                               color: Color(0xFF231A38),
                                             ),
                                           ),
-                                          const SizedBox(height: 2),
+                                          const SizedBox(height: 1),
                                           Text(
                                             duration,
                                             style: const TextStyle(
-                                              fontSize: 10.5,
+                                              fontSize: 10,
                                               fontWeight: FontWeight.w600,
                                               color: AppColors.purple,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          // Mute Option Tile
+                          Expanded(
+                            child: InkWell(
+                              onTap: () {
+                                final studioCubit = context.read<StudioCubit>();
+                                studioCubit.toggleMute();
+                                final newMuted = studioCubit.isMuted;
+                                _videoController?.setVolume(newMuted ? 0.0 : 1.0);
+                                for (final c in _clipControllers) {
+                                  c.setVolume(newMuted ? 0.0 : 1.0);
+                                }
+                                setState(() {});
+                              },
+                              borderRadius: BorderRadius.circular(12),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
+                                decoration: BoxDecoration(
+                                  color: studio.isMuted
+                                      ? AppColors.purple.withValues(alpha: 0.1)
+                                      : Colors.white,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: studio.isMuted
+                                        ? AppColors.purple
+                                        : const Color(0xFFE5DDF5),
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(6),
+                                      decoration: BoxDecoration(
+                                        color: studio.isMuted
+                                            ? AppColors.purple
+                                            : AppColors.purple.withValues(alpha: 0.1),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: Icon(
+                                        studio.isMuted ? Icons.volume_off : Icons.volume_up,
+                                        size: 14,
+                                        color: studio.isMuted ? Colors.white : AppColors.purple,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Text(
+                                            studio.isMuted ? 'Muted' : 'Audio',
+                                            style: TextStyle(
+                                              fontSize: 11.5,
+                                              fontWeight: FontWeight.w700,
+                                              color: studio.isMuted
+                                                  ? AppColors.purple
+                                                  : const Color(0xFF231A38),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 1),
+                                          Text(
+                                            studio.isMuted ? 'Muted' : 'Sound On',
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.w600,
+                                              color: studio.isMuted
+                                                  ? AppColors.purple
+                                                  : Colors.black54,
                                             ),
                                           ),
                                         ],

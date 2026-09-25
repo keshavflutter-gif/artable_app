@@ -19,12 +19,12 @@ class TrendingVideosResponse {
     } else if (json['data'] is List) {
       data = TrendingVideosData(
           videos: TrendingVideosData._parseVideoList(json['data']));
-    } else if (json['videos'] is List || json['trendingVideos'] is List) {
+    } else {
       data = TrendingVideosData.fromJson(json);
     }
 
     return TrendingVideosResponse(
-      success: json['success'] == true || json['status'] == 200 || data != null,
+      success: json['success'] == true || json['status'] == 200 || (data.hero != null || data.gridVideos.isNotEmpty),
       message: json['message']?.toString(),
       data: data,
       pagination: json['pagination'] is Map<String, dynamic>
@@ -79,22 +79,59 @@ class TrendingVideosData {
   }
 
   factory TrendingVideosData.fromJson(Map<String, dynamic> json) {
-    final rawVideos = json['videos'] ??
+    dynamic rawVideos = json['videos'] ??
         json['trendingVideos'] ??
         json['trending_videos'] ??
         json['trending'] ??
-        json['items'];
+        json['items'] ??
+        json['data'] ??
+        json['result'] ??
+        json['results'] ??
+        json['rows'] ??
+        json['list'] ??
+        json['payload'] ??
+        json['records'] ??
+        json['content'];
+
+    if (rawVideos == null) {
+      for (final entry in json.entries) {
+        if (entry.value is List && (entry.value as List).isNotEmpty) {
+          final first = (entry.value as List).first;
+          if (first is Map &&
+              (first.containsKey('id') ||
+                  first.containsKey('_id') ||
+                  first.containsKey('videoUrl') ||
+                  first.containsKey('title'))) {
+            rawVideos = entry.value;
+            break;
+          }
+        }
+      }
+    }
+
+    final parsedVideos = _parseVideoList(rawVideos);
+
     final rawMore = json['moreTrendingTalent'] ??
         json['moreVideos'] ??
         json['more'];
+    final parsedMore = _parseVideoList(rawMore);
+
+    TrendingVideoItem? heroItem;
+    if (json['hero'] is Map) {
+      heroItem = TrendingVideoItem.fromJson(
+          Map<String, dynamic>.from(json['hero'] as Map));
+    } else if (json['topVideo'] is Map) {
+      heroItem = TrendingVideoItem.fromJson(
+          Map<String, dynamic>.from(json['topVideo'] as Map));
+    } else if (json['top_video'] is Map) {
+      heroItem = TrendingVideoItem.fromJson(
+          Map<String, dynamic>.from(json['top_video'] as Map));
+    }
 
     return TrendingVideosData(
-      hero: json['hero'] is Map
-          ? TrendingVideoItem.fromJson(
-              Map<String, dynamic>.from(json['hero'] as Map))
-          : null,
-      videos: _parseVideoList(rawVideos),
-      moreTrendingTalent: _parseVideoList(rawMore),
+      hero: heroItem,
+      videos: parsedVideos,
+      moreTrendingTalent: parsedMore,
       tabs: json['tabs'] is List
           ? (json['tabs'] as List)
               .map((e) => e?.toString() ?? '')
@@ -262,8 +299,17 @@ class TrendingVideoItem {
   }
 
   String get displayThumbnail {
-    if (thumbnailUrl != null && thumbnailUrl!.trim().isNotEmpty && thumbnailUrl!.trim() != 'null') {
+    if (thumbnailUrl != null &&
+        thumbnailUrl!.trim().isNotEmpty &&
+        thumbnailUrl!.trim() != 'null' &&
+        !thumbnailUrl!.contains('storage.example')) {
       return thumbnailUrl!.trim();
+    }
+    if (videoUrl != null &&
+        videoUrl!.trim().isNotEmpty &&
+        videoUrl!.trim() != 'null' &&
+        !videoUrl!.contains('storage.example')) {
+      return videoUrl!.trim();
     }
     if (challenge?.bannerUrl != null && challenge!.bannerUrl!.trim().isNotEmpty) {
       return challenge!.bannerUrl!.trim();
@@ -470,6 +516,17 @@ class TrendingVideoItem {
 
     return {
       'id': id,
+      'userId': user?.id ?? '',
+      'user_id': user?.id ?? '',
+      'creatorId': user?.id ?? '',
+      'user': user != null
+          ? {
+              'id': user!.id,
+              'fullName': user!.fullName,
+              'username': user!.username,
+              'profilePhotoUrl': user!.profilePhotoUrl,
+            }
+          : null,
       'title': title,
       'description': description ?? '',
       'caption': displayCaption,
@@ -739,11 +796,11 @@ class TrendingVideoItem {
         json['isVerified'] == true ||
         json['verified'] == true;
 
-    if ((username != null && username.isNotEmpty) || (fullName != null && fullName.isNotEmpty)) {
+    if (id.isNotEmpty || (username != null && username.isNotEmpty) || (fullName != null && fullName.isNotEmpty)) {
       return TrendingVideoUser(
         id: id,
-        username: username ?? fullName,
-        fullName: fullName ?? username,
+        username: username ?? fullName ?? '',
+        fullName: fullName ?? username ?? '',
         profilePhotoUrl: avatar,
         isBlueTick: isBlueTick,
         isVerified: isBlueTick,

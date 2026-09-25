@@ -239,8 +239,20 @@ class HomeUiMapper {
         ? scoreDouble.toStringAsFixed(1)
         : _firstNonEmptyString([item['ratingLabel'], item['talentScoreLabel'], item['rating'], item['score']]);
 
+    final resolvedUserId = _firstNonEmptyString([
+      user?['id'],
+      user?['_id'],
+      item['userId'],
+      item['user_id'],
+      item['creatorId'],
+    ]);
+
     return {
       'id': _stringValue(item['id']),
+      'userId': resolvedUserId,
+      'user_id': resolvedUserId,
+      'creatorId': resolvedUserId,
+      'user': user,
       'title': _stringValue(item['title']),
       'caption': finalCaption,
       'category': categoryStr,
@@ -269,8 +281,33 @@ class HomeUiMapper {
       'avatarUrl': avatarUrl,
       'handle': handle,
       'creator': creator.isNotEmpty ? creator : handle,
-      'verified': user?['isVerified'] == true ||
+      'isBlueTick': user?['isBlueTick'] == true ||
+          user?['is_blue_tick'] == true ||
+          user?['isVerified'] == true ||
+          user?['is_verified'] == true ||
+          item['isBlueTick'] == true ||
+          item['is_blue_tick'] == true ||
+          item['isVerified'] == true ||
+          item['is_verified'] == true ||
+          item['verified'] == true,
+      'isVerified': user?['isBlueTick'] == true ||
+          user?['is_blue_tick'] == true ||
+          user?['isVerified'] == true ||
+          user?['is_verified'] == true ||
+          item['isBlueTick'] == true ||
+          item['is_blue_tick'] == true ||
+          item['isVerified'] == true ||
+          item['is_verified'] == true ||
+          item['verified'] == true,
+      'verified': user?['isBlueTick'] == true ||
+          user?['is_blue_tick'] == true ||
+          user?['isVerified'] == true ||
+          user?['is_verified'] == true ||
           user?['verified'] == true ||
+          item['isBlueTick'] == true ||
+          item['is_blue_tick'] == true ||
+          item['isVerified'] == true ||
+          item['is_verified'] == true ||
           item['verified'] == true,
       'talentScore': scoreDouble ?? 0.0,
       'averageRating': scoreStr,
