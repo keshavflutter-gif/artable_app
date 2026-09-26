@@ -6,6 +6,7 @@ import 'package:artable_app/core/network/api_session_callbacks_factory.dart';
 import 'package:artable_app/core/storage/auth_storage_service.dart';
 import 'package:artable_app/features/studio/data/services/video_thumbnail_generator.dart';
 import 'package:artable_app/data/datasources/mock_data.dart';
+import 'package:artable_app/core/utils/validators.dart';
 import '../models/trending_videos_response.dart';
 
 class VideosRepository {
@@ -257,25 +258,20 @@ class VideosRepository {
     }
 
     // 3. Call Create Video API (POST /app/videos) with ready videoUrl & thumbnailUrl
-    final headers = (sessionToken != null &&
-            sessionToken.isNotEmpty &&
-            refreshToken != null &&
-            refreshToken.isNotEmpty)
-        ? ApiAuthHeaders.authenticated(
-            sessionToken: sessionToken,
-            refreshToken: refreshToken,
-          )
-        : <String, String>{};
+    final effectiveToken = (sessionToken != null && sessionToken.trim().isNotEmpty)
+        ? sessionToken.trim()
+        : await _storageService.getSessionToken();
+    final effectiveRefresh = (refreshToken != null && refreshToken.trim().isNotEmpty)
+        ? refreshToken.trim()
+        : await _storageService.getRefreshToken();
 
-    final isChallengeIdAsCategory = (categoryId != null &&
-        challengeId != null &&
-        categoryId.trim() == challengeId.trim());
+    final headers = ApiAuthHeaders.authenticated(
+      sessionToken: effectiveToken,
+      refreshToken: effectiveRefresh,
+    );
 
-    final isRealCategoryId = categoryId != null &&
-        categoryId.trim().isNotEmpty &&
-        !isChallengeIdAsCategory &&
-        !categoryId.trim().toLowerCase().startsWith('cat_') &&
-        !RegExp(r'^cat_\w+$', caseSensitive: false).hasMatch(categoryId.trim());
+    final realCategoryId = Validators.isRealDatabaseId(categoryId) ? categoryId!.trim() : null;
+    final realChallengeId = Validators.isRealDatabaseId(challengeId) ? challengeId!.trim() : null;
 
     final hashtagsList = _parseHashtagsList(hashtags);
 
@@ -285,12 +281,12 @@ class VideosRepository {
       'thumbnailUrl': finalThumbnailUrl,
       if (description != null && description.trim().isNotEmpty)
         'description': description.trim(),
-      if (isRealCategoryId)
-        'categoryId': categoryId.trim(),
+      if (realCategoryId != null)
+        'categoryId': realCategoryId,
+      if (realChallengeId != null)
+        'challengeId': realChallengeId,
       if (hashtagsList.isNotEmpty)
         'hashtags': hashtagsList,
-      if (challengeId != null && challengeId.trim().isNotEmpty)
-        'challengeId': challengeId.trim(),
       if (videoTrimStartSeconds != null)
         'videoTrimStartSeconds': videoTrimStartSeconds,
       if (videoTrimEndSeconds != null)
@@ -547,15 +543,17 @@ class VideosRepository {
     final fileType = isVideo ? 'video/mp4' : 'image/jpeg';
     final folder = isVideo ? 'videos' : 'thumbnails';
 
-    final headers = (sessionToken != null &&
-            sessionToken.isNotEmpty &&
-            refreshToken != null &&
-            refreshToken.isNotEmpty)
-        ? ApiAuthHeaders.authenticated(
-            sessionToken: sessionToken,
-            refreshToken: refreshToken,
-          )
-        : <String, String>{};
+    final effectiveToken = (sessionToken != null && sessionToken.trim().isNotEmpty)
+        ? sessionToken.trim()
+        : await _storageService.getSessionToken();
+    final effectiveRefresh = (refreshToken != null && refreshToken.trim().isNotEmpty)
+        ? refreshToken.trim()
+        : await _storageService.getRefreshToken();
+
+    final headers = ApiAuthHeaders.authenticated(
+      sessionToken: effectiveToken,
+      refreshToken: effectiveRefresh,
+    );
 
     debugPrint('=== PRESIGNED URL === Presigned URL API called');
     debugPrint(

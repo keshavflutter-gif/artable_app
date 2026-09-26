@@ -185,35 +185,41 @@ class ApiClient {
       body: body,
     );
 
-    final response = await send(requestHeaders);
-    _logResponse(path, response);
+    try {
+      final response = await send(requestHeaders);
+      _logResponse(path, response);
 
-    if (_shouldRefreshSession(
-      path: path,
-      statusCode: response.statusCode,
-      headers: requestHeaders,
-      hasRetried: hasRetried,
-    )) {
-      final newSessionToken = await _refreshSessionToken();
-      if (newSessionToken == null || newSessionToken.isEmpty) {
-        await sessionCallbacks!.onRefreshFailed();
-        return _decodeResponse(response);
+      if (_shouldRefreshSession(
+        path: path,
+        statusCode: response.statusCode,
+        headers: requestHeaders,
+        hasRetried: hasRetried,
+      )) {
+        final newSessionToken = await _refreshSessionToken();
+        if (newSessionToken == null || newSessionToken.isEmpty) {
+          await sessionCallbacks!.onRefreshFailed();
+          return _decodeResponse(response);
+        }
+
+        final refreshedRefreshToken = await sessionCallbacks!.getRefreshToken();
+        final retryHeaders = {
+          ...requestHeaders,
+          'Authorization': 'Bearer $newSessionToken',
+          if (refreshedRefreshToken != null && refreshedRefreshToken.isNotEmpty)
+            'Refresh-Token': refreshedRefreshToken,
+        };
+
+        final retryResponse = await send(retryHeaders);
+        _logResponse(path, retryResponse);
+        return _decodeResponse(retryResponse);
       }
 
-      final refreshedRefreshToken = await sessionCallbacks!.getRefreshToken();
-      final retryHeaders = {
-        ...requestHeaders,
-        'Authorization': 'Bearer $newSessionToken',
-        if (refreshedRefreshToken != null && refreshedRefreshToken.isNotEmpty)
-          'Refresh-Token': refreshedRefreshToken,
-      };
-
-      final retryResponse = await send(retryHeaders);
-      _logResponse(path, retryResponse);
-      return _decodeResponse(retryResponse);
+      return _decodeResponse(response);
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      debugPrint('=== API REQUEST ERROR === Path: $path, Error: $e');
+      throw ApiException('Unable to connect to server. Please check internet connection.');
     }
-
-    return _decodeResponse(response);
   }
 
   bool _shouldRefreshSession({
@@ -239,6 +245,7 @@ class ApiClient {
     final callbacks = sessionCallbacks;
     if (callbacks == null) return null;
 
+    final sessionToken = await callbacks.getSessionToken();
     final refreshToken = await callbacks.getRefreshToken();
     if (refreshToken == null || refreshToken.isEmpty || refreshToken == 'design_preview') {
       debugPrint('[SESSION_REFRESH] No valid refreshToken available in storage.');
@@ -248,6 +255,8 @@ class ApiClient {
     final uri = Uri.parse('$_baseUrl/auth/generate-session');
     final refreshHeaders = {
       'Content-Type': 'application/json',
+      if (sessionToken != null && sessionToken.trim().isNotEmpty)
+        'Authorization': 'Bearer ${sessionToken.trim()}',
       'Refresh-Token': refreshToken,
       'x-refresh-token': refreshToken,
     };
@@ -913,29 +922,54 @@ class ApiClient {
   String? _extractErrorMessage(Map<String, dynamic>? decoded) {
     if (decoded == null) return null;
 
-    final message = decoded['message'];
-    if (message is String && message.isNotEmpty) return message;
-
-    final error = decoded['error'];
-    if (error is String && error.isNotEmpty) return error;
-
-    final errors = decoded['errors'];
-    if (errors is List && errors.isNotEmpty) {
-      final first = errors.first;
-      if (first is String) return first;
-      if (first is Map) {
-        final nested = first['message'] ?? first['msg'];
-        if (nested is String && nested.isNotEmpty) return nested;
+    // 1. Check details array first (e.g. Zod / Prisma / validation errors: [{"path": "password", "message": "password must be min 8 char"}])
+    final details = decoded['details'];
+    if (details is List && details.isNotEmpty) {
+      final messages = <String>[];
+      for (final item in details) {
+        if (item is String && item.trim().isNotEmpty) {
+          messages.add(item.trim());
+        } else if (item is Map) {
+          final m = item['message'] ?? item['msg'] ?? item['error'];
+          if (m is String && m.trim().isNotEmpty) {
+            messages.add(m.trim());
+          }
+        }
+      }
+      if (messages.isNotEmpty) {
+        return messages.join(', ');
       }
     }
 
-    final details = decoded['details'];
-    if (details is List && details.isNotEmpty) {
-      final first = details.first;
-      if (first is Map) {
-        final nested = first['message'] ?? first['msg'];
-        if (nested is String && nested.isNotEmpty) return nested;
+    // 2. Check errors array (e.g. [{"field": "email", "message": "..."}])
+    final errors = decoded['errors'];
+    if (errors is List && errors.isNotEmpty) {
+      final messages = <String>[];
+      for (final item in errors) {
+        if (item is String && item.trim().isNotEmpty) {
+          messages.add(item.trim());
+        } else if (item is Map) {
+          final m = item['message'] ?? item['msg'] ?? item['error'];
+          if (m is String && m.trim().isNotEmpty) {
+            messages.add(m.trim());
+          }
+        }
       }
+      if (messages.isNotEmpty) {
+        return messages.join(', ');
+      }
+    }
+
+    // 3. Check error string
+    final error = decoded['error'];
+    if (error is String && error.trim().isNotEmpty) {
+      return error.trim();
+    }
+
+    // 4. Check main message string
+    final message = decoded['message'];
+    if (message is String && message.trim().isNotEmpty) {
+      return message.trim();
     }
 
     return null;

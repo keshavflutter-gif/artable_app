@@ -13,6 +13,7 @@ import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
 import 'package:artable_app/features/home/presentation/bloc/home_cubit.dart';
 import 'package:artable_app/features/trending/presentation/bloc/trending_videos_cubit.dart';
 import 'package:artable_app/features/trending/data/repositories/videos_repository.dart';
+import 'package:artable_app/core/utils/validators.dart';
 
 class StudioUploadScreen extends StatefulWidget {
   const StudioUploadScreen({super.key, this.challengeId, this.draftId});
@@ -84,11 +85,14 @@ class _StudioUploadScreenState extends State<StudioUploadScreen> {
           ? studioCubit.videoTitle!.trim()
           : 'Talent Performance Entry';
       final description = studioCubit.videoDescription;
-      final categoryId = studioCubit.videoCategoryId;
+      final categoryId = Validators.isRealDatabaseId(studioCubit.videoCategoryId)
+          ? studioCubit.videoCategoryId
+          : null;
       final hashtags = (studioCubit.videoHashtags != null && studioCubit.videoHashtags!.trim().isNotEmpty)
           ? studioCubit.videoHashtags!
           : '#dance #talent #artable';
-      final challengeId = studioCubit.videoChallengeId ?? widget.challengeId ?? 'c1';
+      final rawChal = studioCubit.videoChallengeId ?? widget.challengeId;
+      final challengeId = Validators.isRealDatabaseId(rawChal) ? rawChal : null;
 
       setState(() {
         _percent = 60;

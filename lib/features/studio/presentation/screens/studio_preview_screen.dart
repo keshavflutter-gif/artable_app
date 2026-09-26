@@ -140,6 +140,9 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
         _clipControllers = loaded;
         for (final c in _clipControllers) {
           c.setVolume(studio.isMuted ? 0.0 : 1.0);
+          try {
+            c.setPlaybackSpeed(studio.speedMultiplier);
+          } catch (_) {}
         }
         _currentClipIndex = 0;
         _videoController = _clipControllers[0];

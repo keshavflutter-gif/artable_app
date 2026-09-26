@@ -222,12 +222,14 @@ class AuthCubit extends Cubit<AuthState> {
 
       return true;
     } on ApiException catch (e) {
+      debugPrint('=== LOGIN API ERROR === ${e.message}');
       emit(state.copyWith(isLoading: false, errorMessage: e.message));
       return false;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('=== LOGIN UNEXPECTED ERROR === $e');
       emit(state.copyWith(
         isLoading: false,
-        errorMessage: 'Unable to log in. Please try again.',
+        errorMessage: 'Unable to log in ($e). Please try again.',
       ));
       return false;
     }

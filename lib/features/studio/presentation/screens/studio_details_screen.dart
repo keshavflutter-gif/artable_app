@@ -18,6 +18,7 @@ import 'package:artable_app/features/studio/presentation/widgets/recorded_video_
 import 'package:artable_app/features/studio/presentation/widgets/studio_shared_widgets.dart';
 import 'package:artable_app/features/challenges/presentation/bloc/challenges_cubit.dart';
 import 'package:artable_app/features/studio/data/services/studio_music_playback_service.dart';
+import 'package:artable_app/core/utils/validators.dart';
 
 class StudioDetailsScreen extends StatefulWidget {
   const StudioDetailsScreen({
@@ -64,13 +65,19 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
     final challengesCubit = context.read<ChallengesCubit>();
     final draft = _draft;
 
-    _challengeId = (studio.videoChallengeId != null && studio.videoChallengeId!.isNotEmpty)
+    final rawChallengeId = (studio.videoChallengeId != null && studio.videoChallengeId!.isNotEmpty)
         ? studio.videoChallengeId!
         : (draft != null
-            ? draft['challengeId'] as String
-            : widget.challengeId ?? 'c1');
+            ? (draft['challengeId']?.toString() ?? '')
+            : (widget.challengeId ?? ''));
 
-    if (_challengeId.isNotEmpty && !_challengeId.startsWith('c')) {
+    _challengeId = Validators.isRealDatabaseId(rawChallengeId) ? rawChallengeId : '';
+
+    if (!challengesCubit.hasLoadedCategories && !challengesCubit.isLoadingCategories) {
+      challengesCubit.loadCategories();
+    }
+
+    if (Validators.isRealDatabaseId(_challengeId)) {
       final detail = challengesCubit.getChallengeDetail(_challengeId);
       if (detail == null) {
         challengesCubit.loadChallengeDetail(_challengeId).then((loadedDetail) {
@@ -80,6 +87,8 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
             });
           }
         });
+      } else if (detail.category?.id != null && detail.category!.id.isNotEmpty) {
+        _categoryId = detail.category!.id;
       }
     }
 
@@ -88,12 +97,14 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
       catId = null;
     }
 
-    if (catId != null && catId.isNotEmpty) {
-      _categoryId = catId;
+    if (Validators.isRealDatabaseId(catId)) {
+      _categoryId = catId!;
     } else {
       final detail = challengesCubit.getChallengeDetail(_challengeId);
-      if (detail?.category?.id != null && detail!.category!.id.isNotEmpty) {
-        _categoryId = detail.category!.id;
+      if (Validators.isRealDatabaseId(detail?.category?.id)) {
+        _categoryId = detail!.category!.id;
+      } else if (challengesCubit.categoriesResponse?.data.isNotEmpty == true) {
+        _categoryId = challengesCubit.categoriesResponse!.data.first.id;
       } else {
         _categoryId = '';
       }
@@ -906,22 +917,31 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
                                                   : '#dance #talent #artable');
 
                                       final targetDraftId = widget.draftId ?? _draft?['id'] as String?;
+                                      final finalCatId = Validators.isRealDatabaseId(selectedCategoryValue)
+                                          ? selectedCategoryValue
+                                          : (Validators.isRealDatabaseId(_categoryId) ? _categoryId : null);
+                                      final finalChalId = Validators.isRealDatabaseId(_challengeId)
+                                          ? _challengeId
+                                          : null;
+
                                       studioCubit.setVideoSubmissionDetails(
                                         title: _titleController.text.trim(),
                                         description:
                                             _descriptionController.text.trim(),
-                                        categoryId: _categoryId,
+                                        categoryId: finalCatId,
                                         hashtags: effectiveHashtags,
-                                        challengeId: _challengeId,
+                                        challengeId: finalChalId,
                                         draftId: targetDraftId,
                                       );
                                       if (mounted) {
                                         final draftQuery = (targetDraftId != null && targetDraftId.isNotEmpty)
                                             ? '&draft=$targetDraftId'
                                             : '';
-                                        router.push(
-                                          '${AppRoutes.studioUpload}?id=$_challengeId$draftQuery',
-                                        );
+                                        final chalParam = finalChalId != null ? 'id=$finalChalId' : '';
+                                        final route = chalParam.isNotEmpty
+                                            ? '${AppRoutes.studioUpload}?$chalParam$draftQuery'
+                                            : '${AppRoutes.studioUpload}${draftQuery.replaceFirst('&', '?')}';
+                                        router.push(route);
                                       }
                                     }
                                   : null,

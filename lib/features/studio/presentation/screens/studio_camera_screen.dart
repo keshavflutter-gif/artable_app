@@ -442,9 +442,7 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
     if (mounted) {
       setState(() => _state = _CameraState.recording);
     }
-    final speedMultiplier = mounted ? context.read<StudioCubit>().speedMultiplier : 1.0;
-    final tickMs = (1000 / speedMultiplier).round().clamp(100, 3000);
-    _timer = Timer.periodic(Duration(milliseconds: tickMs), (_) {
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (_seconds >= _maxSeconds) {
         _stopRecording();
         return;
@@ -756,6 +754,10 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
                 child: GestureDetector(
                   onTap: () {
                     context.read<StudioCubit>().setSpeed(s);
+                    try {
+                      final multiplier = context.read<StudioCubit>().speedMultiplier;
+                      _recordedVideoController?.setPlaybackSpeed(multiplier);
+                    } catch (_) {}
                     Navigator.of(ctx).pop();
                   },
                   child: AnimatedContainer(

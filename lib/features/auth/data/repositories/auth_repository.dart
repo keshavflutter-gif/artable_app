@@ -52,8 +52,8 @@ class AuthRepository {
     final data = await _apiClient.post('/auth/login', body: request.toJson());
     final response = LoginResponse.fromJson(data);
 
-    if (response.sessionToken.isEmpty || response.refreshToken.isEmpty) {
-      throw ApiException('Login response did not include session tokens.');
+    if (response.sessionToken.isEmpty) {
+      throw ApiException('Login response did not include a valid session token.');
     }
 
     await _storageService.saveSession(
