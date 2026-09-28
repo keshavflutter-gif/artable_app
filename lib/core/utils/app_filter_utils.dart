@@ -27,6 +27,222 @@ abstract final class AppFilterUtils {
       matrix: null,
     ),
     FilterPreset(
+      id: 'clarendon',
+      label: 'Clarendon',
+      icon: Icons.wb_sunny,
+      gradient: [Color(0xFF81D4FA), Color(0xFF1E88E5)],
+      matrix: [
+        1.20, 0.05, 0.00, 0.0, 5.0,
+        0.00, 1.15, 0.05, 0.0, 5.0,
+        0.00, 0.05, 1.30, 0.0, 15.0,
+        0.00, 0.00, 0.00, 1.0, 0.0,
+      ],
+    ),
+    FilterPreset(
+      id: 'gingham',
+      label: 'Gingham',
+      icon: Icons.grid_on,
+      gradient: [Color(0xFFE0E0E0), Color(0xFFB0BEC5)],
+      matrix: [
+        0.92, 0.05, 0.03, 0.0, 18.0,
+        0.04, 0.88, 0.05, 0.0, 18.0,
+        0.04, 0.04, 0.82, 0.0, 22.0,
+        0.00, 0.00, 0.00, 1.0, 0.0,
+      ],
+    ),
+    FilterPreset(
+      id: 'moon',
+      label: 'Moon',
+      icon: Icons.brightness_2,
+      gradient: [Color(0xFF78909C), Color(0xFF263238)],
+      matrix: [
+        0.35, 0.55, 0.10, 0.0, 8.0,
+        0.35, 0.55, 0.10, 0.0, 8.0,
+        0.35, 0.55, 0.10, 0.0, 8.0,
+        0.00, 0.00, 0.00, 1.0, 0.0,
+      ],
+    ),
+    FilterPreset(
+      id: 'lark',
+      label: 'Lark',
+      icon: Icons.nature,
+      gradient: [Color(0xFFA5D6A7), Color(0xFF0288D1)],
+      matrix: [
+        1.02, 0.05, 0.00, 0.0, 8.0,
+        0.00, 1.15, 0.05, 0.0, 10.0,
+        0.00, 0.05, 1.25, 0.0, 15.0,
+        0.00, 0.00, 0.00, 1.0, 0.0,
+      ],
+    ),
+    FilterPreset(
+      id: 'reyes',
+      label: 'Reyes',
+      icon: Icons.wb_twilight,
+      gradient: [Color(0xFFFFF59D), Color(0xFFBCAAA4)],
+      matrix: [
+        0.88, 0.12, 0.05, 0.0, 28.0,
+        0.05, 0.85, 0.05, 0.0, 22.0,
+        0.05, 0.05, 0.72, 0.0, 18.0,
+        0.00, 0.00, 0.00, 1.0, 0.0,
+      ],
+    ),
+    FilterPreset(
+      id: 'juno',
+      label: 'Juno',
+      icon: Icons.flare,
+      gradient: [Color(0xFFFF8A65), Color(0xFFAB47BC)],
+      matrix: [
+        1.25, 0.05, 0.00, 0.0, 12.0,
+        0.00, 1.10, 0.05, 0.0, 5.0,
+        0.05, 0.00, 1.20, 0.0, 18.0,
+        0.00, 0.00, 0.00, 1.0, 0.0,
+      ],
+    ),
+    FilterPreset(
+      id: 'slumber',
+      label: 'Slumber',
+      icon: Icons.bedtime,
+      gradient: [Color(0xFFD1C4E9), Color(0xFF8D6E63)],
+      matrix: [
+        0.85, 0.10, 0.05, 0.0, 18.0,
+        0.05, 0.85, 0.10, 0.0, 14.0,
+        0.05, 0.05, 0.75, 0.0, 10.0,
+        0.00, 0.00, 0.00, 1.0, 0.0,
+      ],
+    ),
+    FilterPreset(
+      id: 'crema',
+      label: 'Crema',
+      icon: Icons.coffee,
+      gradient: [Color(0xFFFFF8E1), Color(0xFFD7CCC8)],
+      matrix: [
+        1.05, 0.10, 0.00, 0.0, 14.0,
+        0.05, 1.00, 0.05, 0.0, 10.0,
+        0.00, 0.05, 0.88, 0.0, 10.0,
+        0.00, 0.00, 0.00, 1.0, 0.0,
+      ],
+    ),
+    FilterPreset(
+      id: 'ludwig',
+      label: 'Ludwig',
+      icon: Icons.wb_sunny_rounded,
+      gradient: [Color(0xFFFFAB91), Color(0xFFD84315)],
+      matrix: [
+        1.20, 0.02, 0.00, 0.0, 10.0,
+        0.00, 1.12, 0.02, 0.0, 5.0,
+        0.00, 0.02, 1.05, 0.0, 0.0,
+        0.00, 0.00, 0.00, 1.0, 0.0,
+      ],
+    ),
+    FilterPreset(
+      id: 'aden',
+      label: 'Aden',
+      icon: Icons.filter_hdr,
+      gradient: [Color(0xFFF8BBD0), Color(0xFFCE93D8)],
+      matrix: [
+        0.98, 0.06, 0.05, 0.0, 22.0,
+        0.05, 0.88, 0.05, 0.0, 14.0,
+        0.05, 0.05, 0.92, 0.0, 24.0,
+        0.00, 0.00, 0.00, 1.0, 0.0,
+      ],
+    ),
+    FilterPreset(
+      id: 'perpetua',
+      label: 'Perpetua',
+      icon: Icons.park,
+      gradient: [Color(0xFF80CBC4), Color(0xFF00897B)],
+      matrix: [
+        0.90, 0.10, 0.05, 0.0, 0.0,
+        0.05, 1.15, 0.10, 0.0, 10.0,
+        0.00, 0.10, 1.20, 0.0, 15.0,
+        0.00, 0.00, 0.00, 1.0, 0.0,
+      ],
+    ),
+    FilterPreset(
+      id: 'valencia',
+      label: 'Valencia',
+      icon: Icons.wb_sunny_outlined,
+      gradient: [Color(0xFFFFE082), Color(0xFFFF8F00)],
+      matrix: [
+        1.15, 0.10, 0.00, 0.0, 18.0,
+        0.05, 1.05, 0.00, 0.0, 12.0,
+        0.00, 0.05, 0.82, 0.0, 10.0,
+        0.00, 0.00, 0.00, 1.0, 0.0,
+      ],
+    ),
+    FilterPreset(
+      id: 'sierra',
+      label: 'Sierra',
+      icon: Icons.landscape,
+      gradient: [Color(0xFFA1887F), Color(0xFF4E342E)],
+      matrix: [
+        0.98, 0.10, 0.00, 0.0, 18.0,
+        0.05, 0.92, 0.05, 0.0, 14.0,
+        0.00, 0.05, 0.82, 0.0, 10.0,
+        0.00, 0.00, 0.00, 1.0, 0.0,
+      ],
+    ),
+    FilterPreset(
+      id: 'willow',
+      label: 'Willow',
+      icon: Icons.filter_vintage,
+      gradient: [Color(0xFFE1BEE7), Color(0xFF616161)],
+      matrix: [
+        0.32, 0.48, 0.15, 0.0, 18.0,
+        0.32, 0.48, 0.15, 0.0, 16.0,
+        0.35, 0.43, 0.20, 0.0, 20.0,
+        0.00, 0.00, 0.00, 1.0, 0.0,
+      ],
+    ),
+    FilterPreset(
+      id: 'lofi',
+      label: 'Lo-Fi',
+      icon: Icons.center_focus_strong,
+      gradient: [Color(0xFFFF5252), Color(0xFF7C4DFF)],
+      matrix: [
+        1.35, -0.05, -0.05, 0.0, -10.0,
+        -0.05, 1.30, -0.05, 0.0, -10.0,
+        -0.05, -0.05, 1.25, 0.0, -10.0,
+        0.00, 0.00, 0.00, 1.0, 0.0,
+      ],
+    ),
+    FilterPreset(
+      id: 'nashville',
+      label: 'Nashville',
+      icon: Icons.music_note,
+      gradient: [Color(0xFFFF80AB), Color(0xFFFF4081)],
+      matrix: [
+        1.15, 0.10, 0.05, 0.0, 22.0,
+        0.05, 0.90, 0.10, 0.0, 12.0,
+        0.10, 0.05, 1.10, 0.0, 28.0,
+        0.00, 0.00, 0.00, 1.0, 0.0,
+      ],
+    ),
+    FilterPreset(
+      id: 'xpro2',
+      label: 'X-Pro II',
+      icon: Icons.camera,
+      gradient: [Color(0xFFFFD54F), Color(0xFF303F9F)],
+      matrix: [
+        1.30, 0.05, 0.00, 0.0, -15.0,
+        0.05, 1.20, 0.00, 0.0, -10.0,
+        0.00, 0.05, 1.10, 0.0, 10.0,
+        0.00, 0.00, 0.00, 1.0, 0.0,
+      ],
+    ),
+    FilterPreset(
+      id: 'inkwell',
+      label: 'Inkwell',
+      icon: Icons.palette,
+      gradient: [Color(0xFFE0E0E0), Color(0xFF212121)],
+      matrix: [
+        0.30, 0.59, 0.11, 0.0, 0.0,
+        0.30, 0.59, 0.11, 0.0, 0.0,
+        0.30, 0.59, 0.11, 0.0, 0.0,
+        0.00, 0.00, 0.00, 1.0, 0.0,
+      ],
+    ),
+    FilterPreset(
       id: 'glow',
       label: 'Glow',
       icon: Icons.auto_awesome,
@@ -113,8 +329,9 @@ abstract final class AppFilterUtils {
   ];
 
   static FilterPreset getPreset(String id) {
+    final cleanId = id.trim().toLowerCase();
     return presets.firstWhere(
-      (p) => p.id == id,
+      (p) => p.id.toLowerCase() == cleanId,
       orElse: () => presets.first,
     );
   }

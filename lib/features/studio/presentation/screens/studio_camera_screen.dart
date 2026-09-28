@@ -1053,22 +1053,37 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
       );
     }
 
-    // Live camera must stay unfiltered — ColorFiltered/RepaintBoundary breaks
-    // Android camera preview on Realme/Oppo/Vivo devices.
-    return _buildCameraViewfinder();
+    final activeFilter = _state == _CameraState.recording
+        ? studioProvider.recordingFilter
+        : studioProvider.selectedFilter;
+    final activeBeautyOn = _state == _CameraState.recording
+        ? studioProvider.recordingBeautyOn
+        : studioProvider.beautyOn;
+    final activeBeautyIntensity = _state == _CameraState.recording
+        ? studioProvider.recordingBeautyIntensity
+        : studioProvider.beautyIntensity;
+
+    return AppFilterUtils.buildFilteredView(
+      filterId: activeFilter,
+      beautyOn: activeBeautyOn,
+      beautyIntensity: activeBeautyIntensity,
+      performanceMode: _state == _CameraState.recording,
+      child: _buildCameraViewfinder(),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final challenge = _challenge;
-    final isFrontCamera = context.select<StudioCubit, bool>((s) => s.isFrontCamera);
+    final studioProvider = context.watch<StudioCubit>();
+    final isFrontCamera = studioProvider.isFrontCamera;
 
     return Scaffold(
       backgroundColor: const Color(0xFF150C2B),
       body: Stack(
         fit: StackFit.expand,
         children: [
-          _buildMainViewfinder(context.read<StudioCubit>()),
+          _buildMainViewfinder(studioProvider),
 
           if (_state == _CameraState.recorded)
             Positioned.fill(

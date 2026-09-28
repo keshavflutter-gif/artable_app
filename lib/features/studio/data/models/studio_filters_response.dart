@@ -1,3 +1,5 @@
+import 'package:artable_app/core/utils/app_filter_utils.dart';
+
 class StudioFiltersResponse {
   const StudioFiltersResponse({
     required this.success,
@@ -15,7 +17,7 @@ class StudioFiltersResponse {
       message: json['message']?.toString(),
       data: json['data'] is Map
           ? StudioFiltersConfig.fromJson(Map<String, dynamic>.from(json['data'] as Map))
-          : const StudioFiltersConfig.empty(),
+          : StudioFiltersConfig.empty(),
     );
   }
 }
@@ -27,14 +29,12 @@ class StudioFiltersConfig {
     required this.beautyFilterAvailable,
   });
 
-  const StudioFiltersConfig.empty()
-      : filters = const [
-          StudioFilterItem(key: 'natural', name: 'Natural'),
-          StudioFilterItem(key: 'glow', name: 'Glow'),
-          StudioFilterItem(key: 'warm', name: 'Warm'),
-          StudioFilterItem(key: 'studio', name: 'Studio'),
-          StudioFilterItem(key: 'beauty', name: 'Beauty'),
-        ],
+  static List<StudioFilterItem> get defaultFilters => AppFilterUtils.presets
+      .map((p) => StudioFilterItem(key: p.id, name: p.label))
+      .toList();
+
+  StudioFiltersConfig.empty()
+      : filters = defaultFilters,
         speeds = const [0.5, 1.0, 1.5, 2.0],
         beautyFilterAvailable = true;
 
@@ -69,15 +69,7 @@ class StudioFiltersConfig {
     }
 
     return StudioFiltersConfig(
-      filters: filtersList.isNotEmpty
-          ? filtersList
-          : const [
-              StudioFilterItem(key: 'natural', name: 'Natural'),
-              StudioFilterItem(key: 'glow', name: 'Glow'),
-              StudioFilterItem(key: 'warm', name: 'Warm'),
-              StudioFilterItem(key: 'studio', name: 'Studio'),
-              StudioFilterItem(key: 'beauty', name: 'Beauty'),
-            ],
+      filters: filtersList.isNotEmpty ? filtersList : defaultFilters,
       speeds: speedsList.isNotEmpty ? speedsList : const [0.5, 1.0, 1.5, 2.0],
       beautyFilterAvailable: json['beautyFilterAvailable'] == true,
     );

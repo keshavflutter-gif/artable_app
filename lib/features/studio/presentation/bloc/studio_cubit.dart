@@ -54,7 +54,7 @@ class StudioCubit extends Cubit<StudioState> {
     } catch (e) {
       debugPrint('StudioCubit loadFiltersConfig error: $e');
       emit(state.copyWith(
-        filtersConfig: const StudioFiltersConfig.empty(),
+        filtersConfig: StudioFiltersConfig.empty(),
         isLoadingFilters: false,
       ));
     }
@@ -751,7 +751,10 @@ class StudioCubit extends Cubit<StudioState> {
   }
 
   void setFilter(String filter) {
-    emit(state.copyWith(selectedFilter: filter));
+    emit(state.copyWith(
+      selectedFilter: filter,
+      recordingFilter: filter,
+    ));
   }
 
   void setSpeed(String speed) {
@@ -759,11 +762,17 @@ class StudioCubit extends Cubit<StudioState> {
   }
 
   void setBeautyOn(bool value) {
-    emit(state.copyWith(beautyOn: value));
+    emit(state.copyWith(
+      beautyOn: value,
+      recordingBeautyOn: value,
+    ));
   }
 
   void setBeautyIntensity(double value) {
-    emit(state.copyWith(beautyIntensity: value));
+    emit(state.copyWith(
+      beautyIntensity: value,
+      recordingBeautyIntensity: value,
+    ));
   }
 
   void addDraft(Map<String, dynamic> draft) {
