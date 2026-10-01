@@ -186,12 +186,24 @@ class AuthCubit extends Cubit<AuthState> {
     }
   }
 
-  Future<bool> login(String email, String password) async {
+  Future<bool> login(
+    String email,
+    String password, {
+    String? fcmToken,
+    String? deviceType,
+    String? deviceVersion,
+  }) async {
     emit(state.copyWith(isLoading: true, clearError: true));
 
     try {
       final response = await _authRepository.login(
-        LoginRequest(email: email.trim(), password: password),
+        LoginRequest(
+          email: email.trim(),
+          password: password,
+          deviceType: deviceType ?? 'mobile-app',
+          deviceVersion: deviceVersion ?? '1.0.0',
+          fcmToken: fcmToken,
+        ),
       );
 
       final updatedUser = Map<String, dynamic>.from(state.currentUser);

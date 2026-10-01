@@ -5,7 +5,7 @@ import 'package:just_audio/just_audio.dart';
 import 'package:artable_app/features/studio/presentation/bloc/studio_cubit.dart';
 import 'package:artable_app/data/datasources/music_api_service.dart';
 
-/// Plays the selected studio track during video recording with preloading.
+/// Plays the selected studio track during video recording and video editing with preloading.
 class StudioMusicPlaybackService {
   StudioMusicPlaybackService._();
 
@@ -22,7 +22,7 @@ class StudioMusicPlaybackService {
       final session = await AudioSession.instance;
       await session.configure(
         const AudioSessionConfiguration(
-          avAudioSessionCategory: AVAudioSessionCategory.playAndRecord,
+          avAudioSessionCategory: AVAudioSessionCategory.playback,
           avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.mixWithOthers,
           avAudioSessionMode: AVAudioSessionMode.defaultMode,
           androidAudioAttributes: AndroidAudioAttributes(
@@ -39,6 +39,27 @@ class StudioMusicPlaybackService {
     }
   }
 
+  static FreeToUseTrack? _resolveTrack(StudioCubit studio) {
+    if (studio.selectedTrack != null) return studio.selectedTrack;
+    final musicStr = studio.selectedMusic;
+    if (musicStr == null || musicStr.trim().isEmpty) return null;
+
+    final cached = MusicApiService.cachedTracks;
+    final fallbacks = MusicApiService.fallbackTracks;
+    final allTracks = cached != null && cached.isNotEmpty ? cached : fallbacks;
+
+    final targetLower = musicStr.trim().toLowerCase();
+    for (final t in allTracks) {
+      final titleArtist = '${t.title} — ${t.artist}'.toLowerCase();
+      if (titleArtist == targetLower ||
+          t.title.toLowerCase() == targetLower ||
+          targetLower.contains(t.title.toLowerCase())) {
+        return t;
+      }
+    }
+    return allTracks.first;
+  }
+
   /// Prepares audio session and player before camera recording starts.
   static Future<void> prepareForRecordingStart() async {
     try {
@@ -53,13 +74,13 @@ class StudioMusicPlaybackService {
   }
 
   static Future<void> preloadForStudio(StudioCubit studio) async {
-    final track = studio.selectedTrack;
+    final track = _resolveTrack(studio);
     if (track == null) {
       _loadedTrackId = null;
       return;
     }
 
-    if (_loadedTrackId == track.id) return;
+    if (_loadedTrackId == track.id && _player != null) return;
 
     if (_preloadFuture != null) return;
 
@@ -80,29 +101,68 @@ class StudioMusicPlaybackService {
       try {
         await player.stop();
       } catch (_) {}
-      await player.setUrl(track.audioUrl).timeout(const Duration(seconds: 4));
+      await player.setUrl(track.audioUrl).timeout(const Duration(seconds: 5));
+      await player.setVolume(1.0);
       _loadedTrackId = track.id;
     } catch (e) {
-      debugPrint('StudioMusicPlaybackService preload error: $e');
+      debugPrint('StudioMusicPlaybackService _loadTrack error: $e');
       _loadedTrackId = null;
     }
   }
 
   static Future<void> playForRecording(StudioCubit studio) async {
-    final track = studio.selectedTrack;
+    final track = _resolveTrack(studio);
     if (track == null) return;
 
     try {
       await _configureSession();
-      if (_loadedTrackId != track.id) {
+      if (_loadedTrackId != track.id || _player == null) {
         await preloadForStudio(studio);
       }
       final startMs = (studio.musicStartSeconds * 1000).round();
-      await _audioPlayer.seek(Duration(milliseconds: startMs));
-      await _audioPlayer.setSpeed(1.0);
-      await _audioPlayer.play();
+      final player = _audioPlayer;
+      await player.setVolume(1.0);
+      await player.seek(Duration(milliseconds: startMs));
+      await player.setSpeed(1.0);
+      await player.play();
     } catch (e) {
       debugPrint('StudioMusicPlaybackService play error: $e');
+    }
+  }
+
+  static Future<void> pause() async {
+    try {
+      final player = _player;
+      if (player != null && player.playing) {
+        await player.pause();
+      }
+    } catch (e) {
+      debugPrint('StudioMusicPlaybackService pause error: $e');
+    }
+  }
+
+  static Future<void> seekToMs(int ms) async {
+    try {
+      final player = _player;
+      if (player != null) {
+        await player.seek(Duration(milliseconds: ms.clamp(0, 3600000)));
+      }
+    } catch (e) {
+      debugPrint('StudioMusicPlaybackService seek error: $e');
+    }
+  }
+
+  static Future<void> checkAndSyncPosition(int expectedMs) async {
+    try {
+      final player = _player;
+      if (player != null && player.playing) {
+        final currentAudioMs = player.position.inMilliseconds;
+        if ((currentAudioMs - expectedMs).abs() > 400) {
+          await player.seek(Duration(milliseconds: expectedMs.clamp(0, 3600000)));
+        }
+      }
+    } catch (e) {
+      debugPrint('StudioMusicPlaybackService sync check error: $e');
     }
   }
 
@@ -138,3 +198,5 @@ class StudioMusicPlaybackService {
     }
   }
 }
+
+

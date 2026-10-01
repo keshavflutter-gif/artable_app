@@ -573,6 +573,39 @@ class StudioCubit extends Cubit<StudioState> {
   String get selectedFilter => state.selectedFilter;
   String get selectedSpeed => state.selectedSpeed;
   bool get beautyOn => state.beautyOn;
+
+  double get effectiveVideoDuration {
+    final start = state.videoTrimStartSeconds;
+    final end = state.videoTrimEndSeconds;
+    if (end != null && end > start) {
+      return end - start;
+    }
+    return 15.0;
+  }
+
+  void setSelectedTrack(
+    FreeToUseTrack? track, {
+    double start = 0.0,
+    double? duration,
+  }) {
+    if (track != null) {
+      final targetDuration = duration ?? effectiveVideoDuration;
+      final validStart = start.clamp(0.0, track.duration);
+      final validDuration = targetDuration.clamp(1.0, track.duration - validStart);
+      emit(state.copyWith(
+        selectedTrack: track,
+        selectedMusic: '${track.title} — ${track.artist}',
+        musicStartSeconds: validStart,
+        musicCropDuration: validDuration,
+      ));
+    } else {
+      emit(state.copyWith(
+        clearSelectedMusic: true,
+        musicStartSeconds: 0.0,
+        musicCropDuration: effectiveVideoDuration,
+      ));
+    }
+  }
   double get beautyIntensity => state.beautyIntensity;
   String get recordingFilter => state.recordingFilter;
   bool get recordingBeautyOn => state.recordingBeautyOn;
@@ -690,29 +723,6 @@ class StudioCubit extends Cubit<StudioState> {
       emit(state.copyWith(clearSelectedMusic: true));
     } else {
       emit(state.copyWith(selectedMusic: music));
-    }
-  }
-
-  void setSelectedTrack(
-    FreeToUseTrack? track, {
-    double start = 0.0,
-    double duration = 30.0,
-  }) {
-    if (track != null) {
-      final validStart = start.clamp(0.0, track.duration);
-      final validDuration = duration.clamp(5.0, track.duration - validStart);
-      emit(state.copyWith(
-        selectedTrack: track,
-        selectedMusic: '${track.title} — ${track.artist}',
-        musicStartSeconds: validStart,
-        musicCropDuration: validDuration,
-      ));
-    } else {
-      emit(state.copyWith(
-        clearSelectedMusic: true,
-        musicStartSeconds: 0.0,
-        musicCropDuration: 30.0,
-      ));
     }
   }
 

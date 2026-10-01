@@ -367,7 +367,12 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
           duration: Duration(seconds: 2),
         ),
       );
-      context.push('${AppRoutes.studioDrafts}?id=${challenge['id']}');
+      final realChallengeId = (res['challengeId'] as String?)?.trim().isNotEmpty == true
+          ? res['challengeId'] as String
+          : (widget.challengeId?.trim().isNotEmpty == true
+              ? widget.challengeId!
+              : (studio.state.videoChallengeId ?? ''));
+      context.push('${AppRoutes.studioDrafts}?id=$realChallengeId');
     } else {
       final errorMsg = studio.state.saveDraftError ?? 'Failed to save draft';
       if (errorMsg.contains('Draft limit') || studio.state.drafts.length >= StudioCubit.maxDraftsLimit) {
@@ -822,17 +827,17 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 10),
+
+                    const SizedBox(height: 14),
                     SecondaryOutlineButton(
-                      label: studio.state.isSavingDraft ? 'Saving Draft...' : 'Save Draft',
-                      icon: studio.state.isSavingDraft
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.purple),
-                            )
-                          : const Icon(Icons.save_outlined, size: 17),
-                      onPressed: studio.state.isSavingDraft ? null : () => _saveDraft(studio),
+                      label: 'Edit Video',
+                      icon: const Icon(Icons.edit_outlined, size: 17),
+                      onPressed: () {
+                        _videoController?.pause();
+                        context.push(
+                          '${AppRoutes.studioEditVideo}?id=${challenge['id']}$draftParam',
+                        );
+                      },
                     ),
                     const SizedBox(height: 14),
                     Row(

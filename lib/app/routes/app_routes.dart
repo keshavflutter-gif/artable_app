@@ -19,6 +19,7 @@ abstract final class AppRoutes {
   static const studioFilters = '/studio-filters';
   static const studioPreview = '/studio-preview';
   static const studioDetails = '/studio-details';
+  static const studioEditVideo = '/studio-edit-video';
   static const studioUpload = '/studio-upload';
   static const studioSuccess = '/studio-success';
   static const reelsFeed = '/reels-feed';
