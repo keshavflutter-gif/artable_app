@@ -1004,6 +1004,8 @@ class AuthCubit extends Cubit<AuthState> {
     required String bio,
     required String category,
     required String socialLinkUrl,
+    String? profileImagePath,
+    String? coverImagePath,
   }) async {
     if (state.isUpdatingProfile) return false;
 
@@ -1016,6 +1018,46 @@ class AuthCubit extends Cubit<AuthState> {
       final trimmedBio = bio.trim();
       final trimmedCategory = category.trim();
 
+      String uploadedProfileUrl = '';
+      if (profileImagePath != null && profileImagePath.trim().isNotEmpty) {
+        final path = profileImagePath.trim();
+        if (path.startsWith('http://') || path.startsWith('https://')) {
+          uploadedProfileUrl = path;
+        } else {
+          try {
+            debugPrint('=== UPLOADING PROFILE PIC === Path: $path, Folder: profile_pic');
+            uploadedProfileUrl = await _authRepository.uploadFile(
+              path,
+              folder: 'profile_pic',
+              sessionToken: state.sessionToken,
+              refreshToken: state.refreshToken,
+            );
+          } catch (e) {
+            debugPrint('Profile pic upload error: $e');
+          }
+        }
+      }
+
+      String uploadedCoverUrl = '';
+      if (coverImagePath != null && coverImagePath.trim().isNotEmpty) {
+        final path = coverImagePath.trim();
+        if (path.startsWith('http://') || path.startsWith('https://')) {
+          uploadedCoverUrl = path;
+        } else {
+          try {
+            debugPrint('=== UPLOADING COVER PIC === Path: $path, Folder: cover_pic');
+            uploadedCoverUrl = await _authRepository.uploadFile(
+              path,
+              folder: 'cover_pic',
+              sessionToken: state.sessionToken,
+              refreshToken: state.refreshToken,
+            );
+          } catch (e) {
+            debugPrint('Cover pic upload error: $e');
+          }
+        }
+      }
+
       final updatedUser = Map<String, dynamic>.from(state.currentUser);
       updatedUser['bio'] = trimmedBio;
       updatedUser['category'] = trimmedCategory;
@@ -1027,6 +1069,12 @@ class AuthCubit extends Cubit<AuthState> {
       updatedUser['initials'] = _initialsFromName(trimmedFullName);
       updatedUser['username'] = username.trim();
       updatedUser['handle'] = '@${username.trim()}';
+      if (uploadedProfileUrl.isNotEmpty) {
+        updatedUser['avatarUrl'] = uploadedProfileUrl;
+      }
+      if (uploadedCoverUrl.isNotEmpty) {
+        updatedUser['coverUrl'] = uploadedCoverUrl;
+      }
 
       final request = UpdateProfileRequest(
         fullName: trimmedFullName,
@@ -1040,6 +1088,8 @@ class AuthCubit extends Cubit<AuthState> {
         bio: trimmedBio,
         category: trimmedCategory,
         socialLinks: socialLinks,
+        profileImage: uploadedProfileUrl,
+        coverImage: uploadedCoverUrl,
       );
 
       final updatedUserFromApi = await _authRepository.updateProfile(
@@ -1058,6 +1108,12 @@ class AuthCubit extends Cubit<AuthState> {
       finalUserMap['fullName'] = trimmedFullName;
       finalUserMap['name'] = trimmedFullName;
       finalUserMap['initials'] = _initialsFromName(trimmedFullName);
+      if (uploadedProfileUrl.isNotEmpty) {
+        finalUserMap['avatarUrl'] = uploadedProfileUrl;
+      }
+      if (uploadedCoverUrl.isNotEmpty) {
+        finalUserMap['coverUrl'] = uploadedCoverUrl;
+      }
 
       fetchUserDetails();
 

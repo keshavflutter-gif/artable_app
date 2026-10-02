@@ -97,12 +97,27 @@ class StudioCubit extends Cubit<StudioState> {
   }
 
   static const int maxDraftsLimit = 20;
+  static const int maxMergeClipsLimit = 10;
 
   Future<Map<String, dynamic>?> mergeDrafts({
     required List<String> draftIds,
     String? customTitle,
   }) async {
-    if (draftIds.length < 2) return null;
+    final currentRecPath = state.recordedVideoPath?.trim();
+    final hasCurrentRec = currentRecPath != null &&
+        currentRecPath.isNotEmpty &&
+        (currentRecPath.startsWith('http') || File(currentRecPath.replaceFirst('file://', '')).existsSync());
+
+    final minRequired = hasCurrentRec ? 1 : 2;
+    if (draftIds.length < minRequired) return null;
+
+    if (draftIds.length > maxMergeClipsLimit) {
+      emit(state.copyWith(
+        isSavingDraft: false,
+        saveDraftError: 'Maximum $maxMergeClipsLimit videos can be merged at a time.',
+      ));
+      return null;
+    }
 
     if (state.drafts.length >= maxDraftsLimit) {
       emit(state.copyWith(
@@ -113,44 +128,87 @@ class StudioCubit extends Cubit<StudioState> {
     }
 
     final selectedDrafts = state.drafts.where((d) => draftIds.contains(d['id'])).toList();
-    if (selectedDrafts.isEmpty) return null;
+    if (selectedDrafts.isEmpty && !hasCurrentRec) return null;
 
-    int totalSecs = 0;
-    for (final d in selectedDrafts) {
-      final dur = d['duration']?.toString() ?? '0:30';
-      final parts = dur.split(':');
+    final mergedClipPaths = <String>[];
+    final mergedClipDurations = <double>[];
+    double totalSecs = 0.0;
+
+    // 1st Clip: Current active video recording if present
+    final recPath = currentRecPath;
+    if (hasCurrentRec && recPath != null) {
+      mergedClipPaths.add(recPath);
+      double recDur = 0.0;
+      final parts = state.recordedDuration.split(':');
       if (parts.length == 2) {
         final m = int.tryParse(parts[0]) ?? 0;
         final s = int.tryParse(parts[1]) ?? 0;
-        totalSecs += (m * 60 + s);
+        recDur = (m * 60 + s).toDouble();
       } else {
-        totalSecs += (d['durationSeconds'] as num?)?.toInt() ?? 30;
+        recDur = 15.0;
       }
+      if (recDur <= 0) recDur = 15.0;
+      mergedClipDurations.add(recDur);
+      totalSecs += recDur;
     }
 
-    final first = selectedDrafts.first;
-    final title1 = first['challengeTitle']?.toString() ?? first['title']?.toString() ?? 'Draft';
-    final mergedTitle = customTitle ?? '$title1 (Merged ${selectedDrafts.length} Clips)';
+    // 2nd, 3rd, ... Clips: Selected draft videos
+    for (final d in selectedDrafts) {
+      double draftDur = 0.0;
+      if (d['durationSeconds'] != null && (d['durationSeconds'] as num) > 0) {
+        draftDur = (d['durationSeconds'] as num).toDouble();
+      } else {
+        final dur = d['duration']?.toString() ?? '0:30';
+        final parts = dur.split(':');
+        if (parts.length == 2) {
+          final m = int.tryParse(parts[0]) ?? 0;
+          final s = int.tryParse(parts[1]) ?? 0;
+          draftDur = (m * 60 + s).toDouble();
+        } else {
+          draftDur = (d['durationSeconds'] as num?)?.toDouble() ?? 30.0;
+        }
+      }
+      if (draftDur <= 0) draftDur = 15.0;
 
-    String resolvedThumb = first['thumbnailUrl']?.toString() ?? first['imageUrl']?.toString() ?? '';
-    if (resolvedThumb.isEmpty || resolvedThumb.contains('storage.example')) {
-      for (final d in selectedDrafts) {
-        final t = d['thumbnailUrl']?.toString() ?? d['imageUrl']?.toString() ?? '';
-        if (t.isNotEmpty && !t.contains('storage.example')) {
-          resolvedThumb = t;
-          break;
+      if (d['mergedClipPaths'] is List && (d['mergedClipPaths'] as List).isNotEmpty) {
+        final subPaths = List<String>.from(d['mergedClipPaths'] as List);
+        final subDurs = (d['mergedClipDurations'] is List)
+            ? (d['mergedClipDurations'] as List).map((e) => (e as num).toDouble()).toList()
+            : <double>[];
+        for (int i = 0; i < subPaths.length; i++) {
+          final p = subPaths[i].trim();
+          if (p.isNotEmpty && !mergedClipPaths.contains(p)) {
+            mergedClipPaths.add(p);
+            final dur = (i < subDurs.length && subDurs[i] > 0) ? subDurs[i] : (draftDur / subPaths.length);
+            mergedClipDurations.add(dur);
+            totalSecs += dur;
+          }
+        }
+      } else {
+        final p = (d['videoPath']?.toString() ?? d['videoUrl']?.toString() ?? '').trim();
+        if (p.isNotEmpty && !mergedClipPaths.contains(p)) {
+          mergedClipPaths.add(p);
+          mergedClipDurations.add(draftDur);
+          totalSecs += draftDur;
         }
       }
     }
 
-    final mins = totalSecs ~/ 60;
-    final secs = totalSecs % 60;
-    final formattedDur = '$mins:${secs.toString().padLeft(2, '0')}';
+    final first = selectedDrafts.isNotEmpty
+        ? selectedDrafts.first
+        : {'challengeTitle': 'Studio Draft', 'challengeId': 'c1'};
+    final title1 = first['challengeTitle']?.toString() ?? first['title']?.toString() ?? 'Studio Draft';
+    final mergedTitle = customTitle ?? '$title1 (Merged ${mergedClipPaths.length} Clips)';
 
-    final mergedClipPaths = selectedDrafts
-        .map((d) => (d['videoPath']?.toString() ?? d['videoUrl']?.toString() ?? '').trim())
-        .where((p) => p.isNotEmpty)
-        .toList();
+    String resolvedThumb = state.selectedThumbnailPath ?? '';
+    if (resolvedThumb.isEmpty && selectedDrafts.isNotEmpty) {
+      resolvedThumb = selectedDrafts.first['thumbnailUrl']?.toString() ?? selectedDrafts.first['imageUrl']?.toString() ?? '';
+    }
+
+    final totalSecsInt = totalSecs.round();
+    final mins = totalSecsInt ~/ 60;
+    final secs = totalSecsInt % 60;
+    final formattedDur = '$mins:${secs.toString().padLeft(2, '0')}';
 
     final combinedFile = await StudioVideoPlayerUtils.combineVideoFiles(mergedClipPaths);
     final finalVideoPath = (combinedFile != null && await combinedFile.exists())
@@ -160,9 +218,10 @@ class StudioCubit extends Cubit<StudioState> {
     emit(state.copyWith(
       recordedDuration: formattedDur,
       videoTrimStartSeconds: 0.0,
-      videoTrimEndSeconds: totalSecs.toDouble(),
+      videoTrimEndSeconds: totalSecs,
       recordedVideoPath: finalVideoPath.isNotEmpty ? finalVideoPath : null,
       mergedClipPaths: mergedClipPaths,
+      mergedClipDurations: mergedClipDurations,
     ));
 
     final res = await saveDraftFromPreview(
@@ -171,17 +230,18 @@ class StudioCubit extends Cubit<StudioState> {
       description: 'Merged video from ${selectedDrafts.length} drafts',
       videoUrl: finalVideoPath.isNotEmpty ? finalVideoPath : null,
       thumbnailUrl: resolvedThumb.isNotEmpty ? resolvedThumb : null,
-      durationSeconds: totalSecs,
+      durationSeconds: totalSecsInt,
     );
 
     if (res != null) {
       res['duration'] = formattedDur;
-      res['durationSeconds'] = totalSecs;
+      res['durationSeconds'] = totalSecsInt;
       res['videoTrimStartSeconds'] = 0.0;
-      res['videoTrimEndSeconds'] = totalSecs.toDouble();
+      res['videoTrimEndSeconds'] = totalSecs;
       res['videoPath'] = finalVideoPath;
       res['videoUrl'] = finalVideoPath;
       res['mergedClipPaths'] = mergedClipPaths;
+      res['mergedClipDurations'] = mergedClipDurations;
     }
 
     return res;
@@ -322,6 +382,12 @@ class StudioCubit extends Cubit<StudioState> {
         if ((uiDraftMap['thumbnailUrl'] == null || uiDraftMap['thumbnailUrl'].toString().contains('storage.example')) && tUrl.isNotEmpty) {
           uiDraftMap['thumbnailUrl'] = tUrl;
         }
+        if (state.mergedClipPaths != null) {
+          uiDraftMap['mergedClipPaths'] = state.mergedClipPaths;
+        }
+        if (state.mergedClipDurations != null) {
+          uiDraftMap['mergedClipDurations'] = state.mergedClipDurations;
+        }
         addDraft(uiDraftMap);
         emit(state.copyWith(isSavingDraft: false));
         return uiDraftMap;
@@ -342,6 +408,8 @@ class StudioCubit extends Cubit<StudioState> {
         'recordedAt': DateTime.now().toIso8601String(),
         'thumbnailUrl': tUrl,
         'videoPath': state.recordedVideoPath,
+        if (state.mergedClipPaths != null) 'mergedClipPaths': state.mergedClipPaths,
+        if (state.mergedClipDurations != null) 'mergedClipDurations': state.mergedClipDurations,
         ...state.recordingEffectsPayload,
       };
       addDraft(localDraft);

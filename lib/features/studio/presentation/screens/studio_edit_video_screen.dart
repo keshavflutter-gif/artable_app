@@ -42,6 +42,8 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
 
   // Track selection state
   TimelineTrackType _selectedTrack = TimelineTrackType.video;
+  List<String> _mergedClipPaths = [];
+  List<double> _mergedClipDurations = [];
 
   @override
   void initState() {
@@ -54,9 +56,34 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
 
     final studio = context.read<StudioCubit>();
     final draft = _draft;
-    final String? path = studio.recordedVideoPath ??
-        (draft?['videoPath'] as String?) ??
-        (draft?['videoUrl'] as String?);
+
+    if (draft != null) {
+      if (draft['mergedClipPaths'] is List && (draft['mergedClipPaths'] as List).isNotEmpty) {
+        _mergedClipPaths = List<String>.from(draft['mergedClipPaths'] as List);
+      } else {
+        _mergedClipPaths = [];
+      }
+      if (draft['mergedClipDurations'] is List && (draft['mergedClipDurations'] as List).isNotEmpty) {
+        _mergedClipDurations = (draft['mergedClipDurations'] as List).map((e) => (e as num).toDouble()).toList();
+      } else {
+        _mergedClipDurations = [];
+      }
+    } else {
+      if (studio.state.mergedClipPaths != null && studio.state.mergedClipPaths!.isNotEmpty) {
+        _mergedClipPaths = List<String>.from(studio.state.mergedClipPaths!);
+      } else {
+        _mergedClipPaths = [];
+      }
+      if (studio.state.mergedClipDurations != null && studio.state.mergedClipDurations!.isNotEmpty) {
+        _mergedClipDurations = List<double>.from(studio.state.mergedClipDurations!);
+      } else {
+        _mergedClipDurations = [];
+      }
+    }
+
+    final String? path = (draft?['videoPath'] as String?) ??
+        (draft?['videoUrl'] as String?) ??
+        studio.recordedVideoPath;
 
     if (path == null || path.isEmpty) {
       if (mounted) setState(() => _videoError = true);
@@ -316,7 +343,7 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
             _buildControls(elapsedMs, effectiveTotalMs),
 
             // ── 4. Timeline Editor (Video Track + Music Track + Playhead) ─
-            _buildTimeline(music),
+            _buildTimeline(music, effectiveTotalMs),
 
             // ── 5. Bottom Toolbar (ONLY Crop | Trim | Music) ──────────────
             _buildBottomBar(),
@@ -543,10 +570,11 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
   }
 
   // ─── Timeline Section ─────────────────────────────────────────────────────
-  Widget _buildTimeline(String? music) {
+  Widget _buildTimeline(String? music, int effectiveTotalMs) {
     return LayoutBuilder(builder: (ctx, box) {
       final w = box.maxWidth;
-      final playheadX = (w * _timelinePosition).clamp(0.0, w - 2.0);
+      final trackWidth = (w - 86.0).clamp(1.0, 10000.0);
+      final playheadX = (24.0 + (trackWidth * _timelinePosition)).clamp(24.0, w - 62.0);
 
       return Container(
         color: const Color(0xFF111113),
@@ -554,7 +582,7 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
         child: GestureDetector(
           onPanUpdate: (details) {
             final dx = details.localPosition.dx;
-            final ratio = (dx / w).clamp(0.0, 1.0);
+            final ratio = ((dx - 24.0) / trackWidth).clamp(0.0, 1.0);
             _seekToRatio(ratio);
           },
           child: Column(
@@ -562,11 +590,16 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // ── Time Ruler ────────────────────────────────────────────────
-              SizedBox(
-                height: 20,
-                child: CustomPaint(
-                  size: Size(w, 20),
-                  painter: _RulerPainter(),
+              Padding(
+                padding: const EdgeInsets.only(left: 24, right: 62),
+                child: SizedBox(
+                  height: 20,
+                  child: CustomPaint(
+                    size: Size(trackWidth, 20),
+                    painter: _RulerPainter(
+                      totalDurationSeconds: (effectiveTotalMs / 1000.0).clamp(1.0, 3600.0),
+                    ),
+                  ),
                 ),
               ),
 
@@ -590,6 +623,15 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
                             controller: _videoController,
                             isInitialized: _isVideoInitialized,
                             isSelected: _selectedTrack == TimelineTrackType.video,
+                            mergedClipPaths: _mergedClipPaths,
+                            mergedClipDurations: _mergedClipDurations,
+                            onAddClip: () async {
+                              _videoController?.pause();
+                              await StudioMusicPlaybackService.pause();
+                              if (mounted) setState(() => _playing = false);
+                              if (!mounted) return;
+                              context.push('${AppRoutes.studioDrafts}?selectForMerge=true');
+                            },
                           ),
                         ),
 
@@ -729,14 +771,29 @@ class _VideoTrackStrip extends StatelessWidget {
     required this.controller,
     required this.isInitialized,
     required this.isSelected,
+    this.mergedClipPaths = const [],
+    this.mergedClipDurations = const [],
+    this.onAddClip,
   });
 
   final VideoPlayerController? controller;
   final bool isInitialized;
   final bool isSelected;
+  final List<String> mergedClipPaths;
+  final List<double> mergedClipDurations;
+  final VoidCallback? onAddClip;
 
   @override
   Widget build(BuildContext context) {
+    final clipCount = mergedClipPaths.isNotEmpty ? mergedClipPaths.length : 1;
+
+    final bool hasValidDurations = mergedClipDurations.length == clipCount &&
+        mergedClipDurations.every((d) => d > 0);
+
+    final double totalDuration = hasValidDurations
+        ? mergedClipDurations.reduce((a, b) => a + b)
+        : (controller?.value.duration.inMilliseconds.toDouble() ?? 10000.0) / 1000.0;
+
     return SizedBox(
       height: 54,
       child: Row(
@@ -744,7 +801,7 @@ class _VideoTrackStrip extends StatelessWidget {
           // Left Trim Handle Bracket (Yellow)
           _TrimHandle(isLeft: true, isSelected: isSelected),
 
-          // Video thumbnail strip
+          // Video thumbnail strip with separate clip segments & yellow line dividers
           Expanded(
             child: Container(
               decoration: BoxDecoration(
@@ -762,15 +819,44 @@ class _VideoTrackStrip extends StatelessWidget {
               ),
               child: isInitialized && controller != null && controller!.value.isInitialized
                   ? Row(
-                      children: List.generate(7, (i) => Expanded(
-                        child: Container(
-                          margin: const EdgeInsets.all(1.0),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF2E2E44),
-                            borderRadius: BorderRadius.circular(2),
+                      children: List.generate(clipCount, (index) {
+                        final double clipDur = hasValidDurations
+                            ? mergedClipDurations[index]
+                            : (totalDuration / clipCount);
+                        final int flexValue = (clipDur * 100).round().clamp(1, 100000);
+
+                        return Expanded(
+                          flex: flexValue,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              border: index < clipCount - 1
+                                  ? const Border(
+                                      right: BorderSide(
+                                        color: Color(0xFFFFD54F),
+                                        width: 2.5,
+                                      ),
+                                    )
+                                  : null,
+                            ),
+                            child: Row(
+                              children: List.generate(
+                                ((clipDur / (totalDuration > 0 ? totalDuration : 1.0)) * 14)
+                                    .round()
+                                    .clamp(1, 14),
+                                (i) => Expanded(
+                                  child: Container(
+                                    margin: const EdgeInsets.all(1.0),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF2E2E44),
+                                      borderRadius: BorderRadius.circular(2),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
                           ),
-                        ),
-                      )),
+                        );
+                      }),
                     )
                   : const Center(
                       child: Text(
@@ -786,16 +872,19 @@ class _VideoTrackStrip extends StatelessWidget {
 
           // "+" Add Clip Button
           const SizedBox(width: 6),
-          Container(
-            width: 32,
-            height: 32,
-            decoration: BoxDecoration(
-              color: const Color(0xFF1C1C1E),
-              shape: BoxShape.rectangle,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.white24, width: 1.0),
+          GestureDetector(
+            onTap: onAddClip,
+            child: Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: const Color(0xFF1C1C1E),
+                shape: BoxShape.rectangle,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.white24, width: 1.0),
+              ),
+              child: const Icon(Icons.add_rounded, color: Colors.white, size: 20),
             ),
-            child: const Icon(Icons.add_rounded, color: Colors.white, size: 20),
           ),
         ],
       ),
@@ -863,7 +952,7 @@ class _MusicTrackStrip extends StatelessWidget {
         children: [
           // Left handle bracket for Music Track
           Container(
-            width: 12,
+            width: 14,
             height: 46,
             decoration: BoxDecoration(
               color: accentColor,
@@ -932,7 +1021,7 @@ class _MusicTrackStrip extends StatelessWidget {
 
           // Right handle bracket for Music Track
           Container(
-            width: 12,
+            width: 14,
             height: 46,
             decoration: BoxDecoration(
               color: accentColor,
@@ -958,6 +1047,9 @@ class _MusicTrackStrip extends StatelessWidget {
 // Ruler Painter
 // ─────────────────────────────────────────────────────────────────────────────
 class _RulerPainter extends CustomPainter {
+  _RulerPainter({this.totalDurationSeconds = 15.0});
+  final double totalDurationSeconds;
+
   @override
   void paint(Canvas canvas, Size size) {
     final dot = Paint()
@@ -968,13 +1060,14 @@ class _RulerPainter extends CustomPainter {
       ..strokeWidth = 1;
     final tp = TextPainter(textDirection: TextDirection.ltr);
 
-    const steps = 6;
+    const steps = 5;
     for (int i = 0; i <= steps; i++) {
       final x = size.width * i / steps;
       canvas.drawCircle(Offset(x, size.height - 3), 2.0, dot);
+      final sec = ((totalDurationSeconds * i) / steps).round();
       if (i > 0 && i < steps) {
         tp.text = TextSpan(
-          text: '${i}s',
+          text: '${sec}s',
           style: const TextStyle(
             color: Colors.white38,
             fontSize: 9.5,
@@ -989,7 +1082,7 @@ class _RulerPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_RulerPainter old) => false;
+  bool shouldRepaint(_RulerPainter old) => old.totalDurationSeconds != totalDurationSeconds;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

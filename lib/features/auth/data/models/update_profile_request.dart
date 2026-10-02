@@ -8,6 +8,8 @@ class UpdateProfileRequest {
     this.bio = '',
     this.category = '',
     this.socialLinks = const <String, dynamic>{},
+    this.profileImage = '',
+    this.coverImage = '',
   });
 
   final String fullName;
@@ -18,6 +20,8 @@ class UpdateProfileRequest {
   final String bio;
   final String category;
   final dynamic socialLinks;
+  final String profileImage;
+  final String coverImage;
 
   Map<String, dynamic> toJson() {
     final computedFullName = fullName.trim().isNotEmpty
@@ -37,6 +41,12 @@ class UpdateProfileRequest {
       'bio': bio,
       'category': category,
       if (category.isNotEmpty) 'talentCategory': category,
+      if (profileImage.isNotEmpty) 'profileImage': profileImage,
+      if (profileImage.isNotEmpty) 'profilePhotoUrl': profileImage,
+      if (profileImage.isNotEmpty) 'avatarUrl': profileImage,
+      if (coverImage.isNotEmpty) 'coverImage': coverImage,
+      if (coverImage.isNotEmpty) 'coverImageUrl': coverImage,
+      if (coverImage.isNotEmpty) 'coverUrl': coverImage,
       'socialLinks': socialLinks is Map
           ? socialLinks
           : (socialLinks is List
@@ -66,3 +76,4 @@ class UpdateProfileRequest {
     return map;
   }
 }
+

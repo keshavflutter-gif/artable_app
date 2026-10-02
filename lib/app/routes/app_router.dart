@@ -188,6 +188,7 @@ abstract final class AppRouter {
           path: AppRoutes.studioDrafts,
           builder: (context, state) => StudioDraftsScreen(
             challengeId: state.uri.queryParameters['id'] ?? state.uri.queryParameters['challengeId'],
+            selectForMerge: state.uri.queryParameters['selectForMerge'] == 'true' || state.uri.queryParameters['merge'] == 'true',
           ),
         ),
         GoRoute(

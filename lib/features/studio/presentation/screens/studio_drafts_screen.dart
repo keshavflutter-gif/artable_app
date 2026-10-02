@@ -16,9 +16,14 @@ import 'package:artable_app/features/studio/data/services/studio_music_playback_
 import 'package:artable_app/core/utils/reel_helpers.dart';
 
 class StudioDraftsScreen extends StatefulWidget {
-  const StudioDraftsScreen({super.key, this.challengeId});
+  const StudioDraftsScreen({
+    super.key,
+    this.challengeId,
+    this.selectForMerge = false,
+  });
 
   final String? challengeId;
+  final bool selectForMerge;
 
   @override
   State<StudioDraftsScreen> createState() => _StudioDraftsScreenState();
@@ -32,11 +37,13 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.selectForMerge) {
+      _isSelectionMode = true;
+    }
     unawaited(StudioMusicPlaybackService.stop());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         context.read<StudioCubit>().fetchDraftsList(
-              challengeId: widget.challengeId,
               forceRefresh: true,
             );
       }
@@ -44,30 +51,44 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
   }
 
   Future<void> _handleMergeSelected() async {
-    if (_selectedDraftIds.length < 2) return;
+    final studio = context.read<StudioCubit>();
+    final hasCurrentRec = studio.state.recordedVideoPath != null && studio.state.recordedVideoPath!.isNotEmpty;
+    final minRequired = hasCurrentRec ? 1 : 2;
+
+    if (_selectedDraftIds.length < minRequired) return;
+    if (_selectedDraftIds.length > StudioCubit.maxMergeClipsLimit) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Maximum 10 videos can be merged at a time.'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
     setState(() => _isMerging = true);
 
-    final studio = context.read<StudioCubit>();
     final merged = await studio.mergeDrafts(draftIds: _selectedDraftIds.toList());
 
     if (!mounted) return;
     setState(() => _isMerging = false);
 
     if (merged != null) {
-      final count = _selectedDraftIds.length;
+      final totalClips = (merged['mergedClipPaths'] is List)
+          ? (merged['mergedClipPaths'] as List).length
+          : _selectedDraftIds.length;
       setState(() {
         _isSelectionMode = false;
         _selectedDraftIds.clear();
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Successfully merged $count drafts into 1 video!'),
+          content: Text('Successfully merged $totalClips clips into 1 video!'),
           backgroundColor: AppColors.purple,
           duration: const Duration(seconds: 2),
         ),
       );
       context.push(
-        '${AppRoutes.studioPreview}?draft=${merged['id']}&id=${merged['challengeId']}',
+        '${AppRoutes.studioEditVideo}?draft=${merged['id']}&id=${merged['challengeId']}',
       );
     } else {
       final error = studio.state.saveDraftError ?? 'Failed to merge drafts';
@@ -111,7 +132,7 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(
-                            '${_selectedDraftIds.length} Drafts Selected',
+                            '${_selectedDraftIds.length} / ${StudioCubit.maxMergeClipsLimit} Drafts Selected',
                             style: const TextStyle(
                               fontFamily: 'Poppins',
                               fontSize: 13,
@@ -122,7 +143,23 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
                           const SizedBox(height: 2),
                           Builder(
                             builder: (context) {
+                              final studio = context.read<StudioCubit>();
+                              final hasCurrentRec = studio.state.recordedVideoPath != null &&
+                                  studio.state.recordedVideoPath!.isNotEmpty;
+                              final minRequired = hasCurrentRec ? 1 : 2;
+
                               int totalSecs = 0;
+                              if (hasCurrentRec) {
+                                final parts = studio.state.recordedDuration.split(':');
+                                if (parts.length == 2) {
+                                  final m = int.tryParse(parts[0]) ?? 0;
+                                  final s = int.tryParse(parts[1]) ?? 0;
+                                  totalSecs += (m * 60 + s);
+                                } else {
+                                  totalSecs += 15;
+                                }
+                              }
+
                               final selected = drafts.where((d) => _selectedDraftIds.contains(d['id'])).toList();
                               for (final d in selected) {
                                 final dur = d['duration']?.toString() ?? '0:00';
@@ -136,11 +173,12 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
                               final mins = totalSecs ~/ 60;
                               final secs = totalSecs % 60;
                               final durStr = '$mins:${secs.toString().padLeft(2, '0')}';
+                              final totalClips = hasCurrentRec ? selected.length + 1 : selected.length;
 
                               return Text(
-                                _selectedDraftIds.length < 2
-                                    ? 'Select 2+ drafts to combine'
-                                    : 'Total Duration: $durStr (1 video)',
+                                _selectedDraftIds.length < minRequired
+                                    ? 'Select $minRequired to 10 drafts to combine'
+                                    : 'Total Duration: $durStr ($totalClips clips)',
                                 style: const TextStyle(
                                   fontFamily: 'Poppins',
                                   fontSize: 11,
@@ -152,14 +190,27 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
                         ],
                       ),
                     ),
-                    GradientButton(
-                      label: _isMerging ? 'Merging...' : 'Merge Selected (${_selectedDraftIds.length})',
-                      fullWidth: false,
-                      height: 40,
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      onPressed: (_selectedDraftIds.length < 2 || _isMerging)
-                          ? null
-                          : _handleMergeSelected,
+                    Builder(
+                      builder: (context) {
+                        final studio = context.read<StudioCubit>();
+                        final hasCurrentRec = studio.state.recordedVideoPath != null &&
+                            studio.state.recordedVideoPath!.isNotEmpty;
+                        final minRequired = hasCurrentRec ? 1 : 2;
+
+                        return GradientButton(
+                          label: _isMerging
+                              ? 'Merging...'
+                              : 'Merge Selected (${_selectedDraftIds.length}/${StudioCubit.maxMergeClipsLimit})',
+                          fullWidth: false,
+                          height: 40,
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          onPressed: (_selectedDraftIds.length < minRequired ||
+                                  _selectedDraftIds.length > StudioCubit.maxMergeClipsLimit ||
+                                  _isMerging)
+                              ? null
+                              : _handleMergeSelected,
+                        );
+                      },
                     ),
                   ],
                 ),
@@ -276,7 +327,6 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
                       : RefreshIndicator(
                           color: AppColors.purple,
                           onRefresh: () => context.read<StudioCubit>().fetchDraftsList(
-                                challengeId: widget.challengeId,
                                 forceRefresh: true,
                               ),
                           child: ListView.builder(
@@ -296,7 +346,20 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
                                       if (_selectedDraftIds.contains(draftId)) {
                                         _selectedDraftIds.remove(draftId);
                                       } else {
-                                        _selectedDraftIds.add(draftId);
+                                        if (_selectedDraftIds.length >= StudioCubit.maxMergeClipsLimit) {
+                                          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            const SnackBar(
+                                              content: Text(
+                                                'Maximum 10 videos can be selected for merging.',
+                                              ),
+                                              backgroundColor: Colors.redAccent,
+                                              duration: Duration(seconds: 2),
+                                            ),
+                                          );
+                                        } else {
+                                          _selectedDraftIds.add(draftId);
+                                        }
                                       }
                                     });
                                   },

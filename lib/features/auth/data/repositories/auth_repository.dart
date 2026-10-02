@@ -1,3 +1,5 @@
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:artable_app/core/constants/api_constants.dart';
 import 'package:artable_app/core/network/api_auth_headers.dart';
 import 'package:artable_app/core/network/api_client.dart';
@@ -47,6 +49,91 @@ class AuthRepository {
 
   late final ApiClient _apiClient;
   final AuthStorageService _storageService;
+
+  Future<String> uploadFile(
+    String filePath, {
+    required String folder,
+    String? sessionToken,
+    String? refreshToken,
+  }) async {
+    var clean = filePath.trim();
+    if (clean.startsWith('file://')) {
+      clean = clean.replaceFirst('file://', '');
+    }
+
+    final file = File(clean);
+    if (!await file.exists()) {
+      throw Exception('Local file does not exist at $clean');
+    }
+
+    final fileSize = await file.length();
+    if (fileSize <= 0) {
+      throw Exception('File size is 0 bytes');
+    }
+
+    final rawName = file.path.split(Platform.pathSeparator).last;
+    final ext = rawName.contains('.') ? rawName.split('.').last.toLowerCase() : 'jpg';
+    final fileType = ext == 'png' ? 'image/png' : 'image/jpeg';
+    final fileName = rawName.isNotEmpty
+        ? rawName
+        : 'image_${DateTime.now().millisecondsSinceEpoch}.$ext';
+
+    final effectiveToken = (sessionToken != null && sessionToken.trim().isNotEmpty)
+        ? sessionToken.trim()
+        : await _storageService.getSessionToken();
+    final effectiveRefresh = (refreshToken != null && refreshToken.trim().isNotEmpty)
+        ? refreshToken.trim()
+        : await _storageService.getRefreshToken();
+
+    final headers = ApiAuthHeaders.authenticated(
+      sessionToken: effectiveToken,
+      refreshToken: effectiveRefresh,
+    );
+
+    debugPrint('=== PRESIGNED URL === Requesting presigned URL for $folder: $fileName');
+
+    final presignedRes = await _apiClient.getPresignedUrl(
+      fileName: fileName,
+      fileType: fileType,
+      folder: folder,
+      headers: headers.isNotEmpty ? headers : null,
+    );
+
+    if (presignedRes['success'] != true || presignedRes['data'] is! Map) {
+      final msg = presignedRes['message']?.toString() ??
+          'Failed to get presigned upload URL';
+      debugPrint('=== PRESIGNED URL ERROR === $msg');
+      throw Exception(msg);
+    }
+
+    final data = Map<String, dynamic>.from(presignedRes['data'] as Map);
+    final uploadUrl = data['uploadUrl']?.toString();
+    final fileUrl = data['fileUrl']?.toString();
+    final contentType = data['contentType']?.toString() ?? fileType;
+
+    if (uploadUrl == null || uploadUrl.isEmpty) {
+      throw Exception('Presigned URL response missing uploadUrl');
+    }
+    if (fileUrl == null || fileUrl.isEmpty) {
+      throw Exception('Presigned URL response missing fileUrl');
+    }
+
+    debugPrint('=== STORAGE UPLOAD === Uploading $fileSize bytes to $uploadUrl');
+    final bytes = await file.readAsBytes();
+
+    final uploadSuccess = await _apiClient.uploadFileToPresignedUrl(
+      uploadUrl: uploadUrl,
+      bytes: bytes,
+      contentType: contentType,
+    );
+
+    if (!uploadSuccess) {
+      throw Exception('Storage PUT upload failed for $fileName');
+    }
+
+    debugPrint('=== STORAGE UPLOAD SUCCESS === File uploaded successfully: $fileUrl');
+    return fileUrl;
+  }
 
   Future<LoginResponse> login(LoginRequest request) async {
     final data = await _apiClient.post('/auth/login', body: request.toJson());

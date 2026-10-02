@@ -258,10 +258,12 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
   }
 
   List<ResolutionPreset> _presetsForCamera(CameraDescription description) {
-    if (description.lensDirection == CameraLensDirection.front) {
-      return [ResolutionPreset.medium, ResolutionPreset.low];
-    }
-    return [ResolutionPreset.high, ResolutionPreset.medium, ResolutionPreset.low];
+    return [
+      ResolutionPreset.veryHigh,
+      ResolutionPreset.high,
+      ResolutionPreset.medium,
+      ResolutionPreset.low,
+    ];
   }
 
   ImageFormatGroup _imageFormatForCamera(CameraDescription description) {
@@ -1019,9 +1021,16 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        var aspectRatio = readyController.value.aspectRatio;
-        if (constraints.maxHeight > constraints.maxWidth && aspectRatio > 0) {
-          aspectRatio = 1 / aspectRatio;
+        var videoAspectRatio = readyController.value.aspectRatio;
+        final size = readyController.value.size;
+        if (size.width > 0 && size.height > 0) {
+          videoAspectRatio = size.width / size.height;
+        }
+
+        if (constraints.maxHeight > constraints.maxWidth && videoAspectRatio > 1.0) {
+          videoAspectRatio = 1 / videoAspectRatio;
+        } else if (constraints.maxWidth > constraints.maxHeight && videoAspectRatio < 1.0 && videoAspectRatio > 0) {
+          videoAspectRatio = 1 / videoAspectRatio;
         }
 
         return ClipRect(
@@ -1031,8 +1040,8 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
               fit: BoxFit.cover,
               child: SizedBox(
                 width: constraints.maxWidth,
-                height: aspectRatio > 0
-                    ? constraints.maxWidth / aspectRatio
+                height: videoAspectRatio > 0
+                    ? constraints.maxWidth / videoAspectRatio
                     : constraints.maxHeight,
                 child: VideoPlayer(readyController),
               ),
@@ -1539,7 +1548,9 @@ class _LiveCameraPreview extends StatelessWidget {
         if (cameraAspectRatio <= 0 && previewSize != null && previewSize.height > 0) {
           cameraAspectRatio = previewSize.width / previewSize.height;
         }
-        if (constraints.maxHeight > constraints.maxWidth && cameraAspectRatio > 0) {
+        if (constraints.maxHeight > constraints.maxWidth && cameraAspectRatio > 1.0) {
+          cameraAspectRatio = 1 / cameraAspectRatio;
+        } else if (constraints.maxWidth > constraints.maxHeight && cameraAspectRatio < 1.0 && cameraAspectRatio > 0) {
           cameraAspectRatio = 1 / cameraAspectRatio;
         }
 

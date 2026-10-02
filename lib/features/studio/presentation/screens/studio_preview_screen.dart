@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -109,16 +110,86 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
     await StudioMusicPlaybackService.releaseForVideoPlayback();
     if (!mounted) return;
 
+    for (final c in _clipControllers) {
+      try {
+        c.removeListener(_onVideoControllerUpdate);
+        await c.pause();
+        await c.dispose();
+      } catch (_) {}
+    }
+    _clipControllers.clear();
+
+    if (_videoController != null) {
+      try {
+        _videoController!.removeListener(_onVideoControllerUpdate);
+        await _videoController!.pause();
+        await _videoController!.dispose();
+      } catch (_) {}
+      _videoController = null;
+    }
+
     setState(() {
       _isVideoInitialized = false;
       _videoError = false;
       _playing = false;
     });
 
+    if (!mounted) return;
     final studio = context.read<StudioCubit>();
 
+    String? path = studio.recordedVideoPath ??
+        widget.videoPath ??
+        _draft?['videoPath']?.toString() ??
+        _draft?['videoUrl']?.toString();
+
+    debugPrint('StudioPreviewScreen loading recorded video path: $path');
+
+    bool hasSingleMergedFile = false;
+    if (path != null && path.isNotEmpty) {
+      final clean = path.replaceFirst('file://', '').trim();
+      if (clean.startsWith('http') || File(clean).existsSync()) {
+        hasSingleMergedFile = true;
+      }
+    }
+
+    if (hasSingleMergedFile && path != null) {
+      VideoPlayerController? controller;
+      try {
+        controller = await StudioVideoPlayerUtils.initializeRecordedVideo(path);
+      } catch (e) {
+        debugPrint('StudioPreviewScreen video init error: $e');
+        controller = null;
+      }
+
+      if (!mounted) {
+        await controller?.dispose();
+        return;
+      }
+
+      if (controller != null && controller.value.isInitialized) {
+        final validController = controller;
+        validController.setVolume(studio.isMuted ? 0.0 : 1.0);
+        try {
+          await validController.setPlaybackSpeed(studio.speedMultiplier);
+        } catch (_) {}
+        validController.addListener(_onVideoControllerUpdate);
+        final trimStart = studio.state.videoTrimStartSeconds;
+        if (trimStart > 0) {
+          validController.seekTo(Duration(milliseconds: (trimStart * 1000).round()));
+        }
+        setState(() {
+          _videoController = validController;
+          _isVideoInitialized = true;
+          _videoError = false;
+          _playing = validController.value.isPlaying;
+        });
+        debugPrint('VideoPlayer successfully initialized merged file at $path');
+        return;
+      }
+    }
+
     if (_mergedClipPaths.length > 1) {
-      debugPrint('StudioPreviewScreen loading preloaded multi-clip playlist: ${_mergedClipPaths.length} clips');
+      debugPrint('StudioPreviewScreen loading multi-clip playlist: ${_mergedClipPaths.length} clips');
       List<VideoPlayerController> loaded = [];
       for (final p in _mergedClipPaths) {
         final c = await StudioVideoPlayerUtils.initializeClipController(
@@ -157,62 +228,11 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
       }
     }
 
-    String? path = studio.recordedVideoPath ??
-        widget.videoPath ??
-        _draft?['videoPath']?.toString();
-
-    debugPrint('StudioPreviewScreen loading recorded video path: $path');
-
-    if (path == null || path.isEmpty) {
-      debugPrint('No recorded video path provided for preview.');
-      if (mounted) setState(() => _videoError = true);
-      return;
-    }
-
-    if (_videoController != null) {
-      try {
-        await _videoController!.dispose();
-      } catch (_) {}
-      _videoController = null;
-    }
-
-    VideoPlayerController? controller;
-    try {
-      controller = await StudioVideoPlayerUtils.initializeRecordedVideo(path);
-    } catch (e) {
-      debugPrint('StudioPreviewScreen video init error: $e');
-      controller = null;
-    }
-
-    if (!mounted) {
-      await controller?.dispose();
-      return;
-    }
-
-    if (controller != null) {
-      final validController = controller;
-      validController.setVolume(studio.isMuted ? 0.0 : 1.0);
-      try {
-        await validController.setPlaybackSpeed(studio.speedMultiplier);
-      } catch (_) {}
-      validController.addListener(_onVideoControllerUpdate);
-      final trimStart = studio.state.videoTrimStartSeconds;
-      if (trimStart > 0) {
-        validController.seekTo(Duration(milliseconds: (trimStart * 1000).round()));
-      }
-      setState(() {
-        _videoController = validController;
-        _isVideoInitialized = true;
-        _videoError = false;
-        _playing = validController.value.isPlaying;
-      });
-      debugPrint('VideoPlayer successfully initialized at $path');
-    } else {
+    if (mounted) {
       setState(() {
         _isVideoInitialized = false;
         _videoError = true;
       });
-      debugPrint('StudioPreviewScreen failed to initialize video at $path');
     }
   }
 
@@ -285,13 +305,21 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
   @override
   void dispose() {
     for (final c in _clipControllers) {
-      c.removeListener(_onVideoControllerUpdate);
-      c.pause();
-      c.dispose();
+      try {
+        c.removeListener(_onVideoControllerUpdate);
+        c.pause();
+        c.dispose();
+      } catch (_) {}
     }
-    _videoController?.removeListener(_onVideoControllerUpdate);
-    _videoController?.pause();
-    _videoController?.dispose();
+    _clipControllers.clear();
+
+    try {
+      _videoController?.removeListener(_onVideoControllerUpdate);
+      _videoController?.pause();
+      _videoController?.dispose();
+    } catch (_) {}
+    _videoController = null;
+
     unawaited(StudioMusicPlaybackService.stop());
     super.dispose();
   }

@@ -40,6 +40,7 @@ class StudioState {
     this.saveDraftError,
     this.isLoadingDrafts = false,
     this.mergedClipPaths,
+    this.mergedClipDurations,
     this.activeDraftId,
     List<Map<String, dynamic>>? drafts,
   }) : drafts = drafts ?? const [];
@@ -84,6 +85,7 @@ class StudioState {
   final String? saveDraftError;
   final bool isLoadingDrafts;
   final List<String>? mergedClipPaths;
+  final List<double>? mergedClipDurations;
   final String? activeDraftId;
 
   final List<Map<String, dynamic>> drafts;
@@ -136,6 +138,7 @@ class StudioState {
     String? saveDraftError,
     bool? isLoadingDrafts,
     List<String>? mergedClipPaths,
+    List<double>? mergedClipDurations,
     String? activeDraftId,
     List<Map<String, dynamic>>? drafts,
     bool clearRecordedVideoPath = false,
@@ -180,6 +183,7 @@ class StudioState {
       saveDraftError: clearSaveDraftError ? null : (saveDraftError ?? this.saveDraftError),
       isLoadingDrafts: isLoadingDrafts ?? this.isLoadingDrafts,
       mergedClipPaths: clearMergedClipPaths ? null : (mergedClipPaths ?? this.mergedClipPaths),
+      mergedClipDurations: clearMergedClipPaths ? null : (mergedClipDurations ?? this.mergedClipDurations),
       activeDraftId: clearActiveDraftId ? null : (activeDraftId ?? this.activeDraftId),
       drafts: drafts ?? this.drafts,
     );
