@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/core/widgets/app_back_header.dart';
 import 'package:artable_app/core/widgets/app_image.dart';
@@ -431,7 +432,16 @@ class _FigmaMyVideoCard extends StatelessWidget {
                           child: _buildSmallActionButton(
                             icon: Icons.share_outlined,
                             label: 'Share',
-                            onTap: () {},
+                            onTap: () {
+                              context.push(
+                                '${AppRoutes.shareReport}?id=${item.id}',
+                                extra: {
+                                  'reelId': item.id,
+                                  'videoUrl': item.videoUrl,
+                                  'title': item.title,
+                                },
+                              );
+                            },
                           ),
                         ),
                       ],
@@ -456,7 +466,16 @@ class _FigmaMyVideoCard extends StatelessWidget {
                           child: _buildSmallActionButton(
                             icon: Icons.share_outlined,
                             label: 'Share',
-                            onTap: () {},
+                            onTap: () {
+                              context.push(
+                                '${AppRoutes.shareReport}?id=${item.id}',
+                                extra: {
+                                  'reelId': item.id,
+                                  'videoUrl': item.videoUrl,
+                                  'title': item.title,
+                                },
+                              );
+                            },
                           ),
                         ),
                       ],

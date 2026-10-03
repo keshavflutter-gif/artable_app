@@ -8,10 +8,21 @@ import 'package:artable_app/core/utils/reel_helpers.dart';
 import 'package:artable_app/core/widgets/app_screen_header.dart';
 import 'package:artable_app/core/widgets/secondary_outline_button.dart';
 
+import 'package:artable_app/core/utils/video_share_helper.dart';
+
 class ShareReportScreen extends StatefulWidget {
-  const ShareReportScreen({super.key, this.reelId});
+  const ShareReportScreen({
+    super.key,
+    this.reelId,
+    this.videoUrl,
+    this.title,
+    this.caption,
+  });
 
   final String? reelId;
+  final String? videoUrl;
+  final String? title;
+  final String? caption;
 
   @override
   State<ShareReportScreen> createState() => _ShareReportScreenState();
@@ -24,7 +35,15 @@ class _ShareReportScreenState extends State<ShareReportScreen> {
 
   @override
   Widget build(BuildContext context) {
-    ReelHelpers.reelById(widget.reelId ?? 'r1');
+    final reel = ReelHelpers.reelById(widget.reelId ?? 'r1');
+    final rawUrl = (widget.videoUrl != null && widget.videoUrl!.trim().isNotEmpty)
+        ? widget.videoUrl!.trim()
+        : (reel?['videoUrl']?.toString() ?? reel?['video_url']?.toString() ?? '');
+    final resolvedUrl = (rawUrl.isNotEmpty && rawUrl != 'null')
+        ? rawUrl
+        : 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
+    final resolvedTitle = widget.title ?? reel?['title']?.toString();
+    final resolvedCaption = widget.caption ?? reel?['caption']?.toString();
 
     return Scaffold(
       backgroundColor: AppColors.bg,
@@ -61,13 +80,18 @@ class _ShareReportScreenState extends State<ShareReportScreen> {
                         final id = opt['id'] as String;
                         final shared = _sharedOptionId == id;
                         return GestureDetector(
-                          onTap: () {
+                          onTap: () async {
                             setState(() => _sharedOptionId = id);
-                            Future.delayed(const Duration(milliseconds: 900), () {
-                              if (mounted && _sharedOptionId == id) {
-                                setState(() => _sharedOptionId = null);
-                              }
-                            });
+                            await VideoShareHelper.shareVideo(
+                              context: context,
+                              optionId: id,
+                              videoUrl: resolvedUrl,
+                              title: resolvedTitle,
+                              caption: resolvedCaption,
+                            );
+                            if (mounted) {
+                              setState(() => _sharedOptionId = null);
+                            }
                           },
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
@@ -81,11 +105,22 @@ class _ShareReportScreenState extends State<ShareReportScreen> {
                                   gradient: shared ? AppGradients.button : null,
                                   color: shared ? null : const Color(0xFFF5F2FC),
                                 ),
-                                child: Icon(
-                                  _shareIcon(opt['icon'] ?? ''),
-                                  size: 19,
-                                  color: shared ? Colors.white : AppColors.purple,
-                                ),
+                                child: shared
+                                    ? const Center(
+                                        child: SizedBox(
+                                          width: 18,
+                                          height: 18,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                          ),
+                                        ),
+                                      )
+                                    : Icon(
+                                        _shareIcon(opt['icon'] ?? ''),
+                                        size: 19,
+                                        color: AppColors.purple,
+                                      ),
                               ),
                               const SizedBox(height: 5),
                               Text(

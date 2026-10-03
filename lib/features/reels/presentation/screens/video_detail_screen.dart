@@ -593,7 +593,18 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
           icon: Icons.share_outlined,
           value: shares,
           label: 'Shares',
-          onTap: () => context.push('${AppRoutes.shareReport}?id=$reelId'),
+          onTap: () {
+            final vUrl = _reel['videoUrl']?.toString() ?? _reel['video_url']?.toString() ?? '';
+            context.push(
+              '${AppRoutes.shareReport}?id=$reelId',
+              extra: {
+                'reelId': reelId,
+                'videoUrl': vUrl,
+                'title': _reel['title']?.toString(),
+                'caption': _reel['caption']?.toString(),
+              },
+            );
+          },
         ),
       ],
     );

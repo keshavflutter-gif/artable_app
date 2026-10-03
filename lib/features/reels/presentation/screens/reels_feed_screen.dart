@@ -642,8 +642,20 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
                         _ActionBtn(
                           icon: Icons.share_outlined,
                           count: sharesText,
-                          onTap: () => context
-                              .push('${AppRoutes.shareReport}?id=$reelId'),
+                          onTap: () {
+                            final vUrl = (reel['videoUrl'] as String?)?.isNotEmpty == true && reel['videoUrl'] != 'null'
+                                ? reel['videoUrl'] as String
+                                : '';
+                            context.push(
+                              '${AppRoutes.shareReport}?id=$reelId',
+                              extra: {
+                                'reelId': reelId,
+                                'videoUrl': vUrl,
+                                'title': reel['title']?.toString(),
+                                'caption': reel['caption']?.toString(),
+                              },
+                            );
+                          },
                         ),
                         const SizedBox(height: 14),
                         _ActionBtn(

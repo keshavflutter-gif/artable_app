@@ -270,9 +270,17 @@ abstract final class AppRouter {
         ),
         GoRoute(
           path: AppRoutes.shareReport,
-          builder: (context, state) => ShareReportScreen(
-            reelId: state.uri.queryParameters['id'],
-          ),
+          builder: (context, state) {
+            final extraMap = state.extra is Map<String, dynamic>
+                ? state.extra as Map<String, dynamic>
+                : null;
+            return ShareReportScreen(
+              reelId: state.uri.queryParameters['id'] ?? extraMap?['reelId']?.toString(),
+              videoUrl: state.uri.queryParameters['videoUrl'] ?? extraMap?['videoUrl']?.toString(),
+              title: extraMap?['title']?.toString(),
+              caption: extraMap?['caption']?.toString(),
+            );
+          },
         ),
         GoRoute(
           path: AppRoutes.search,
