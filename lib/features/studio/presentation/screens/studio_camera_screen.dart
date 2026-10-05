@@ -18,6 +18,7 @@ import 'package:artable_app/data/datasources/music_api_service.dart';
 import 'package:artable_app/features/studio/data/services/studio_music_playback_service.dart';
 import 'package:artable_app/core/utils/studio_video_player_utils.dart';
 import 'package:artable_app/features/studio/presentation/widgets/song_trimmer_sheet.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 enum _CameraState { idle, recording, recorded }
 
@@ -67,6 +68,7 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    unawaited(WakelockPlus.enable());
     _spinController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 400),
@@ -92,6 +94,7 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
 
   @override
   void dispose() {
+    unawaited(WakelockPlus.disable());
     WidgetsBinding.instance.removeObserver(this);
     _studioSubscription?.cancel();
     _timer?.cancel();
@@ -114,8 +117,10 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
     if (controller == null) return;
 
     if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      unawaited(WakelockPlus.disable());
       unawaited(_detachAndDisposeCamera(_cameraController));
     } else if (state == AppLifecycleState.resumed) {
+      unawaited(WakelockPlus.enable());
       _initDeviceCamera();
     }
   }

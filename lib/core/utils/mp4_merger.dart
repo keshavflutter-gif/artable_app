@@ -211,9 +211,8 @@ class Mp4Merger {
 
       final modifiedMoovBytes = _mergeMoovBoxes(metas, newMdatPayloadOffset);
       if (modifiedMoovBytes == null) {
-        debugPrint('Moov merge returned null, falling back to copy first file');
-        await files.first.copy(outputFile.path);
-        return outputFile;
+        debugPrint('Moov merge returned null, merge failed');
+        return null;
       }
 
       final outBuilder = BytesBuilder();

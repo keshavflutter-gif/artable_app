@@ -87,6 +87,10 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
           duration: const Duration(seconds: 2),
         ),
       );
+      if (widget.selectForMerge) {
+        context.pop(merged);
+        return;
+      }
       context.push(
         '${AppRoutes.studioEditVideo}?draft=${merged['id']}&id=${merged['challengeId']}',
       );
@@ -220,7 +224,7 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            const AppScreenHeader(title: 'Drafts'),
+            const AppScreenHeader(title: 'My Videos'),
             if (drafts.length >= StudioCubit.maxDraftsLimit)
               Container(
                 margin: const EdgeInsets.symmetric(horizontal: 22, vertical: 8),

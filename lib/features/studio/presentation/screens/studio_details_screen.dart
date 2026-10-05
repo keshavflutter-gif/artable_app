@@ -139,24 +139,34 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
     }
 
     if (_videoController != null) {
+      _videoController!.removeListener(_onVideoControllerUpdate);
       try {
         await _videoController!.dispose();
       } catch (_) {}
       _videoController = null;
     }
 
+    for (final c in _clipControllers) {
+      c.removeListener(_onVideoControllerUpdate);
+      c.dispose();
+    }
+    _clipControllers.clear();
+
+    String? path = studio.recordedVideoPath ?? draft?['videoPath']?.toString();
+    debugPrint('VIDEO DETAILS PATH: $path');
+    debugPrint('VIDEO DETAILS MERGED CLIPS COUNT: ${_mergedClipPaths.length}');
+
+    // 1. If multi-clip playlist is present (e.g. 3 clips), load all clip controllers for continuous sequential playback
     if (_mergedClipPaths.length > 1) {
       debugPrint('StudioDetailsScreen loading multi-clip playlist: ${_mergedClipPaths.length} clips');
-      for (final c in _clipControllers) {
-        c.removeListener(_onVideoControllerUpdate);
-        c.dispose();
-      }
-      _clipControllers.clear();
 
       for (final p in _mergedClipPaths) {
         try {
           final c = await StudioVideoPlayerUtils.initializeClipController(p, autoPlay: false, loop: false);
-          if (c != null) _clipControllers.add(c);
+          if (c != null) {
+            c.setVolume(studio.isMuted ? 0.0 : 1.0);
+            _clipControllers.add(c);
+          }
         } catch (e) {
           debugPrint('Error preloading clip $p: $e');
         }
@@ -173,38 +183,51 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
             _isVideoInitialized = true;
             _playing = true;
           });
+          if (studio.selectedMusic != null) {
+            unawaited(StudioMusicPlaybackService.playForEditor(
+              studio,
+              firstController.value.position.inMilliseconds,
+            ));
+          }
         }
         return;
       }
     }
 
-    String? path = studio.recordedVideoPath ?? draft?['videoPath']?.toString();
+    // 2. Single video file fallback (if 1 clip)
+    if (path != null && path.trim().isNotEmpty) {
+      debugPrint('StudioDetailsScreen initializing single recorded video: $path');
+      final controller = await StudioVideoPlayerUtils.initializeRecordedVideo(path);
+      if (mounted && controller != null) {
+        controller.setVolume(studio.isMuted ? 0.0 : 1.0);
+        try {
+          await controller.setPlaybackSpeed(studio.speedMultiplier);
+        } catch (_) {}
+        controller.addListener(_onVideoControllerUpdate);
+        final trimStart = studio.state.videoTrimStartSeconds;
+        if (trimStart > 0) {
+          await controller.seekTo(Duration(milliseconds: (trimStart * 1000).round()));
+        }
+        setState(() {
+          _videoController = controller;
+          _isVideoInitialized = true;
+          _playing = controller.value.isPlaying;
+        });
 
-    if (path == null || path.isEmpty) return;
-
-    var controller = await StudioVideoPlayerUtils.initializeRecordedVideo(path);
-
-
-    if (!mounted) {
-      await controller?.dispose();
-      return;
+        if (studio.selectedMusic != null && _playing) {
+          unawaited(StudioMusicPlaybackService.playForEditor(
+            studio,
+            controller.value.position.inMilliseconds,
+          ));
+        }
+        return;
+      }
     }
 
-    if (controller != null) {
-      final validController = controller;
-      validController.setVolume(studio.isMuted ? 0.0 : 1.0);
-      try {
-        await validController.setPlaybackSpeed(studio.speedMultiplier);
-      } catch (_) {}
-      validController.addListener(_onVideoControllerUpdate);
-      final trimStart = studio.state.videoTrimStartSeconds;
-      if (trimStart > 0) {
-        validController.seekTo(Duration(milliseconds: (trimStart * 1000).round()));
-      }
+    if (mounted) {
       setState(() {
-        _videoController = validController;
-        _isVideoInitialized = true;
-        _playing = validController.value.isPlaying;
+        _isVideoInitialized = false;
+        _playing = false;
       });
     }
   }
@@ -218,25 +241,32 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
       setState(() => _playing = isPlaying);
     }
 
+    final studio = context.read<StudioCubit>();
+    final posMs = controller.value.position.inMilliseconds;
+
+    if (isPlaying && studio.selectedMusic != null) {
+      unawaited(StudioMusicPlaybackService.checkAndSyncPosition(posMs));
+    }
+
     if (_clipControllers.isNotEmpty) {
-      final posMs = controller.value.position.inMilliseconds;
       final durMs = controller.value.duration.inMilliseconds;
       if (durMs > 0 && posMs >= durMs - 250) {
         _advanceToNextMergedClip();
         return;
       }
     } else {
-      final studio = context.read<StudioCubit>();
       final trimStart = studio.state.videoTrimStartSeconds;
       final trimEnd = studio.state.videoTrimEndSeconds;
 
       if (trimEnd != null && trimEnd > trimStart) {
         final startMs = (trimStart * 1000).round();
         final endMs = (trimEnd * 1000).round();
-        final posMs = controller.value.position.inMilliseconds;
 
         if (posMs >= endMs || posMs < startMs) {
           controller.seekTo(Duration(milliseconds: startMs));
+          if (studio.selectedMusic != null) {
+            unawaited(StudioMusicPlaybackService.playForEditor(studio, startMs));
+          }
           if (controller.value.isPlaying) {
             controller.play();
           }
@@ -301,6 +331,7 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
 
       if (controller.value.isPlaying) {
         controller.pause();
+        unawaited(StudioMusicPlaybackService.pause());
         setState(() => _playing = false);
       } else {
         if (trimEnd != null && trimEnd > trimStart) {
@@ -313,6 +344,12 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
           }
         }
         controller.play();
+        if (studio.selectedMusic != null) {
+          unawaited(StudioMusicPlaybackService.playForEditor(
+            studio,
+            controller.value.position.inMilliseconds,
+          ));
+        }
         setState(() => _playing = true);
       }
     }
@@ -656,6 +693,8 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
                       beautyOn: studio.recordingBeautyOn,
                       beautyIntensity: studio.recordingBeautyIntensity,
                       isMuted: studio.isMuted,
+                      hasError: !_isVideoInitialized,
+                      onRetry: _initVideoPlayer,
                     ),
                     if (music != null) ...[
                       const SizedBox(height: 8),

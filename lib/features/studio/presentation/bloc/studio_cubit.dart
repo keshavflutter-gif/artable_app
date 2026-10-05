@@ -127,7 +127,15 @@ class StudioCubit extends Cubit<StudioState> {
       return null;
     }
 
-    final selectedDrafts = state.drafts.where((d) => draftIds.contains(d['id'])).toList();
+    final selectedDrafts = <Map<String, dynamic>>[];
+    for (final id in draftIds) {
+      for (final d in state.drafts) {
+        if (d['id'] == id) {
+          selectedDrafts.add(d);
+          break;
+        }
+      }
+    }
     if (selectedDrafts.isEmpty && !hasCurrentRec) return null;
 
     final mergedClipPaths = <String>[];
@@ -745,6 +753,13 @@ class StudioCubit extends Cubit<StudioState> {
         clearMergedClipPaths: clearMergedClips && (mergedClipPaths == null || mergedClipPaths.isEmpty),
       ));
     }
+  }
+
+  void setMergedClipPaths(List<String> paths, [List<double>? durations]) {
+    emit(state.copyWith(
+      mergedClipPaths: paths,
+      mergedClipDurations: durations,
+    ));
   }
 
   Future<VideoPlayerController?> prepareVideoPreview(String path) async {

@@ -107,7 +107,8 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
   }
 
   Future<void> _initVideoPlayer() async {
-    await StudioMusicPlaybackService.releaseForVideoPlayback();
+    final studio = context.read<StudioCubit>();
+    await StudioMusicPlaybackService.preloadForStudio(studio);
     if (!mounted) return;
 
     for (final c in _clipControllers) {
@@ -135,7 +136,6 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
     });
 
     if (!mounted) return;
-    final studio = context.read<StudioCubit>();
 
     String? path = studio.recordedVideoPath ??
         widget.videoPath ??
@@ -262,11 +262,10 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
         final endMs = (trimEnd * 1000).round();
         final posMs = controller.value.position.inMilliseconds;
 
-        if (posMs >= endMs || posMs < startMs) {
+        if (posMs >= endMs - 150 || posMs < startMs) {
           controller.seekTo(Duration(milliseconds: startMs));
-          if (controller.value.isPlaying) {
-            controller.play();
-          }
+          controller.play();
+          if (mounted) setState(() => _playing = true);
         }
       }
     }
@@ -327,8 +326,10 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
   void _togglePlayPause() {
     final controller = _videoController;
     if (controller != null && _isVideoInitialized) {
+      final studio = context.read<StudioCubit>();
       if (controller.value.isPlaying) {
         controller.pause();
+        StudioMusicPlaybackService.pause();
         setState(() => _playing = false);
       } else {
         if (_clipControllers.isNotEmpty &&
@@ -336,6 +337,10 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
           _advanceToNextMergedClip();
         } else {
           controller.play();
+          if (studio.selectedMusic != null || studio.selectedTrack != null) {
+            final posMs = controller.value.position.inMilliseconds;
+            StudioMusicPlaybackService.playForEditor(studio, posMs);
+          }
           setState(() => _playing = true);
         }
       }
@@ -367,150 +372,6 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
     final draft = _draft;
     if (draft != null) return draft['duration'] as String? ?? '0:00';
     return studio.recordedDuration;
-  }
-
-  Future<void> _saveDraft(StudioCubit studio) async {
-    final challenge = _challenge;
-    final existingDraftId = widget.draftId ?? _draft?['id'] as String?;
-
-    final res = (existingDraftId != null && existingDraftId.isNotEmpty)
-        ? await studio.updateDraftDetails(
-            videoId: existingDraftId,
-            challenge: challenge,
-          )
-        : await studio.saveDraftFromPreview(
-            challenge: challenge,
-          );
-
-    if (!mounted) return;
-
-    if (res != null) {
-      _videoController?.pause();
-      await StudioMusicPlaybackService.stop();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Draft saved successfully'),
-          backgroundColor: AppColors.purple,
-          duration: Duration(seconds: 2),
-        ),
-      );
-      final realChallengeId = (res['challengeId'] as String?)?.trim().isNotEmpty == true
-          ? res['challengeId'] as String
-          : (widget.challengeId?.trim().isNotEmpty == true
-              ? widget.challengeId!
-              : (studio.state.videoChallengeId ?? ''));
-      context.push('${AppRoutes.studioDrafts}?id=$realChallengeId');
-    } else {
-      final errorMsg = studio.state.saveDraftError ?? 'Failed to save draft';
-      if (errorMsg.contains('Draft limit') || studio.state.drafts.length >= StudioCubit.maxDraftsLimit) {
-        _showDraftLimitDialog(context, challenge['id'] as String?);
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(errorMsg),
-            backgroundColor: Colors.redAccent,
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _showDraftLimitDialog(BuildContext context, String? challengeId) async {
-    return showDialog<void>(
-      context: context,
-      builder: (ctx) => Dialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(24),
-          side: const BorderSide(color: Color(0xFFECE8F5), width: 1.2),
-        ),
-        backgroundColor: Colors.white,
-        elevation: 16,
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 64,
-                height: 64,
-                decoration: const BoxDecoration(
-                  color: Color(0xFFFFF3E0),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.warning_amber_rounded,
-                  color: Color(0xFFFF9800),
-                  size: 36,
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Draft Limit Reached (20/20)',
-                style: TextStyle(
-                  fontFamily: 'Poppins',
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.text,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Maximum 20 drafts can be saved in studio gallery. Please delete an existing draft to save a new video.',
-                style: TextStyle(
-                  fontFamily: 'Poppins',
-                  fontSize: 13,
-                  color: AppColors.textSoft,
-                  height: 1.4,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      onPressed: () => Navigator.of(ctx).pop(),
-                      child: const Text('Cancel'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.purple,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      onPressed: () {
-                        Navigator.of(ctx).pop();
-                        final route = (challengeId != null && challengeId.isNotEmpty)
-                            ? '${AppRoutes.studioDrafts}?id=$challengeId'
-                            : AppRoutes.studioDrafts;
-                        context.push(route);
-                      },
-                      child: const Text(
-                        'Manage Drafts',
-                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
   }
 
   @override

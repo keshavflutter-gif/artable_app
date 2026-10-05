@@ -103,6 +103,7 @@ class StudioMusicPlaybackService {
       } catch (_) {}
       await player.setUrl(track.audioUrl).timeout(const Duration(seconds: 5));
       await player.setVolume(1.0);
+      await player.setLoopMode(LoopMode.one);
       _loadedTrackId = track.id;
     } catch (e) {
       debugPrint('StudioMusicPlaybackService _loadTrack error: $e');
@@ -111,22 +112,45 @@ class StudioMusicPlaybackService {
   }
 
   static Future<void> playForRecording(StudioCubit studio) async {
+    await playForEditor(studio, 0);
+  }
+
+  /// Plays global background music for the multi-video editor starting at [globalPositionMs].
+  static Future<void> playForEditor(StudioCubit studio, int globalPositionMs) async {
     final track = _resolveTrack(studio);
-    if (track == null) return;
+    if (track == null) {
+      await pause();
+      return;
+    }
 
     try {
       await _configureSession();
       if (_loadedTrackId != track.id || _player == null) {
         await preloadForStudio(studio);
       }
-      final startMs = (studio.musicStartSeconds * 1000).round();
       final player = _audioPlayer;
       await player.setVolume(1.0);
-      await player.seek(Duration(milliseconds: startMs));
-      await player.setSpeed(1.0);
-      await player.play();
+      await player.setLoopMode(LoopMode.one);
+
+      final musicStartMs = (studio.musicStartSeconds * 1000).round();
+      final targetMs = musicStartMs + globalPositionMs;
+      final trackDurMs = player.duration?.inMilliseconds ?? 0;
+      final effectiveMs = (trackDurMs > 0 && targetMs >= trackDurMs)
+          ? targetMs % trackDurMs
+          : targetMs;
+
+      if (!player.playing) {
+        await player.seek(Duration(milliseconds: effectiveMs.clamp(0, 3600000)));
+        await player.setSpeed(1.0);
+        await player.play();
+      } else {
+        final currentAudioMs = player.position.inMilliseconds;
+        if ((currentAudioMs - effectiveMs).abs() > 250) {
+          await player.seek(Duration(milliseconds: effectiveMs.clamp(0, 3600000)));
+        }
+      }
     } catch (e) {
-      debugPrint('StudioMusicPlaybackService play error: $e');
+      debugPrint('StudioMusicPlaybackService playForEditor error: $e');
     }
   }
 
@@ -145,7 +169,9 @@ class StudioMusicPlaybackService {
     try {
       final player = _player;
       if (player != null) {
-        await player.seek(Duration(milliseconds: ms.clamp(0, 3600000)));
+        final trackDurMs = player.duration?.inMilliseconds ?? 0;
+        final effectiveMs = (trackDurMs > 0 && ms >= trackDurMs) ? ms % trackDurMs : ms;
+        await player.seek(Duration(milliseconds: effectiveMs.clamp(0, 3600000)));
       }
     } catch (e) {
       debugPrint('StudioMusicPlaybackService seek error: $e');
@@ -157,8 +183,12 @@ class StudioMusicPlaybackService {
       final player = _player;
       if (player != null && player.playing) {
         final currentAudioMs = player.position.inMilliseconds;
-        if ((currentAudioMs - expectedMs).abs() > 400) {
-          await player.seek(Duration(milliseconds: expectedMs.clamp(0, 3600000)));
+        final trackDurMs = player.duration?.inMilliseconds ?? 0;
+        final effectiveMs = (trackDurMs > 0 && expectedMs >= trackDurMs)
+            ? expectedMs % trackDurMs
+            : expectedMs;
+        if ((currentAudioMs - effectiveMs).abs() > 250) {
+          await player.seek(Duration(milliseconds: effectiveMs.clamp(0, 3600000)));
         }
       }
     } catch (e) {

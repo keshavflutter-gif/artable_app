@@ -8,7 +8,6 @@ import 'package:video_player/video_player.dart';
 import 'package:http/http.dart' as http;
 
 import 'package:artable_app/core/utils/mp4_merger.dart';
-import 'package:artable_app/features/studio/data/services/studio_music_playback_service.dart';
 
 /// Initializes a local recorded video after releasing music/camera audio resources.
 class StudioVideoPlayerUtils {
@@ -109,8 +108,6 @@ class StudioVideoPlayerUtils {
     bool autoPlay = true,
     bool loop = true,
   }) async {
-    await StudioMusicPlaybackService.releaseForVideoPlayback();
-
     var cleanPath = path.trim();
     if (cleanPath.startsWith('file://')) {
       cleanPath = cleanPath.replaceFirst('file://', '');
