@@ -4,7 +4,7 @@ allprojects {
         mavenCentral()
     }
 }
-
+//test
 val newBuildDir: Directory =
     rootProject.layout.buildDirectory
         .dir("../../build")
