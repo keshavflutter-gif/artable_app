@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -18,6 +19,7 @@ import 'package:artable_app/features/studio/presentation/widgets/recorded_video_
 import 'package:artable_app/features/studio/presentation/widgets/studio_shared_widgets.dart';
 import 'package:artable_app/features/challenges/presentation/bloc/challenges_cubit.dart';
 import 'package:artable_app/features/studio/data/services/studio_music_playback_service.dart';
+import 'package:artable_app/core/utils/validators.dart';
 
 class StudioDetailsScreen extends StatefulWidget {
   const StudioDetailsScreen({
@@ -47,6 +49,7 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
   final List<VideoPlayerController> _clipControllers = [];
   int _currentClipIndex = 0;
   bool _isSwitchingClip = false;
+  Timer? _playbackTimer;
 
   Map<String, dynamic>? get _draft {
     if (widget.draftId == null) return null;
@@ -64,13 +67,19 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
     final challengesCubit = context.read<ChallengesCubit>();
     final draft = _draft;
 
-    _challengeId = (studio.videoChallengeId != null && studio.videoChallengeId!.isNotEmpty)
+    final rawChallengeId = (studio.videoChallengeId != null && studio.videoChallengeId!.isNotEmpty)
         ? studio.videoChallengeId!
         : (draft != null
-            ? draft['challengeId'] as String
-            : widget.challengeId ?? 'c1');
+            ? (draft['challengeId']?.toString() ?? '')
+            : (widget.challengeId ?? ''));
 
-    if (_challengeId.isNotEmpty && !_challengeId.startsWith('c')) {
+    _challengeId = Validators.isRealDatabaseId(rawChallengeId) ? rawChallengeId : '';
+
+    if (!challengesCubit.hasLoadedCategories && !challengesCubit.isLoadingCategories) {
+      challengesCubit.loadCategories();
+    }
+
+    if (Validators.isRealDatabaseId(_challengeId)) {
       final detail = challengesCubit.getChallengeDetail(_challengeId);
       if (detail == null) {
         challengesCubit.loadChallengeDetail(_challengeId).then((loadedDetail) {
@@ -80,6 +89,8 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
             });
           }
         });
+      } else if (detail.category?.id != null && detail.category!.id.isNotEmpty) {
+        _categoryId = detail.category!.id;
       }
     }
 
@@ -88,12 +99,14 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
       catId = null;
     }
 
-    if (catId != null && catId.isNotEmpty) {
-      _categoryId = catId;
+    if (Validators.isRealDatabaseId(catId)) {
+      _categoryId = catId!;
     } else {
       final detail = challengesCubit.getChallengeDetail(_challengeId);
-      if (detail?.category?.id != null && detail!.category!.id.isNotEmpty) {
-        _categoryId = detail.category!.id;
+      if (Validators.isRealDatabaseId(detail?.category?.id)) {
+        _categoryId = detail!.category!.id;
+      } else if (challengesCubit.categoriesResponse?.data.isNotEmpty == true) {
+        _categoryId = challengesCubit.categoriesResponse!.data.first.id;
       } else {
         _categoryId = '';
       }
@@ -119,6 +132,8 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
     final studio = context.read<StudioCubit>();
     final draft = _draft;
 
+    _playbackTimer?.cancel();
+
     if (draft != null && draft['mergedClipPaths'] is List && (draft['mergedClipPaths'] as List).isNotEmpty) {
       _mergedClipPaths = List<String>.from(draft['mergedClipPaths'] as List);
     } else if (studio.state.mergedClipPaths != null && studio.state.mergedClipPaths!.isNotEmpty) {
@@ -128,24 +143,72 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
     }
 
     if (_videoController != null) {
+      _videoController!.removeListener(_onVideoControllerUpdate);
       try {
         await _videoController!.dispose();
       } catch (_) {}
       _videoController = null;
     }
 
+    for (final c in _clipControllers) {
+      c.removeListener(_onVideoControllerUpdate);
+      c.dispose();
+    }
+    _clipControllers.clear();
+
+    String? path = studio.recordedVideoPath ?? draft?['videoPath']?.toString();
+    debugPrint('VIDEO DETAILS PATH: $path');
+    debugPrint('VIDEO DETAILS MERGED CLIPS COUNT: ${_mergedClipPaths.length}');
+
+    // 1. Single merged video file (if recordedVideoPath / draft path exists)
+    bool hasSingleMergedFile = false;
+    if (path != null && path.trim().isNotEmpty) {
+      final clean = path.replaceFirst('file://', '').trim();
+      if (clean.startsWith('http') || File(clean).existsSync()) {
+        hasSingleMergedFile = true;
+      }
+    }
+
+    if (hasSingleMergedFile && path != null) {
+      debugPrint('StudioDetailsScreen initializing merged recorded video: $path');
+      final controller = await StudioVideoPlayerUtils.initializeRecordedVideo(path);
+      if (mounted && controller != null) {
+        controller.setVolume(studio.isMuted ? 0.0 : 1.0);
+        try {
+          await controller.setPlaybackSpeed(studio.speedMultiplier);
+        } catch (_) {}
+        controller.addListener(_onVideoControllerUpdate);
+        final trimStart = studio.state.videoTrimStartSeconds;
+        if (trimStart > 0) {
+          await controller.seekTo(Duration(milliseconds: (trimStart * 1000).round()));
+        }
+        setState(() {
+          _videoController = controller;
+          _isVideoInitialized = true;
+          _playing = controller.value.isPlaying;
+        });
+
+        if (studio.selectedMusic != null && _playing) {
+          unawaited(StudioMusicPlaybackService.playForEditor(
+            studio,
+            controller.value.position.inMilliseconds,
+          ));
+        }
+        return;
+      }
+    }
+
+    // 2. Multi-clip playlist fallback (if merged file not found)
     if (_mergedClipPaths.length > 1) {
       debugPrint('StudioDetailsScreen loading multi-clip playlist: ${_mergedClipPaths.length} clips');
-      for (final c in _clipControllers) {
-        c.removeListener(_onVideoControllerUpdate);
-        c.dispose();
-      }
-      _clipControllers.clear();
 
       for (final p in _mergedClipPaths) {
         try {
           final c = await StudioVideoPlayerUtils.initializeClipController(p, autoPlay: false, loop: false);
-          if (c != null) _clipControllers.add(c);
+          if (c != null && c.value.isInitialized) {
+            c.setVolume(studio.isMuted ? 0.0 : 1.0);
+            _clipControllers.add(c);
+          }
         } catch (e) {
           debugPrint('Error preloading clip $p: $e');
         }
@@ -162,35 +225,49 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
             _isVideoInitialized = true;
             _playing = true;
           });
+          _startPlaybackTimer();
+          if (studio.selectedMusic != null) {
+            unawaited(StudioMusicPlaybackService.playForEditor(
+              studio,
+              firstController.value.position.inMilliseconds,
+            ));
+          }
         }
         return;
       }
     }
 
-    String? path = studio.recordedVideoPath ?? draft?['videoPath']?.toString();
-
-    if (path == null || path.isEmpty) return;
-
-    var controller = await StudioVideoPlayerUtils.initializeRecordedVideo(path);
-
-
-    if (!mounted) {
-      await controller?.dispose();
-      return;
-    }
-
-    if (controller != null) {
-      final validController = controller;
-      validController.addListener(_onVideoControllerUpdate);
-      final trimStart = studio.state.videoTrimStartSeconds;
-      if (trimStart > 0) {
-        validController.seekTo(Duration(milliseconds: (trimStart * 1000).round()));
-      }
+    if (mounted) {
       setState(() {
-        _videoController = validController;
-        _isVideoInitialized = true;
-        _playing = validController.value.isPlaying;
+        _isVideoInitialized = false;
+        _playing = false;
       });
+    }
+  }
+
+  void _startPlaybackTimer() {
+    _playbackTimer?.cancel();
+    _playbackTimer = Timer.periodic(const Duration(milliseconds: 40), (_) {
+      if (!mounted) return;
+      _tickPlayback();
+    });
+  }
+
+  void _tickPlayback() {
+    if (!_playing || _isSwitchingClip || _clipControllers.isEmpty) return;
+    final controller = _videoController;
+    if (controller != null && controller.value.isInitialized) {
+      final posMs = controller.value.position.inMilliseconds;
+      final durMs = controller.value.duration.inMilliseconds;
+
+      final studio = context.read<StudioCubit>();
+      if (studio.selectedMusic != null) {
+        unawaited(StudioMusicPlaybackService.checkAndSyncPosition(posMs));
+      }
+
+      if (durMs > 0 && posMs >= durMs - 150) {
+        _advanceToNextMergedClip();
+      }
     }
   }
 
@@ -203,25 +280,26 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
       setState(() => _playing = isPlaying);
     }
 
-    if (_clipControllers.isNotEmpty) {
-      final posMs = controller.value.position.inMilliseconds;
-      final durMs = controller.value.duration.inMilliseconds;
-      if (durMs > 0 && posMs >= durMs - 250) {
-        _advanceToNextMergedClip();
-        return;
-      }
-    } else {
+    if (_clipControllers.isEmpty) {
       final studio = context.read<StudioCubit>();
+      final posMs = controller.value.position.inMilliseconds;
+
+      if (isPlaying && studio.selectedMusic != null) {
+        unawaited(StudioMusicPlaybackService.checkAndSyncPosition(posMs));
+      }
+
       final trimStart = studio.state.videoTrimStartSeconds;
       final trimEnd = studio.state.videoTrimEndSeconds;
 
       if (trimEnd != null && trimEnd > trimStart) {
         final startMs = (trimStart * 1000).round();
         final endMs = (trimEnd * 1000).round();
-        final posMs = controller.value.position.inMilliseconds;
 
         if (posMs >= endMs || posMs < startMs) {
           controller.seekTo(Duration(milliseconds: startMs));
+          if (studio.selectedMusic != null) {
+            unawaited(StudioMusicPlaybackService.playForEditor(studio, startMs));
+          }
           if (controller.value.isPlaying) {
             controller.play();
           }
@@ -236,14 +314,12 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
 
     try {
       final oldController = _videoController;
-      oldController?.removeListener(_onVideoControllerUpdate);
       await oldController?.pause();
 
       _currentClipIndex = (_currentClipIndex + 1) % _clipControllers.length;
       final nextController = _clipControllers[_currentClipIndex];
 
       await nextController.seekTo(Duration.zero);
-      nextController.addListener(_onVideoControllerUpdate);
       await nextController.play();
 
       if (mounted) {
@@ -262,6 +338,7 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
 
   @override
   void dispose() {
+    _playbackTimer?.cancel();
     for (final c in _clipControllers) {
       c.removeListener(_onVideoControllerUpdate);
       c.pause();
@@ -286,6 +363,7 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
 
       if (controller.value.isPlaying) {
         controller.pause();
+        unawaited(StudioMusicPlaybackService.pause());
         setState(() => _playing = false);
       } else {
         if (trimEnd != null && trimEnd > trimStart) {
@@ -298,6 +376,12 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
           }
         }
         controller.play();
+        if (studio.selectedMusic != null) {
+          unawaited(StudioMusicPlaybackService.playForEditor(
+            studio,
+            controller.value.position.inMilliseconds,
+          ));
+        }
         setState(() => _playing = true);
       }
     }
@@ -466,6 +550,20 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
       ReelHelpers.challengeById(_challengeId)!;
 
   String _getDuration(StudioCubit studio) {
+    if (_clipControllers.isNotEmpty) {
+      int totalMs = 0;
+      for (final c in _clipControllers) {
+        if (c.value.isInitialized) {
+          totalMs += c.value.duration.inMilliseconds;
+        }
+      }
+      if (totalMs > 0) {
+        final sec = (totalMs / 1000).round();
+        final m = sec ~/ 60;
+        final s = sec % 60;
+        return '$m:${s.toString().padLeft(2, '0')}';
+      }
+    }
     if (studio.recordedDuration.isNotEmpty && studio.recordedDuration != '0:00') {
       return studio.recordedDuration;
     }
@@ -640,6 +738,9 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
                       filterId: studio.recordingFilter,
                       beautyOn: studio.recordingBeautyOn,
                       beautyIntensity: studio.recordingBeautyIntensity,
+                      isMuted: studio.isMuted,
+                      hasError: !_isVideoInitialized,
+                      onRetry: _initVideoPlayer,
                     ),
                     if (music != null) ...[
                       const SizedBox(height: 8),
@@ -901,22 +1002,31 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
                                                   : '#dance #talent #artable');
 
                                       final targetDraftId = widget.draftId ?? _draft?['id'] as String?;
+                                      final finalCatId = Validators.isRealDatabaseId(selectedCategoryValue)
+                                          ? selectedCategoryValue
+                                          : (Validators.isRealDatabaseId(_categoryId) ? _categoryId : null);
+                                      final finalChalId = Validators.isRealDatabaseId(_challengeId)
+                                          ? _challengeId
+                                          : null;
+
                                       studioCubit.setVideoSubmissionDetails(
                                         title: _titleController.text.trim(),
                                         description:
                                             _descriptionController.text.trim(),
-                                        categoryId: _categoryId,
+                                        categoryId: finalCatId,
                                         hashtags: effectiveHashtags,
-                                        challengeId: _challengeId,
+                                        challengeId: finalChalId,
                                         draftId: targetDraftId,
                                       );
                                       if (mounted) {
                                         final draftQuery = (targetDraftId != null && targetDraftId.isNotEmpty)
                                             ? '&draft=$targetDraftId'
                                             : '';
-                                        router.push(
-                                          '${AppRoutes.studioUpload}?id=$_challengeId$draftQuery',
-                                        );
+                                        final chalParam = finalChalId != null ? 'id=$finalChalId' : '';
+                                        final route = chalParam.isNotEmpty
+                                            ? '${AppRoutes.studioUpload}?$chalParam$draftQuery'
+                                            : '${AppRoutes.studioUpload}${draftQuery.replaceFirst('&', '?')}';
+                                        router.push(route);
                                       }
                                     }
                                   : null,

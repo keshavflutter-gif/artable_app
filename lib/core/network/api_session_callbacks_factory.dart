@@ -10,6 +10,7 @@ ApiSessionCallbacks createApiSessionCallbacks({
   Future<void> Function()? onSessionRefreshFailed,
 }) {
   return ApiSessionCallbacks(
+    getSessionToken: storage.getSessionToken,
     getRefreshToken: storage.getRefreshToken,
     updateSessionTokens: ({
       required String sessionToken,

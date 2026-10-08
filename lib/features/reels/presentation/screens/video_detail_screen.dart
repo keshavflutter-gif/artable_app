@@ -416,10 +416,20 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     );
     final isVerified = reel['verified'] == true || reel['isBlueTick'] == true;
 
+    final targetUserId = reel['userId']?.toString() ??
+        reel['user_id']?.toString() ??
+        reel['creatorId']?.toString() ??
+        (reel['user'] is Map ? (reel['user'] as Map)['id']?.toString() : null) ??
+        creator['id']?.toString();
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: () => context.push('/public-profile?id=${creator['id']}'),
+        onTap: () {
+          if (targetUserId != null && targetUserId.isNotEmpty) {
+            context.push('/public-profile?id=$targetUserId');
+          }
+        },
         borderRadius: BorderRadius.circular(16),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -583,7 +593,18 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
           icon: Icons.share_outlined,
           value: shares,
           label: 'Shares',
-          onTap: () => context.push('${AppRoutes.shareReport}?id=$reelId'),
+          onTap: () {
+            final vUrl = _reel['videoUrl']?.toString() ?? _reel['video_url']?.toString() ?? '';
+            context.push(
+              '${AppRoutes.shareReport}?id=$reelId',
+              extra: {
+                'reelId': reelId,
+                'videoUrl': vUrl,
+                'title': _reel['title']?.toString(),
+                'caption': _reel['caption']?.toString(),
+              },
+            );
+          },
         ),
       ],
     );

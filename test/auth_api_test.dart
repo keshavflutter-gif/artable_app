@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:artable_app/core/network/api_client.dart';
 import 'package:artable_app/core/network/api_config.dart';
+import 'package:artable_app/core/network/api_exception.dart';
 import 'package:artable_app/core/storage/auth_storage_service.dart';
 import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
 import 'package:artable_app/features/auth/data/models/forgot_password_request.dart';
@@ -720,6 +721,37 @@ void main() {
       expect(cubit.isLoggedIn, isFalse);
       expect(cubit.sessionToken, isNull);
       expect(cubit.refreshToken, isNull);
+    });
+
+    test('12. ApiClient extracts specific field validation errors from details array', () async {
+      final mockClient = MockClient((request) async {
+        return http.Response(
+          jsonEncode({
+            "success": false,
+            "message": "Invalid data",
+            "details": [
+              {
+                "path": "password",
+                "message": "password must be min 8 char"
+              }
+            ]
+          }),
+          400,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+
+      final apiClient = ApiClient(client: mockClient);
+      final repo = AuthRepository(apiClient: apiClient);
+
+      try {
+        await repo.login(const LoginRequest(email: 'msd@yopmail.com', password: '123'));
+        fail('Expected ApiException to be thrown');
+      } catch (e) {
+        expect(e, isA<ApiException>());
+        final apiException = e as ApiException;
+        expect(apiException.message, 'password must be min 8 char');
+      }
     });
   });
 }

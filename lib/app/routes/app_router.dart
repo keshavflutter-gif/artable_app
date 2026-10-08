@@ -49,6 +49,7 @@ import 'package:artable_app/features/studio/presentation/screens/studio_music_sc
 import 'package:artable_app/features/studio/presentation/screens/studio_preview_screen.dart';
 import 'package:artable_app/features/studio/presentation/screens/studio_start_screen.dart';
 import 'package:artable_app/features/studio/presentation/screens/studio_success_screen.dart';
+import 'package:artable_app/features/studio/presentation/screens/studio_edit_video_screen.dart';
 import 'package:artable_app/features/studio/presentation/screens/studio_upload_screen.dart';
 import 'package:artable_app/features/wallet/presentation/screens/wallet_screen.dart';
 import 'package:artable_app/features/wallet/presentation/screens/withdrawal_request_screen.dart';
@@ -187,6 +188,7 @@ abstract final class AppRouter {
           path: AppRoutes.studioDrafts,
           builder: (context, state) => StudioDraftsScreen(
             challengeId: state.uri.queryParameters['id'] ?? state.uri.queryParameters['challengeId'],
+            selectForMerge: state.uri.queryParameters['selectForMerge'] == 'true' || state.uri.queryParameters['merge'] == 'true',
           ),
         ),
         GoRoute(
@@ -218,6 +220,13 @@ abstract final class AppRouter {
         GoRoute(
           path: AppRoutes.studioDetails,
           builder: (context, state) => StudioDetailsScreen(
+            challengeId: state.uri.queryParameters['id'],
+            draftId: state.uri.queryParameters['draft'],
+          ),
+        ),
+        GoRoute(
+          path: AppRoutes.studioEditVideo,
+          builder: (context, state) => StudioEditVideoScreen(
             challengeId: state.uri.queryParameters['id'],
             draftId: state.uri.queryParameters['draft'],
           ),
@@ -261,9 +270,17 @@ abstract final class AppRouter {
         ),
         GoRoute(
           path: AppRoutes.shareReport,
-          builder: (context, state) => ShareReportScreen(
-            reelId: state.uri.queryParameters['id'],
-          ),
+          builder: (context, state) {
+            final extraMap = state.extra is Map<String, dynamic>
+                ? state.extra as Map<String, dynamic>
+                : null;
+            return ShareReportScreen(
+              reelId: state.uri.queryParameters['id'] ?? extraMap?['reelId']?.toString(),
+              videoUrl: state.uri.queryParameters['videoUrl'] ?? extraMap?['videoUrl']?.toString(),
+              title: extraMap?['title']?.toString(),
+              caption: extraMap?['caption']?.toString(),
+            );
+          },
         ),
         GoRoute(
           path: AppRoutes.search,

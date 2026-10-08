@@ -63,34 +63,25 @@ class ProfileVideosRepository {
     String? refreshToken,
   }) async {
     final cleanId = videoId.trim();
-    final headers = (sessionToken != null &&
-            sessionToken.isNotEmpty &&
-            refreshToken != null &&
-            refreshToken.isNotEmpty)
+    String? sToken = sessionToken;
+    String? rToken = refreshToken;
+
+    if (sToken == null || sToken.isEmpty || rToken == null || rToken.isEmpty) {
+      sToken = await _storageService.getSessionToken();
+      rToken = await _storageService.getRefreshToken();
+    }
+
+    final headers = (sToken != null && sToken.isNotEmpty && rToken != null && rToken.isNotEmpty)
         ? ApiAuthHeaders.authenticated(
-            sessionToken: sessionToken,
-            refreshToken: refreshToken,
+            sessionToken: sToken,
+            refreshToken: rToken,
           )
         : null;
 
-    try {
-      return await _apiClient.delete(
-        '/app/videos/$cleanId',
-        headers: headers,
-      );
-    } catch (_) {
-      try {
-        return await _apiClient.delete(
-          '/app/profile/videos/$cleanId',
-          headers: headers,
-        );
-      } catch (_) {
-        return await _apiClient.delete(
-          '/app/video/$cleanId',
-          headers: headers,
-        );
-      }
-    }
+    return await _apiClient.delete(
+      '/app/videos/$cleanId',
+      headers: headers,
+    );
   }
 }
 

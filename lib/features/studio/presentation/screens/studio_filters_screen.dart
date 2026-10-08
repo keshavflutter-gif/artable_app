@@ -61,14 +61,22 @@ class _StudioFiltersScreenState extends State<StudioFiltersScreen> {
       body: BlocBuilder<StudioCubit, StudioState>(
         builder: (context, state) {
           final config = state.filtersConfig;
-          final filtersList = config?.filters ??
-              const [
-                StudioFilterItem(key: 'natural', name: 'Natural'),
-                StudioFilterItem(key: 'glow', name: 'Glow'),
-                StudioFilterItem(key: 'warm', name: 'Warm'),
-                StudioFilterItem(key: 'studio', name: 'Studio'),
-                StudioFilterItem(key: 'beauty', name: 'Beauty'),
-              ];
+          final List<StudioFilterItem> filtersList = () {
+            final baseList = (config != null && config.filters.isNotEmpty)
+                ? config.filters
+                : AppFilterUtils.presets
+                    .map((p) => StudioFilterItem(key: p.id, name: p.label))
+                    .toList();
+
+            final existingKeys = baseList.map((f) => f.key.toLowerCase()).toSet();
+            final merged = List<StudioFilterItem>.from(baseList);
+            for (final preset in AppFilterUtils.presets) {
+              if (!existingKeys.contains(preset.id.toLowerCase())) {
+                merged.add(StudioFilterItem(key: preset.id, name: preset.label));
+              }
+            }
+            return merged;
+          }();
 
           final speedsList = config?.speeds.map((s) {
                 final sStr = s.toString();

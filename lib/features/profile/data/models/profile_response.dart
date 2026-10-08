@@ -82,21 +82,28 @@ class ProfileData {
 
 
   factory ProfileData.fromJson(Map<String, dynamic> json) {
-    final userRaw = json['user'];
+    Map<String, dynamic> root = json;
+    if (json['data'] is Map<String, dynamic>) {
+      root = Map<String, dynamic>.from(json['data'] as Map);
+    } else if (json['data'] is Map) {
+      root = Map<String, dynamic>.from(json['data'] as Map);
+    }
+
+    final userRaw = root['user'] ?? root;
     final userObj = userRaw is Map<String, dynamic>
         ? ProfileUser.fromJson(userRaw)
         : userRaw is Map
             ? ProfileUser.fromJson(Map<String, dynamic>.from(userRaw))
             : ProfileUser.empty();
 
-    final statsRaw = json['stats'];
+    final statsRaw = root['stats'] ?? root;
     final statsObj = statsRaw is Map<String, dynamic>
         ? ProfileStats.fromJson(statsRaw)
         : statsRaw is Map
             ? ProfileStats.fromJson(Map<String, dynamic>.from(statsRaw))
             : ProfileStats.empty();
 
-    final statCardsRaw = json['statCards'];
+    final statCardsRaw = root['statCards'];
     final statCardsList = <ProfileStatCard>[];
     if (statCardsRaw is List) {
       for (final item in statCardsRaw) {
@@ -108,7 +115,7 @@ class ProfileData {
       }
     }
 
-    final videosRaw = json['recentVideos'];
+    final videosRaw = root['recentVideos'] ?? root['videos'];
     final videosList = <MyVideoItem>[];
     if (videosRaw is List) {
       for (final item in videosRaw) {
@@ -120,7 +127,7 @@ class ProfileData {
       }
     }
 
-    final badgesRaw = json['badges'];
+    final badgesRaw = root['badges'];
     final badgesList = <ProfileBadgeItem>[];
     if (badgesRaw is List) {
       for (final item in badgesRaw) {
@@ -132,7 +139,7 @@ class ProfileData {
       }
     }
 
-    final tabsRaw = json['tabs'];
+    final tabsRaw = root['tabs'];
     final tabsList = <String>[];
     if (tabsRaw is List) {
       for (final item in tabsRaw) {
@@ -147,9 +154,9 @@ class ProfileData {
       stats: statsObj,
       statCards: statCardsList,
       recentVideos: videosList,
-      recentVideosTitle: json['recentVideosTitle']?.toString() ?? 'Recent Videos',
+      recentVideosTitle: root['recentVideosTitle']?.toString() ?? 'Recent Videos',
       recentVideosSeeAllRoute:
-          json['recentVideosSeeAllRoute']?.toString() ?? '/app/profile/videos',
+          root['recentVideosSeeAllRoute']?.toString() ?? '/app/profile/videos',
       badges: badgesList,
       tabs: tabsList.isNotEmpty ? tabsList : const ['Videos', 'Achievements', 'Stats'],
     );
@@ -196,19 +203,18 @@ class ProfileUser {
 
   factory ProfileUser.fromJson(Map<String, dynamic> json) {
     return ProfileUser(
-      id: json['id']?.toString() ?? '',
-      fullName: json['fullName']?.toString(),
-      username: json['username']?.toString(),
+      id: json['id']?.toString() ?? json['_id']?.toString() ?? '',
+      fullName: json['fullName']?.toString() ?? json['full_name']?.toString() ?? json['name']?.toString(),
+      username: json['username']?.toString() ?? json['user_name']?.toString(),
       email: json['email']?.toString(),
-      profilePhotoUrl: json['profilePhotoUrl']?.toString() ?? json['avatarUrl']?.toString(),
-      coverImageUrl: json['coverImageUrl']?.toString() ?? json['coverUrl']?.toString(),
+      profilePhotoUrl: json['profilePhotoUrl']?.toString() ?? json['profile_photo_url']?.toString() ?? json['avatarUrl']?.toString(),
+      coverImageUrl: json['coverImageUrl']?.toString() ?? json['cover_image_url']?.toString() ?? json['coverUrl']?.toString(),
       bio: json['bio']?.toString(),
       socialLinks: json['socialLinks'],
-      talentCategory: json['talentCategory']?.toString() ?? json['category']?.toString(),
-      role: json['role']?.toString() ?? 'DEFAULT',
-      isBlueTick: json['isBlueTick'] == true,
-      isVerified: json['isVerified'] == true,
-      isPrime: json['isPrime'] == true,
+      talentCategory: json['talentCategory']?.toString() ?? json['talent_category']?.toString() ?? json['category']?.toString(),
+      isBlueTick: json['isBlueTick'] == true || json['is_blue_tick'] == true || json['isBlueTick']?.toString() == 'true',
+      isVerified: json['isVerified'] == true || json['is_verified'] == true || json['isVerified']?.toString() == 'true',
+      isPrime: json['isPrime'] == true || json['is_prime'] == true || json['isPrime']?.toString() == 'true',
     );
   }
 
@@ -251,21 +257,37 @@ class ProfileStats {
   final int following;
 
   factory ProfileStats.fromJson(Map<String, dynamic> json) {
+    num parsedTalentScore = 0;
+    final rawScore = json['talentScore'] ?? json['talent_score'];
+    if (rawScore is num) {
+      parsedTalentScore = rawScore;
+    } else if (rawScore != null) {
+      parsedTalentScore = double.tryParse(rawScore.toString()) ?? 0;
+    }
+
+    num parsedEarnings = 0;
+    final rawEarn = json['rewardEarnings'] ?? json['reward_earnings'];
+    if (rawEarn is num) {
+      parsedEarnings = rawEarn;
+    } else if (rawEarn != null) {
+      parsedEarnings = double.tryParse(rawEarn.toString()) ?? 0;
+    }
+
     return ProfileStats(
       totalVideos: (json['totalVideos'] as num?)?.toInt() ?? 0,
       approvedVideos: (json['approvedVideos'] as num?)?.toInt() ?? 0,
       totalLikes: (json['totalLikes'] as num?)?.toInt() ?? 0,
       totalViews: (json['totalViews'] as num?)?.toInt() ?? 0,
-      talentScore: (json['talentScore'] as num?) ?? 0,
-      wins: (json['wins'] as num?)?.toInt() ?? 0,
+      talentScore: parsedTalentScore,
+      wins: (json['wins'] as num?)?.toInt() ?? (json['challengesWon'] as num?)?.toInt() ?? 0,
       joinedChallenges: (json['joinedChallenges'] as num?)?.toInt() ?? 0,
       topThree: (json['topThree'] as num?)?.toInt() ?? 0,
-      rewardEarnings: (json['rewardEarnings'] as num?) ?? 0,
+      rewardEarnings: parsedEarnings,
       referrals: (json['referrals'] as num?)?.toInt() ?? 0,
       maxVideoLikes: (json['maxVideoLikes'] as num?)?.toInt() ?? 0,
       maxRatingCount: (json['maxRatingCount'] as num?)?.toInt() ?? 0,
-      followers: (json['followers'] as num?)?.toInt() ?? 0,
-      following: (json['following'] as num?)?.toInt() ?? 0,
+      followers: (json['followers'] as num?)?.toInt() ?? (json['followersCount'] as num?)?.toInt() ?? 0,
+      following: (json['following'] as num?)?.toInt() ?? (json['followingCount'] as num?)?.toInt() ?? 0,
     );
   }
 

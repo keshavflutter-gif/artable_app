@@ -31,6 +31,7 @@ class StudioState {
     this.recordingFilter = 'natural',
     this.recordingBeautyOn = false,
     this.recordingBeautyIntensity = 50,
+    this.isMuted = false,
     this.filtersConfig,
     this.isLoadingFilters = false,
     this.studioSetup,
@@ -39,6 +40,7 @@ class StudioState {
     this.saveDraftError,
     this.isLoadingDrafts = false,
     this.mergedClipPaths,
+    this.mergedClipDurations,
     this.activeDraftId,
     List<Map<String, dynamic>>? drafts,
   }) : drafts = drafts ?? const [];
@@ -71,6 +73,7 @@ class StudioState {
   final String recordingFilter;
   final bool recordingBeautyOn;
   final double recordingBeautyIntensity;
+  final bool isMuted;
 
   final StudioFiltersConfig? filtersConfig;
   final bool isLoadingFilters;
@@ -82,6 +85,7 @@ class StudioState {
   final String? saveDraftError;
   final bool isLoadingDrafts;
   final List<String>? mergedClipPaths;
+  final List<double>? mergedClipDurations;
   final String? activeDraftId;
 
   final List<Map<String, dynamic>> drafts;
@@ -96,6 +100,8 @@ class StudioState {
         'videoCropAspectRatio': videoCropAspectRatio,
         'videoTrimStartSeconds': videoTrimStartSeconds,
         'videoTrimEndSeconds': videoTrimEndSeconds,
+        'isMuted': isMuted,
+        'selectedSpeed': selectedSpeed,
       };
 
   StudioState copyWith({
@@ -123,6 +129,7 @@ class StudioState {
     String? recordingFilter,
     bool? recordingBeautyOn,
     double? recordingBeautyIntensity,
+    bool? isMuted,
     StudioFiltersConfig? filtersConfig,
     bool? isLoadingFilters,
     StudioSetupData? studioSetup,
@@ -131,6 +138,7 @@ class StudioState {
     String? saveDraftError,
     bool? isLoadingDrafts,
     List<String>? mergedClipPaths,
+    List<double>? mergedClipDurations,
     String? activeDraftId,
     List<Map<String, dynamic>>? drafts,
     bool clearRecordedVideoPath = false,
@@ -166,6 +174,7 @@ class StudioState {
       recordingFilter: recordingFilter ?? this.recordingFilter,
       recordingBeautyOn: recordingBeautyOn ?? this.recordingBeautyOn,
       recordingBeautyIntensity: recordingBeautyIntensity ?? this.recordingBeautyIntensity,
+      isMuted: isMuted ?? this.isMuted,
       filtersConfig: filtersConfig ?? this.filtersConfig,
       isLoadingFilters: isLoadingFilters ?? this.isLoadingFilters,
       studioSetup: studioSetup ?? this.studioSetup,
@@ -174,6 +183,7 @@ class StudioState {
       saveDraftError: clearSaveDraftError ? null : (saveDraftError ?? this.saveDraftError),
       isLoadingDrafts: isLoadingDrafts ?? this.isLoadingDrafts,
       mergedClipPaths: clearMergedClipPaths ? null : (mergedClipPaths ?? this.mergedClipPaths),
+      mergedClipDurations: clearMergedClipPaths ? null : (mergedClipDurations ?? this.mergedClipDurations),
       activeDraftId: clearActiveDraftId ? null : (activeDraftId ?? this.activeDraftId),
       drafts: drafts ?? this.drafts,
     );

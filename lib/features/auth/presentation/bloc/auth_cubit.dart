@@ -26,6 +26,8 @@ import 'package:artable_app/features/auth/data/models/token_verify_request.dart'
 import 'package:artable_app/features/auth/data/models/token_verify_response.dart';
 import 'package:artable_app/features/auth/data/models/update_profile_request.dart';
 import 'package:artable_app/features/auth/data/models/user_info.dart';
+import 'package:artable_app/features/profile/data/models/follow_response.dart';
+import 'package:artable_app/features/profile/data/repositories/profile_repository.dart';
 import 'package:artable_app/features/auth/data/models/verify_otp_request.dart';
 import 'package:artable_app/features/auth/data/models/verify_otp_response.dart';
 import 'package:artable_app/features/auth/data/repositories/auth_repository.dart';
@@ -59,6 +61,8 @@ class AuthCubit extends Cubit<AuthState> {
   String get coverUrl => state.coverUrl;
   String get avatarUrl => state.avatarUrl;
   dynamic get socialLinks => state.socialLinks;
+  bool get isBlueTick => state.isBlueTick;
+  bool get isVerified => state.isVerified;
   String? get sessionToken => state.sessionToken;
   String? get refreshToken => state.refreshToken;
   String? get userId => state.userId;
@@ -182,12 +186,24 @@ class AuthCubit extends Cubit<AuthState> {
     }
   }
 
-  Future<bool> login(String email, String password) async {
+  Future<bool> login(
+    String email,
+    String password, {
+    String? fcmToken,
+    String? deviceType,
+    String? deviceVersion,
+  }) async {
     emit(state.copyWith(isLoading: true, clearError: true));
 
     try {
       final response = await _authRepository.login(
-        LoginRequest(email: email.trim(), password: password),
+        LoginRequest(
+          email: email.trim(),
+          password: password,
+          deviceType: deviceType ?? 'mobile-app',
+          deviceVersion: deviceVersion ?? '1.0.0',
+          fcmToken: fcmToken,
+        ),
       );
 
       final updatedUser = Map<String, dynamic>.from(state.currentUser);
@@ -218,12 +234,14 @@ class AuthCubit extends Cubit<AuthState> {
 
       return true;
     } on ApiException catch (e) {
+      debugPrint('=== LOGIN API ERROR === ${e.message}');
       emit(state.copyWith(isLoading: false, errorMessage: e.message));
       return false;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('=== LOGIN UNEXPECTED ERROR === $e');
       emit(state.copyWith(
         isLoading: false,
-        errorMessage: 'Unable to log in. Please try again.',
+        errorMessage: 'Unable to log in ($e). Please try again.',
       ));
       return false;
     }
@@ -986,6 +1004,8 @@ class AuthCubit extends Cubit<AuthState> {
     required String bio,
     required String category,
     required String socialLinkUrl,
+    String? profileImagePath,
+    String? coverImagePath,
   }) async {
     if (state.isUpdatingProfile) return false;
 
@@ -998,6 +1018,46 @@ class AuthCubit extends Cubit<AuthState> {
       final trimmedBio = bio.trim();
       final trimmedCategory = category.trim();
 
+      String uploadedProfileUrl = '';
+      if (profileImagePath != null && profileImagePath.trim().isNotEmpty) {
+        final path = profileImagePath.trim();
+        if (path.startsWith('http://') || path.startsWith('https://')) {
+          uploadedProfileUrl = path;
+        } else {
+          try {
+            debugPrint('=== UPLOADING PROFILE PIC === Path: $path, Folder: profile_pic');
+            uploadedProfileUrl = await _authRepository.uploadFile(
+              path,
+              folder: 'profile_pic',
+              sessionToken: state.sessionToken,
+              refreshToken: state.refreshToken,
+            );
+          } catch (e) {
+            debugPrint('Profile pic upload error: $e');
+          }
+        }
+      }
+
+      String uploadedCoverUrl = '';
+      if (coverImagePath != null && coverImagePath.trim().isNotEmpty) {
+        final path = coverImagePath.trim();
+        if (path.startsWith('http://') || path.startsWith('https://')) {
+          uploadedCoverUrl = path;
+        } else {
+          try {
+            debugPrint('=== UPLOADING COVER PIC === Path: $path, Folder: cover_pic');
+            uploadedCoverUrl = await _authRepository.uploadFile(
+              path,
+              folder: 'cover_pic',
+              sessionToken: state.sessionToken,
+              refreshToken: state.refreshToken,
+            );
+          } catch (e) {
+            debugPrint('Cover pic upload error: $e');
+          }
+        }
+      }
+
       final updatedUser = Map<String, dynamic>.from(state.currentUser);
       updatedUser['bio'] = trimmedBio;
       updatedUser['category'] = trimmedCategory;
@@ -1009,6 +1069,12 @@ class AuthCubit extends Cubit<AuthState> {
       updatedUser['initials'] = _initialsFromName(trimmedFullName);
       updatedUser['username'] = username.trim();
       updatedUser['handle'] = '@${username.trim()}';
+      if (uploadedProfileUrl.isNotEmpty) {
+        updatedUser['avatarUrl'] = uploadedProfileUrl;
+      }
+      if (uploadedCoverUrl.isNotEmpty) {
+        updatedUser['coverUrl'] = uploadedCoverUrl;
+      }
 
       final request = UpdateProfileRequest(
         fullName: trimmedFullName,
@@ -1022,6 +1088,8 @@ class AuthCubit extends Cubit<AuthState> {
         bio: trimmedBio,
         category: trimmedCategory,
         socialLinks: socialLinks,
+        profileImage: uploadedProfileUrl,
+        coverImage: uploadedCoverUrl,
       );
 
       final updatedUserFromApi = await _authRepository.updateProfile(
@@ -1040,6 +1108,12 @@ class AuthCubit extends Cubit<AuthState> {
       finalUserMap['fullName'] = trimmedFullName;
       finalUserMap['name'] = trimmedFullName;
       finalUserMap['initials'] = _initialsFromName(trimmedFullName);
+      if (uploadedProfileUrl.isNotEmpty) {
+        finalUserMap['avatarUrl'] = uploadedProfileUrl;
+      }
+      if (uploadedCoverUrl.isNotEmpty) {
+        finalUserMap['coverUrl'] = uploadedCoverUrl;
+      }
 
       fetchUserDetails();
 
@@ -1245,6 +1319,12 @@ class AuthCubit extends Cubit<AuthState> {
     if (userInfo.socialLinks != null) {
       currentUser['socialLinks'] = userInfo.socialLinks;
     }
+    if (userInfo.isBlueTick != null) {
+      currentUser['isBlueTick'] = userInfo.isBlueTick == true;
+    }
+    if (userInfo.isVerified != null) {
+      currentUser['isVerified'] = userInfo.isVerified == true;
+    }
 
     return (currentUser, regName, uid);
   }
@@ -1360,6 +1440,18 @@ class AuthCubit extends Cubit<AuthState> {
       }
     } catch (_) {}
     return null;
+  }
+
+  Future<FollowResponse> toggleFollow(String profileId) async {
+    final repo = ProfileRepository(
+      onTokensRefreshed: applyRefreshedTokens,
+      onSessionRefreshFailed: handleSessionRefreshFailed,
+    );
+    return await repo.toggleFollow(
+      profileId: profileId,
+      sessionToken: state.sessionToken,
+      refreshToken: state.refreshToken,
+    );
   }
 
   static String _initialsFromName(String name) {

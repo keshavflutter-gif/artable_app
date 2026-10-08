@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:artable_app/features/profile/data/models/follow_response.dart';
 import 'package:artable_app/features/profile/data/models/my_videos_response.dart';
 import 'package:artable_app/features/profile/data/models/profile_response.dart';
 import 'package:artable_app/features/profile/data/repositories/profile_repository.dart';
@@ -103,6 +105,17 @@ class ProfileCubit extends Cubit<ProfileState> {
     }
   }
 
+  Future<FollowResponse> toggleFollow(String profileId) async {
+    final token = _authCubit.sessionToken;
+    final refresh = _authCubit.refreshToken;
+
+    return await _profileRepository.toggleFollow(
+      profileId: profileId,
+      sessionToken: (token != null && token != 'design_preview') ? token : null,
+      refreshToken: (refresh != null && refresh != 'design_preview') ? refresh : null,
+    );
+  }
+
   Future<bool> deleteVideo(String videoId) async {
     final token = _authCubit.sessionToken;
     final refresh = _authCubit.refreshToken;
@@ -123,19 +136,14 @@ class ProfileCubit extends Cubit<ProfileState> {
     }
 
     try {
-      if (token != null &&
-          token.isNotEmpty &&
-          token != 'design_preview' &&
-          refresh != null &&
-          refresh.isNotEmpty) {
-        await _profileRepository.deleteVideo(
-          videoId: videoId,
-          sessionToken: token,
-          refreshToken: refresh,
-        );
-      }
+      await _profileRepository.deleteVideo(
+        videoId: videoId,
+        sessionToken: (token != null && token != 'design_preview') ? token : null,
+        refreshToken: (refresh != null && refresh != 'design_preview') ? refresh : null,
+      );
       return true;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Error executing deleteVideo: $e');
       return true;
     }
   }

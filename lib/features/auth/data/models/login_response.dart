@@ -16,17 +16,27 @@ class LoginResponse {
   factory LoginResponse.fromJson(Map<String, dynamic> json) {
     final payload = _resolvePayload(json);
 
+    final tokensMap = payload['tokens'] is Map ? payload['tokens'] as Map : (json['tokens'] is Map ? json['tokens'] as Map : null);
+
     final sessionToken = payload['sessionToken']?.toString() ??
         payload['token']?.toString() ??
         payload['accessToken']?.toString() ??
         payload['access_token']?.toString() ??
+        payload['session_token']?.toString() ??
+        tokensMap?['sessionToken']?.toString() ??
+        tokensMap?['token']?.toString() ??
+        tokensMap?['accessToken']?.toString() ??
         json['sessionToken']?.toString() ??
         json['token']?.toString() ??
         json['accessToken']?.toString() ??
+        json['session_token']?.toString() ??
+        json['access_token']?.toString() ??
         '';
 
     final refreshToken = payload['refreshToken']?.toString() ??
         payload['refresh_token']?.toString() ??
+        tokensMap?['refreshToken']?.toString() ??
+        tokensMap?['refresh_token']?.toString() ??
         json['refreshToken']?.toString() ??
         json['refresh_token']?.toString() ??
         sessionToken;

@@ -236,19 +236,14 @@ class MyVideosCubit extends Cubit<MyVideosState> {
     ));
 
     try {
-      if (token != null &&
-          token.isNotEmpty &&
-          token != 'design_preview' &&
-          refresh != null &&
-          refresh.isNotEmpty) {
-        await _repository.deleteVideo(
-          videoId: videoId,
-          sessionToken: token,
-          refreshToken: refresh,
-        );
-      }
+      await _repository.deleteVideo(
+        videoId: videoId,
+        sessionToken: (token != null && token != 'design_preview') ? token : null,
+        refreshToken: (refresh != null && refresh != 'design_preview') ? refresh : null,
+      );
       return true;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Error executing deleteVideo in MyVideosCubit: $e');
       return true;
     }
   }

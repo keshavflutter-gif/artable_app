@@ -15,6 +15,24 @@ class UserInfo {
     this.socialLinks,
     this.profilePhotoUrl,
     this.coverImageUrl,
+    this.talentScore,
+    this.challengesWon,
+    this.rewardEarnings,
+    this.isBlueTick,
+    this.isVerified,
+    this.isFollowing = false,
+    this.rawJson,
+    this.totalLikes = 0,
+    this.totalViews = 0,
+    this.totalVideos = 0,
+    this.followersCount = 0,
+    this.followingCount = 0,
+    this.topVideo,
+    this.videos = const [],
+    this.badges = const [],
+    this.instagramUrl,
+    this.youtubeUrl,
+    this.websiteUrl,
   });
 
   final String id;
@@ -32,6 +50,24 @@ class UserInfo {
   final List<Map<String, dynamic>>? socialLinks;
   final String? profilePhotoUrl;
   final String? coverImageUrl;
+  final String? talentScore;
+  final int? challengesWon;
+  final String? rewardEarnings;
+  final bool? isBlueTick;
+  final bool? isVerified;
+  final bool isFollowing;
+  final Map<String, dynamic>? rawJson;
+  final int totalLikes;
+  final int totalViews;
+  final int totalVideos;
+  final int followersCount;
+  final int followingCount;
+  final Map<String, dynamic>? topVideo;
+  final List<Map<String, dynamic>> videos;
+  final List<dynamic> badges;
+  final String? instagramUrl;
+  final String? youtubeUrl;
+  final String? websiteUrl;
 
   factory UserInfo.fromJson(Map<String, dynamic> json) {
     String? first = json['firstName']?.toString() ?? json['first_name']?.toString();
@@ -57,6 +93,28 @@ class UserInfo {
         middle ??= parts.sublist(1, parts.length - 1).join(' ');
         last ??= parts.last;
       }
+    }
+
+    Map<String, dynamic>? parsedTopVideo;
+    final topVidRaw = json['topVideo'] ?? json['top_video'];
+    if (topVidRaw is Map) {
+      parsedTopVideo = Map<String, dynamic>.from(topVidRaw);
+    }
+
+    final parsedVideos = <Map<String, dynamic>>[];
+    final videosRaw = json['videos'];
+    if (videosRaw is List) {
+      for (final item in videosRaw) {
+        if (item is Map) {
+          parsedVideos.add(Map<String, dynamic>.from(item));
+        }
+      }
+    }
+
+    final parsedBadges = <dynamic>[];
+    final badgesRaw = json['badges'];
+    if (badgesRaw is List) {
+      parsedBadges.addAll(badgesRaw);
     }
 
     return UserInfo(
@@ -93,7 +151,32 @@ class UserInfo {
           json['cover_image_url']?.toString() ??
           json['coverUrl']?.toString() ??
           json['cover_url']?.toString(),
+      talentScore: json['talentScore']?.toString() ?? json['talent_score']?.toString(),
+      challengesWon: _parseInt(json['challengesWon'] ?? json['challenges_won']),
+      rewardEarnings: json['rewardEarnings']?.toString() ?? json['reward_earnings']?.toString(),
+      isBlueTick: _parseBool(json['isBlueTick'] ?? json['is_blue_tick']),
+      isVerified: _parseBool(json['isVerified'] ?? json['is_verified']),
+      isFollowing: _parseBool(json['isFollowing'] ?? json['is_following'] ?? json['following']),
+      totalLikes: _parseInt(json['totalLikes'] ?? json['total_likes']) ?? 0,
+      totalViews: _parseInt(json['totalViews'] ?? json['total_views']) ?? 0,
+      totalVideos: _parseInt(json['totalVideos'] ?? json['total_videos']) ?? 0,
+      followersCount: _parseInt(json['followersCount'] ?? json['followers_count'] ?? json['followers']) ?? 0,
+      followingCount: _parseInt(json['followingCount'] ?? json['following_count'] ?? json['following']) ?? 0,
+      topVideo: parsedTopVideo,
+      videos: parsedVideos,
+      badges: parsedBadges,
+      instagramUrl: json['instagramUrl']?.toString() ?? json['instagram_url']?.toString(),
+      youtubeUrl: json['youtubeUrl']?.toString() ?? json['youtube_url']?.toString(),
+      websiteUrl: json['websiteUrl']?.toString() ?? json['website_url']?.toString(),
+      rawJson: json,
     );
+  }
+
+  static bool _parseBool(dynamic val) {
+    if (val == null) return false;
+    if (val == true || val == 1) return true;
+    final str = val.toString().trim().toLowerCase();
+    return str == 'true' || str == '1';
   }
 
   factory UserInfo.fromApiResponse(Map<String, dynamic> json) {
@@ -147,6 +230,12 @@ class UserInfo {
     }
 
     return UserInfo.fromJson(combined);
+  }
+
+  static int? _parseInt(dynamic val) {
+    if (val == null) return null;
+    if (val is num) return val.toInt();
+    return int.tryParse(val.toString());
   }
 
   static String? _parseBio(Map<String, dynamic> json) {

@@ -1,3 +1,5 @@
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:artable_app/core/constants/api_constants.dart';
 import 'package:artable_app/core/network/api_auth_headers.dart';
 import 'package:artable_app/core/network/api_client.dart';
@@ -48,12 +50,121 @@ class AuthRepository {
   late final ApiClient _apiClient;
   final AuthStorageService _storageService;
 
+  Future<String> uploadFile(
+    String filePath, {
+    required String folder,
+    String? sessionToken,
+    String? refreshToken,
+  }) async {
+    var clean = filePath.trim();
+    if (clean.startsWith('file://')) {
+      clean = clean.replaceFirst('file://', '');
+    }
+
+    final file = File(clean);
+    if (!await file.exists()) {
+      throw Exception('Local file does not exist at $clean');
+    }
+
+    final fileSize = await file.length();
+    if (fileSize <= 0) {
+      throw Exception('File size is 0 bytes');
+    }
+
+    final rawName = file.path.split(Platform.pathSeparator).last;
+    final ext = rawName.contains('.') ? rawName.split('.').last.toLowerCase() : 'jpg';
+    final fileType = ext == 'png' ? 'image/png' : 'image/jpeg';
+    final fileName = rawName.isNotEmpty
+        ? rawName
+        : 'image_${DateTime.now().millisecondsSinceEpoch}.$ext';
+
+    final effectiveToken = (sessionToken != null && sessionToken.trim().isNotEmpty)
+        ? sessionToken.trim()
+        : await _storageService.getSessionToken();
+    final effectiveRefresh = (refreshToken != null && refreshToken.trim().isNotEmpty)
+        ? refreshToken.trim()
+        : await _storageService.getRefreshToken();
+
+    final headers = ApiAuthHeaders.authenticated(
+      sessionToken: effectiveToken,
+      refreshToken: effectiveRefresh,
+    );
+
+    debugPrint('=== PRESIGNED URL === Requesting presigned URL for $folder: $fileName');
+
+    final presignedRes = await _apiClient.getPresignedUrl(
+      fileName: fileName,
+      fileType: fileType,
+      folder: folder,
+      headers: headers.isNotEmpty ? headers : null,
+    );
+
+    if (presignedRes['success'] != true || presignedRes['data'] is! Map) {
+      final msg = presignedRes['message']?.toString() ??
+          'Failed to get presigned upload URL';
+      debugPrint('=== PRESIGNED URL ERROR === $msg');
+      throw Exception(msg);
+    }
+
+    final data = Map<String, dynamic>.from(presignedRes['data'] as Map);
+    final uploadUrl = data['uploadUrl']?.toString();
+    final fileUrl = data['fileUrl']?.toString();
+    final contentType = data['contentType']?.toString() ?? fileType;
+
+    if (uploadUrl == null || uploadUrl.isEmpty) {
+      throw Exception('Presigned URL response missing uploadUrl');
+    }
+    if (fileUrl == null || fileUrl.isEmpty) {
+      throw Exception('Presigned URL response missing fileUrl');
+    }
+
+    debugPrint('=== STORAGE UPLOAD === Uploading $fileSize bytes to $uploadUrl');
+    final bytes = await file.readAsBytes();
+
+    final uploadSuccess = await _apiClient.uploadFileToPresignedUrl(
+      uploadUrl: uploadUrl,
+      bytes: bytes,
+      contentType: contentType,
+    );
+
+    if (!uploadSuccess) {
+      throw Exception('Storage PUT upload failed for $fileName');
+    }
+
+    debugPrint('=== STORAGE UPLOAD SUCCESS === File uploaded successfully: $fileUrl');
+    return fileUrl;
+  }
+
   Future<LoginResponse> login(LoginRequest request) async {
     final data = await _apiClient.post('/auth/login', body: request.toJson());
     final response = LoginResponse.fromJson(data);
 
+    if (response.sessionToken.isEmpty) {
+      throw ApiException('Login response did not include a valid session token.');
+    }
+
+    await _storageService.saveSession(
+      sessionToken: response.sessionToken,
+      refreshToken: response.refreshToken,
+      userId: response.userInfo?.id,
+      displayName: response.userInfo?.displayName,
+    );
+    await _persistUserProfile(response.userInfo);
+
+    return response;
+  }
+
+  Future<LoginResponse> socialLogin(SocialLoginRequest request) async {
+    final data = await _apiClient.post(
+      ApiConstants.socialLogin,
+      body: request.toJson(),
+    );
+    final response = LoginResponse.fromJson(data);
+
     if (response.sessionToken.isEmpty || response.refreshToken.isEmpty) {
-      throw ApiException('Login response did not include session tokens.');
+      throw ApiException(
+        'Social login response did not include session tokens.',
+      );
     }
 
     await _storageService.saveSession(
@@ -110,24 +221,32 @@ class AuthRepository {
     required String sessionToken,
     required String refreshToken,
   }) async {
-    final headers = ApiAuthHeaders.authenticated(
-      sessionToken: sessionToken,
-      refreshToken: refreshToken,
-    );
+    String? sToken = sessionToken;
+    String? rToken = refreshToken;
+    if (sToken.isEmpty || rToken.isEmpty) {
+      sToken = await _storageService.getSessionToken();
+      rToken = await _storageService.getRefreshToken();
+    }
 
-    Map<String, dynamic> data;
-    try {
-      if (userId.isNotEmpty) {
-        data = await _apiClient.get('/user/$userId', headers: headers);
-      } else {
-        data = await _apiClient.get('/user', headers: headers);
-      }
-    } catch (_) {
-      data = await _apiClient.get('/user', headers: headers);
+    final headers = (sToken != null && sToken.isNotEmpty && rToken != null && rToken.isNotEmpty)
+        ? ApiAuthHeaders.authenticated(
+            sessionToken: sToken,
+            refreshToken: rToken,
+          )
+        : null;
+
+    final String path = userId.isNotEmpty ? '/user/$userId' : '/user';
+    final data = await _apiClient.get(path, headers: headers);
+
+    if (data['data'] == null && data['user'] == null && data['id'] == null && data['_id'] == null) {
+      throw Exception('User details not found for ID: $userId');
     }
 
     final userInfo = UserInfo.fromApiResponse(data);
-    await _persistUserProfile(userInfo);
+    final savedUserId = await _storageService.getUserId();
+    if (userId.isEmpty || userId == savedUserId) {
+      await _persistUserProfile(userInfo);
+    }
     return userInfo;
   }
 

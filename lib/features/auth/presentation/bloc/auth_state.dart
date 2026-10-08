@@ -113,6 +113,8 @@ class AuthState {
   String get coverUrl => (currentUser['coverUrl'] as String?)?.trim() ?? '';
   String get avatarUrl => (currentUser['avatarUrl'] as String?)?.trim() ?? '';
   dynamic get socialLinks => currentUser['socialLinks'];
+  bool get isBlueTick => currentUser['isBlueTick'] == true || currentUser['isVerified'] == true;
+  bool get isVerified => isBlueTick;
 
   AuthState copyWith({
     Map<String, dynamic>? currentUser,

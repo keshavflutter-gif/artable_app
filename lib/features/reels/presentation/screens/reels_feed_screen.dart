@@ -32,6 +32,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
   String? _ratingReelId;
   bool _ratingSuccess = false;
   double _ratingValue = 5;
+  double _playbackSpeed = 1.0;
 
   bool _hasScrolledToInitial = false;
 
@@ -223,6 +224,170 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
     });
   }
 
+  void _openSpeedBottomSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final speedOptions = [0.4, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0];
+            return Container(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+              decoration: BoxDecoration(
+                color: const Color(0xFF140A28),
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+                border: Border.all(color: const Color(0xFF332059)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.6),
+                    blurRadius: 24,
+                    offset: const Offset(0, -4),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.25),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(
+                            Icons.speed,
+                            color: Color(0xFFFF5487),
+                            size: 22,
+                          ),
+                          SizedBox(width: 10),
+                          Text(
+                            'Playback Speed',
+                            style: TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          gradient: AppGradients.button,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          '${_playbackSpeed.toStringAsFixed(1)}x',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: speedOptions.map((speed) {
+                      final isSelected = (_playbackSpeed - speed).abs() < 0.01;
+                      final label = speed == 1.0 ? '1.0x Normal' : '${speed}x';
+                      return ChoiceChip(
+                        label: Text(label),
+                        selected: isSelected,
+                        selectedColor: const Color(0xFFFF5487),
+                        backgroundColor: const Color(0xFF231442),
+                        labelStyle: TextStyle(
+                          color: Colors.white,
+                          fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                          fontSize: 12.5,
+                        ),
+                        side: BorderSide(
+                          color: isSelected
+                              ? const Color(0xFFFF5487)
+                              : Colors.white.withValues(alpha: 0.15),
+                        ),
+                        onSelected: (bool selected) {
+                          if (selected) {
+                            setState(() {
+                              _playbackSpeed = speed;
+                            });
+                            setModalState(() {});
+                          }
+                        },
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 24),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: const [
+                      Text(
+                        '0.4x',
+                        style: TextStyle(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.w600),
+                      ),
+                      Text(
+                        'Adjust Playback Speed (0.4x - 4.0x)',
+                        style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600),
+                      ),
+                      Text(
+                        '4.0x',
+                        style: TextStyle(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
+                  SliderTheme(
+                    data: SliderThemeData(
+                      activeTrackColor: const Color(0xFFFF5487),
+                      inactiveTrackColor: Colors.white.withValues(alpha: 0.15),
+                      thumbColor: Colors.white,
+                      overlayColor: const Color(0xFFFF5487).withValues(alpha: 0.2),
+                      valueIndicatorColor: const Color(0xFFFF5487),
+                      valueIndicatorTextStyle: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    child: Slider(
+                      value: _playbackSpeed.clamp(0.4, 4.0),
+                      min: 0.4,
+                      max: 4.0,
+                      divisions: 36,
+                      label: '${_playbackSpeed.toStringAsFixed(1)}x',
+                      onChanged: (val) {
+                        final rounded = double.parse(val.toStringAsFixed(1));
+                        setState(() {
+                          _playbackSpeed = rounded;
+                        });
+                        setModalState(() {});
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final reelsProvider = context.watch<ReelsCubit>();
@@ -296,6 +461,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
                     videoUrl: videoUrl,
                     thumbnailUrl: imageUrl,
                     isActive: isActive,
+                    playbackSpeed: _playbackSpeed,
                     trimStart: (reel['videoTrimStartSeconds'] as num?)?.toDouble(),
                     trimEnd: (reel['videoTrimEndSeconds'] as num?)?.toDouble(),
                   ),
@@ -440,7 +606,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
                     ),
                   Positioned(
                     right: 14,
-                    bottom: 128,
+                    bottom: 108,
                     child: Column(
                       children: [
                         _ActionBtn(
@@ -451,28 +617,47 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
                               .read<ReelsCubit>()
                               .toggleLike(reelId, fallbackVideo: reel),
                         ),
-                        const SizedBox(height: 18),
+                        const SizedBox(height: 14),
                         _ActionBtn(
                           icon: Icons.chat_bubble_outline,
                           count: commentsText,
                           onTap: () => context
                               .push('${AppRoutes.comments}?id=$reelId'),
                         ),
-                        const SizedBox(height: 18),
+                        const SizedBox(height: 14),
                         _ActionBtn(
                           icon: Icons.star,
                           count: 'Rate',
                           rateStyle: true,
                           onTap: () => _openRating(reelId, reel),
                         ),
-                        const SizedBox(height: 18),
+                        const SizedBox(height: 14),
+                        _ActionBtn(
+                          icon: Icons.speed,
+                          count: _playbackSpeed == 1.0 ? 'Speed' : '${_playbackSpeed.toStringAsFixed(1)}x',
+                          active: _playbackSpeed != 1.0,
+                          onTap: _openSpeedBottomSheet,
+                        ),
+                        const SizedBox(height: 14),
                         _ActionBtn(
                           icon: Icons.share_outlined,
                           count: sharesText,
-                          onTap: () => context
-                              .push('${AppRoutes.shareReport}?id=$reelId'),
+                          onTap: () {
+                            final vUrl = (reel['videoUrl'] as String?)?.isNotEmpty == true && reel['videoUrl'] != 'null'
+                                ? reel['videoUrl'] as String
+                                : '';
+                            context.push(
+                              '${AppRoutes.shareReport}?id=$reelId',
+                              extra: {
+                                'reelId': reelId,
+                                'videoUrl': vUrl,
+                                'title': reel['title']?.toString(),
+                                'caption': reel['caption']?.toString(),
+                              },
+                            );
+                          },
                         ),
-                        const SizedBox(height: 18),
+                        const SizedBox(height: 14),
                         _ActionBtn(
                           icon: saved ? Icons.bookmark : Icons.bookmark_border,
                           count: saved ? 'Saved' : 'Save',
@@ -488,48 +673,53 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
                     left: 16,
                     right: 78,
                     bottom: 26,
-                    child: GestureDetector(
-                      onTap: () => context
-                          .push('${AppRoutes.videoDetail}?id=$reelId'),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          CreatorInfoRow(reel: reel, lightText: true),
-                          if (challengeTitle != null && challengeTitle.isNotEmpty) ...[
-                            const SizedBox(height: 8),
-                            _MetaRow(
-                              icon: Icons.emoji_events_outlined,
-                              text: challengeTitle,
-                            ),
-                          ],
-                          const SizedBox(height: 8),
-                          _MetaRow(
-                            icon: Icons.music_note,
-                            text: soundText,
-                          ),
-                          if ((reel['caption'] as String?)?.isNotEmpty == true ||
-                              (reel['description'] as String?)?.isNotEmpty == true) ...[
-                            const SizedBox(height: 8),
-                            Text(
-                              ((reel['caption'] as String?)?.isNotEmpty == true
-                                      ? reel['caption'] as String
-                                      : reel['description'] as String)
-                                  .replaceAll(RegExp(r'#+'), '#'),
-                              style: TextStyle(
-                                fontSize: 12.5,
-                                height: 1.4,
-                                color: Colors.white.withValues(alpha: 0.92),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        CreatorInfoRow(reel: reel, lightText: true),
+                        GestureDetector(
+                          onTap: () => context
+                              .push('${AppRoutes.videoDetail}?id=$reelId'),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (challengeTitle != null && challengeTitle.isNotEmpty) ...[
+                                const SizedBox(height: 8),
+                                _MetaRow(
+                                  icon: Icons.emoji_events_outlined,
+                                  text: challengeTitle,
+                                ),
+                              ],
+                              const SizedBox(height: 8),
+                              _MetaRow(
+                                icon: Icons.music_note,
+                                text: soundText,
                               ),
-                            ),
-                          ],
-                          const SizedBox(height: 8),
-                          _MetaRow(
-                            icon: Icons.remove_red_eye_outlined,
-                            text: '$viewsText views',
-                            muted: true,
+                              if ((reel['caption'] as String?)?.isNotEmpty == true ||
+                                  (reel['description'] as String?)?.isNotEmpty == true) ...[
+                                const SizedBox(height: 8),
+                                Text(
+                                  ((reel['caption'] as String?)?.isNotEmpty == true
+                                          ? reel['caption'] as String
+                                          : reel['description'] as String)
+                                      .replaceAll(RegExp(r'#+'), '#'),
+                                  style: TextStyle(
+                                    fontSize: 12.5,
+                                    height: 1.4,
+                                    color: Colors.white.withValues(alpha: 0.92),
+                                  ),
+                                ),
+                              ],
+                              const SizedBox(height: 8),
+                              _MetaRow(
+                                icon: Icons.remove_red_eye_outlined,
+                                text: '$viewsText views',
+                                muted: true,
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
@@ -653,6 +843,7 @@ class _ReelVideoPlayer extends StatefulWidget {
     required this.videoUrl,
     required this.thumbnailUrl,
     required this.isActive,
+    this.playbackSpeed = 1.0,
     this.trimStart,
     this.trimEnd,
   });
@@ -660,6 +851,7 @@ class _ReelVideoPlayer extends StatefulWidget {
   final String videoUrl;
   final String thumbnailUrl;
   final bool isActive;
+  final double playbackSpeed;
   final double? trimStart;
   final double? trimEnd;
 
@@ -730,11 +922,18 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer> {
           _initVideo();
         } else if (_isInitialized) {
           _controller!.play();
+          if (widget.playbackSpeed != 1.0) {
+            _controller!.setPlaybackSpeed(widget.playbackSpeed);
+          }
         }
       } else {
         if (_controller != null && _isInitialized) {
           _controller!.pause();
         }
+      }
+    } else if (widget.playbackSpeed != oldWidget.playbackSpeed) {
+      if (_controller != null && _isInitialized) {
+        _controller!.setPlaybackSpeed(widget.playbackSpeed);
       }
     }
   }
@@ -785,6 +984,9 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer> {
       }
       controller.setLooping(true);
       controller.setVolume(1.0);
+      if (widget.playbackSpeed != 1.0) {
+        await controller.setPlaybackSpeed(widget.playbackSpeed);
+      }
       if (widget.isActive) {
         await controller.play();
       }

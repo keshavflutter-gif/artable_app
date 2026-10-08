@@ -18,6 +18,7 @@ import 'package:artable_app/data/datasources/music_api_service.dart';
 import 'package:artable_app/features/studio/data/services/studio_music_playback_service.dart';
 import 'package:artable_app/core/utils/studio_video_player_utils.dart';
 import 'package:artable_app/features/studio/presentation/widgets/song_trimmer_sheet.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 enum _CameraState { idle, recording, recorded }
 
@@ -46,8 +47,7 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
   _CameraState _state = _CameraState.idle;
   bool _flashOn = false;
   bool _timerActive = false;
-  int _speedIdx = 0;
-  final _speeds = ['1x', '1.5x', '2x', '0.5x'];
+  final _speeds = ['0.4x', '0.5x', '0.75x', '1x', '1.5x', '2x', '3x', '4x'];
   late AnimationController _spinController;
   VideoPlayerController? _recordedVideoController;
   bool _recordedVideoReady = false;
@@ -68,6 +68,7 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    unawaited(WakelockPlus.enable());
     _spinController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 400),
@@ -75,6 +76,7 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _studioCubit = context.read<StudioCubit>();
+      _studioCubit?.setMuted(false);
       _studioSubscription = _studioCubit!.stream.listen((_) => _preloadSelectedMusic());
       _preloadSelectedMusic();
     });
@@ -92,6 +94,7 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
 
   @override
   void dispose() {
+    unawaited(WakelockPlus.disable());
     WidgetsBinding.instance.removeObserver(this);
     _studioSubscription?.cancel();
     _timer?.cancel();
@@ -114,8 +117,10 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
     if (controller == null) return;
 
     if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      unawaited(WakelockPlus.disable());
       unawaited(_detachAndDisposeCamera(_cameraController));
     } else if (state == AppLifecycleState.resumed) {
+      unawaited(WakelockPlus.enable());
       _initDeviceCamera();
     }
   }
@@ -258,10 +263,12 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
   }
 
   List<ResolutionPreset> _presetsForCamera(CameraDescription description) {
-    if (description.lensDirection == CameraLensDirection.front) {
-      return [ResolutionPreset.medium, ResolutionPreset.low];
-    }
-    return [ResolutionPreset.high, ResolutionPreset.medium, ResolutionPreset.low];
+    return [
+      ResolutionPreset.veryHigh,
+      ResolutionPreset.high,
+      ResolutionPreset.medium,
+      ResolutionPreset.low,
+    ];
   }
 
   ImageFormatGroup _imageFormatForCamera(CameraDescription description) {
@@ -337,12 +344,13 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
     }
 
     final presets = _presetsForCamera(description);
+    final isAudioMuted = mounted ? context.read<StudioCubit>().isMuted : false;
     for (final preset in presets) {
       try {
         final newController = CameraController(
           description,
           preset,
-          enableAudio: true,
+          enableAudio: !isAudioMuted,
           imageFormatGroup: _imageFormatForCamera(description),
         );
         await newController.initialize().timeout(const Duration(seconds: 6));
@@ -432,7 +440,7 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
     _seconds = 0;
     _secondsNotifier.value = 0;
 
-    if (mounted) {
+    if (mounted && !context.read<StudioCubit>().isMuted) {
       unawaited(
         StudioMusicPlaybackService.playForRecording(context.read<StudioCubit>()),
       );
@@ -531,6 +539,15 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
     }
 
     if (controller != null) {
+      final studio = context.read<StudioCubit>();
+      if (studio.isMuted) {
+        try {
+          await controller.setVolume(0.0);
+        } catch (_) {}
+      }
+      try {
+        await controller.setPlaybackSpeed(studio.speedMultiplier);
+      } catch (_) {}
       setState(() {
         _recordedVideoController = controller;
         _recordedVideoReady = true;
@@ -566,6 +583,7 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
     if (mounted) {
       final studio = context.read<StudioCubit>();
       studio.setRecordedVideoPath(null);
+      studio.setMuted(false);
     }
     try {
       await _cameraController?.resumePreview();
@@ -717,6 +735,138 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
       debugPrint('Flash mode error: $e');
       if (mounted) setState(() => _flashOn = false);
     }
+  }
+
+  void _showSpeedPickerSheet(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF1B0E36),
+      isScrollControlled: true,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (ctx) {
+        final bottomInset = MediaQuery.of(ctx).padding.bottom;
+        final speedsRow1 = _speeds.sublist(0, 4);
+        final speedsRow2 = _speeds.sublist(4, 8);
+
+        return BlocBuilder<StudioCubit, StudioState>(
+          builder: (context, state) {
+            final currentSpeed = state.selectedSpeed;
+
+            Widget buildSpeedBtn(String s) {
+              final isSelected = s == currentSpeed;
+              return Expanded(
+                child: GestureDetector(
+                  onTap: () {
+                    context.read<StudioCubit>().setSpeed(s);
+                    try {
+                      final multiplier = context.read<StudioCubit>().speedMultiplier;
+                      _recordedVideoController?.setPlaybackSpeed(multiplier);
+                    } catch (_) {}
+                    Navigator.of(ctx).pop();
+                  },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    height: 44,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      gradient: isSelected ? AppGradients.button : null,
+                      color: isSelected ? null : Colors.white.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(22),
+                      border: Border.all(
+                        color: isSelected
+                            ? Colors.white.withValues(alpha: 0.8)
+                            : Colors.white.withValues(alpha: 0.18),
+                        width: isSelected ? 1.5 : 1.0,
+                      ),
+                      boxShadow: isSelected
+                          ? [
+                              BoxShadow(
+                                color: const Color(0xFFFF3D77).withValues(alpha: 0.4),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
+                              ),
+                            ]
+                          : null,
+                    ),
+                    child: Text(
+                      s,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }
+
+            return Padding(
+              padding: EdgeInsets.fromLTRB(20, 16, 20, 24 + bottomInset),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 38,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Camera Recording Speed',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      GestureDetector(
+                        onTap: () => Navigator.of(ctx).pop(),
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Colors.white.withValues(alpha: 0.12),
+                          ),
+                          child: const Icon(Icons.close, size: 16, color: Colors.white70),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      for (int i = 0; i < speedsRow1.length; i++) ...[
+                        buildSpeedBtn(speedsRow1[i]),
+                        if (i < speedsRow1.length - 1) const SizedBox(width: 8),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      for (int i = 0; i < speedsRow2.length; i++) ...[
+                        buildSpeedBtn(speedsRow2[i]),
+                        if (i < speedsRow2.length - 1) const SizedBox(width: 8),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   Widget _buildCameraViewfinder() {
@@ -876,9 +1026,16 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        var aspectRatio = readyController.value.aspectRatio;
-        if (constraints.maxHeight > constraints.maxWidth && aspectRatio > 0) {
-          aspectRatio = 1 / aspectRatio;
+        var videoAspectRatio = readyController.value.aspectRatio;
+        final size = readyController.value.size;
+        if (size.width > 0 && size.height > 0) {
+          videoAspectRatio = size.width / size.height;
+        }
+
+        if (constraints.maxHeight > constraints.maxWidth && videoAspectRatio > 1.0) {
+          videoAspectRatio = 1 / videoAspectRatio;
+        } else if (constraints.maxWidth > constraints.maxHeight && videoAspectRatio < 1.0 && videoAspectRatio > 0) {
+          videoAspectRatio = 1 / videoAspectRatio;
         }
 
         return ClipRect(
@@ -888,8 +1045,8 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
               fit: BoxFit.cover,
               child: SizedBox(
                 width: constraints.maxWidth,
-                height: aspectRatio > 0
-                    ? constraints.maxWidth / aspectRatio
+                height: videoAspectRatio > 0
+                    ? constraints.maxWidth / videoAspectRatio
                     : constraints.maxHeight,
                 child: VideoPlayer(readyController),
               ),
@@ -910,22 +1067,37 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
       );
     }
 
-    // Live camera must stay unfiltered — ColorFiltered/RepaintBoundary breaks
-    // Android camera preview on Realme/Oppo/Vivo devices.
-    return _buildCameraViewfinder();
+    final activeFilter = _state == _CameraState.recording
+        ? studioProvider.recordingFilter
+        : studioProvider.selectedFilter;
+    final activeBeautyOn = _state == _CameraState.recording
+        ? studioProvider.recordingBeautyOn
+        : studioProvider.beautyOn;
+    final activeBeautyIntensity = _state == _CameraState.recording
+        ? studioProvider.recordingBeautyIntensity
+        : studioProvider.beautyIntensity;
+
+    return AppFilterUtils.buildFilteredView(
+      filterId: activeFilter,
+      beautyOn: activeBeautyOn,
+      beautyIntensity: activeBeautyIntensity,
+      performanceMode: _state == _CameraState.recording,
+      child: _buildCameraViewfinder(),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final challenge = _challenge;
-    final isFrontCamera = context.select<StudioCubit, bool>((s) => s.isFrontCamera);
+    final studioProvider = context.watch<StudioCubit>();
+    final isFrontCamera = studioProvider.isFrontCamera;
 
     return Scaffold(
       backgroundColor: const Color(0xFF150C2B),
       body: Stack(
         fit: StackFit.expand,
         children: [
-          _buildMainViewfinder(context.read<StudioCubit>()),
+          _buildMainViewfinder(studioProvider),
 
           if (_state == _CameraState.recorded)
             Positioned.fill(
@@ -1039,75 +1211,77 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
                 const SizedBox(height: 10),
 
                 // Selected Music Banner Button (Instagram Style)
-                BlocSelector<StudioCubit, StudioState, (FreeToUseTrack?, String?, int)>(
-                  selector: (studio) => (
-                    studio.selectedTrack,
-                    studio.selectedMusic,
-                    studio.musicCropDuration.toInt(),
-                  ),
-                  builder: (context, musicData) {
-                    final selectedTrack = musicData.$1;
-                    final selectedMusic = musicData.$2;
-                    final cropDuration = musicData.$3;
+                if (_state != _CameraState.recorded) ...[
+                  BlocSelector<StudioCubit, StudioState, (FreeToUseTrack?, String?, int)>(
+                    selector: (studio) => (
+                      studio.selectedTrack,
+                      studio.selectedMusic,
+                      studio.musicCropDuration.toInt(),
+                    ),
+                    builder: (context, musicData) {
+                      final selectedTrack = musicData.$1;
+                      final selectedMusic = musicData.$2;
+                      final cropDuration = musicData.$3;
 
-                    return GestureDetector(
-                      onTap: () {
-                        if (selectedTrack != null) {
-                          SongTrimmerSheet.show(context, track: selectedTrack);
-                        } else {
-                          context.push('${AppRoutes.studioMusic}?id=${challenge['id']}');
-                        }
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.5),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.music_note, size: 14, color: Color(0xFFFF528E)),
-                            const SizedBox(width: 6),
-                            ConstrainedBox(
-                              constraints: const BoxConstraints(maxWidth: 180),
-                              child: Text(
-                                selectedMusic ?? 'Add Music',
-                                style: const TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.white,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            if (selectedTrack != null) ...[
+                      return GestureDetector(
+                        onTap: () {
+                          if (selectedTrack != null) {
+                            SongTrimmerSheet.show(context, track: selectedTrack);
+                          } else {
+                            context.push('${AppRoutes.studioMusic}?id=${challenge['id']}');
+                          }
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.5),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.music_note, size: 14, color: Color(0xFFFF528E)),
                               const SizedBox(width: 6),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                                decoration: BoxDecoration(
-                                  color: AppColors.purple,
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
+                              ConstrainedBox(
+                                constraints: const BoxConstraints(maxWidth: 180),
                                 child: Text(
-                                  '${cropDuration}s',
+                                  selectedMusic ?? 'Add Music',
                                   style: const TextStyle(
-                                    fontSize: 9,
-                                    fontWeight: FontWeight.w800,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
                                     color: Colors.white,
                                   ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ),
+                              if (selectedTrack != null) ...[
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.purple,
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    '${cropDuration}s',
+                                    style: const TextStyle(
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w800,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ],
-                          ],
+                          ),
                         ),
-                      ),
-                    );
-                  },
-                ),
-                const SizedBox(height: 12),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                ],
 
                 // Live Recording Timer Indicator
                 ValueListenableBuilder<int>(
@@ -1143,66 +1317,93 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
                 ),
                 const Spacer(),
 
-                // Side Control Bar
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      // Flip Camera Button — label shows the camera to switch to
-                      _ControlItem(
-                        icon: Icons.cameraswitch,
-                        label: isFrontCamera ? 'Back' : 'Front',
-                        spinning: _isSwitchingCamera ? _spinController : null,
-                        onTap: _state != _CameraState.recorded &&
-                                !_isSwitchingCamera &&
-                                (_cameraController?.value.isInitialized ?? false)
-                            ? () => unawaited(_handleFlipCamera())
-                            : null,
-                      ),
-                      _ControlItem(
-                        icon: _flashOn ? Icons.flash_on : Icons.flash_off,
-                        label: 'Flash',
-                        active: _flashOn,
-                        onTap: _toggleFlash,
-                      ),
-                      _ControlItem(
-                        icon: Icons.timer_outlined,
-                        label: 'Timer',
-                        active: _timerActive,
-                        onTap: () => setState(() => _timerActive = !_timerActive),
-                      ),
-                      _ControlItem(
-                        icon: Icons.auto_awesome,
-                        label: 'Filters',
-                        onTap: _state == _CameraState.recording
-                            ? null
-                            : () => context.push(
-                                  '${AppRoutes.studioFilters}?id=${challenge['id']}',
-                                ),
-                      ),
-                      _ControlItem(
-                        icon: Icons.bolt,
-                        label: _speeds[_speedIdx],
-                        active: _speedIdx != 0,
-                        onTap: () => setState(() {
-                          _speedIdx = (_speedIdx + 1) % _speeds.length;
-                        }),
-                      ),
-                      _ControlItem(
-                        icon: Icons.music_note,
-                        label: 'Music',
-                        active: context.select<StudioCubit, bool>(
-                          (s) => s.selectedTrack != null,
+                // Control Bar (hidden when video is recorded)
+                if (_state != _CameraState.recorded) ...[
+                  BlocBuilder<StudioCubit, StudioState>(
+                    builder: (context, studioState) {
+                      final isMuted = studioState.isMuted;
+                      return SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            // Flip Camera Button
+                            _ControlItem(
+                              icon: Icons.cameraswitch,
+                              label: isFrontCamera ? 'Back' : 'Front',
+                              spinning: _isSwitchingCamera ? _spinController : null,
+                              onTap: !_isSwitchingCamera &&
+                                      (_cameraController?.value.isInitialized ?? false)
+                                  ? () => unawaited(_handleFlipCamera())
+                                  : null,
+                            ),
+                            const SizedBox(width: 14),
+                            _ControlItem(
+                              icon: _flashOn ? Icons.flash_on : Icons.flash_off,
+                              label: 'Flash',
+                              active: _flashOn,
+                              onTap: _toggleFlash,
+                            ),
+                            const SizedBox(width: 14),
+                            // Mute / Unmute Button
+                            _ControlItem(
+                              icon: isMuted ? Icons.volume_off : Icons.volume_up,
+                              label: isMuted ? 'Muted' : 'Mute',
+                              active: isMuted,
+                              onTap: _state == _CameraState.recording
+                                  ? null
+                                  : () async {
+                                      final studio = context.read<StudioCubit>();
+                                      studio.toggleMute();
+                                      if (_cameraController != null &&
+                                          _cameraController!.value.isInitialized) {
+                                        await _setupCameraController(_cameraController!.description);
+                                      }
+                                    },
+                            ),
+                            const SizedBox(width: 14),
+                            _ControlItem(
+                              icon: Icons.timer_outlined,
+                              label: 'Timer',
+                              active: _timerActive,
+                              onTap: () => setState(() => _timerActive = !_timerActive),
+                            ),
+                            const SizedBox(width: 14),
+                            _ControlItem(
+                              icon: Icons.auto_awesome,
+                              label: 'Filters',
+                              onTap: _state == _CameraState.recording
+                                  ? null
+                                  : () => context.push(
+                                        '${AppRoutes.studioFilters}?id=${challenge['id']}',
+                                      ),
+                            ),
+                            const SizedBox(width: 14),
+                            _ControlItem(
+                              icon: Icons.bolt,
+                              label: studioState.selectedSpeed,
+                              active: studioState.selectedSpeed != '1x',
+                              onTap: _state == _CameraState.recording
+                                  ? null
+                                  : () => _showSpeedPickerSheet(context),
+                            ),
+                            const SizedBox(width: 14),
+                            _ControlItem(
+                              icon: Icons.music_note,
+                              label: 'Music',
+                              active: studioState.selectedTrack != null,
+                              onTap: () => context.push(
+                                '${AppRoutes.studioMusic}?id=${challenge['id']}',
+                              ),
+                            ),
+                          ],
                         ),
-                        onTap: () => context.push(
-                          '${AppRoutes.studioMusic}?id=${challenge['id']}',
-                        ),
-                      ),
-                    ],
+                      );
+                    },
                   ),
-                ),
-                const SizedBox(height: 14),
+                  const SizedBox(height: 14),
+                ],
 
                 // Record Shutter Button
                 Padding(
@@ -1352,7 +1553,9 @@ class _LiveCameraPreview extends StatelessWidget {
         if (cameraAspectRatio <= 0 && previewSize != null && previewSize.height > 0) {
           cameraAspectRatio = previewSize.width / previewSize.height;
         }
-        if (constraints.maxHeight > constraints.maxWidth && cameraAspectRatio > 0) {
+        if (constraints.maxHeight > constraints.maxWidth && cameraAspectRatio > 1.0) {
+          cameraAspectRatio = 1 / cameraAspectRatio;
+        } else if (constraints.maxWidth > constraints.maxHeight && cameraAspectRatio < 1.0 && cameraAspectRatio > 0) {
           cameraAspectRatio = 1 / cameraAspectRatio;
         }
 

@@ -8,7 +8,6 @@ import 'package:video_player/video_player.dart';
 import 'package:http/http.dart' as http;
 
 import 'package:artable_app/core/utils/mp4_merger.dart';
-import 'package:artable_app/features/studio/data/services/studio_music_playback_service.dart';
 
 /// Initializes a local recorded video after releasing music/camera audio resources.
 class StudioVideoPlayerUtils {
@@ -23,6 +22,7 @@ class StudioVideoPlayerUtils {
       final mergedFile = File('${tempDir.path}/merged_video_$timestamp.mp4');
 
       final files = <File>[];
+      final tempRemoteFiles = <File>[];
       for (int i = 0; i < inputPaths.length; i++) {
         var clean = inputPaths[i].trim();
         if (clean.startsWith('file://')) clean = clean.replaceFirst('file://', '');
@@ -35,6 +35,7 @@ class StudioVideoPlayerUtils {
               final tempClipFile = File('${tempDir.path}/remote_clip_${timestamp}_$i.mp4');
               await tempClipFile.writeAsBytes(response.bodyBytes);
               files.add(tempClipFile);
+              tempRemoteFiles.add(tempClipFile);
               debugPrint('Downloaded remote clip $i to ${tempClipFile.path} (${response.bodyBytes.length} bytes)');
             } else {
               debugPrint('Failed downloading remote clip $i: status ${response.statusCode}');
@@ -50,18 +51,25 @@ class StudioVideoPlayerUtils {
         }
       }
 
+      File? mergedResult;
       if (files.length == 1) {
         await files.first.copy(mergedFile.path);
-        return mergedFile;
-      }
-
-      if (files.isNotEmpty) {
+        mergedResult = mergedFile;
+      } else if (files.isNotEmpty) {
         final result = await Mp4Merger.mergeMp4Files(files, mergedFile);
         if (result != null && await result.exists() && (await result.length()) > 0) {
           debugPrint('Combined ${files.length} video files using Mp4Merger into ${mergedFile.path}');
-          return result;
+          mergedResult = result;
         }
       }
+
+      for (final tempF in tempRemoteFiles) {
+        try {
+          if (await tempF.exists()) await tempF.delete();
+        } catch (_) {}
+      }
+
+      return mergedResult;
     } catch (e) {
       debugPrint('Error combining video files with Mp4Merger: $e');
     }
@@ -100,8 +108,6 @@ class StudioVideoPlayerUtils {
     bool autoPlay = true,
     bool loop = true,
   }) async {
-    await StudioMusicPlaybackService.releaseForVideoPlayback();
-
     var cleanPath = path.trim();
     if (cleanPath.startsWith('file://')) {
       cleanPath = cleanPath.replaceFirst('file://', '');

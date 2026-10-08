@@ -173,6 +173,10 @@ class Mp4Merger {
       }
 
       if (metas.isEmpty) return null;
+      if (metas.length < files.length) {
+        debugPrint('Mp4Merger parsed only ${metas.length} of ${files.length} files. Cannot merge.');
+        return null;
+      }
       if (metas.length == 1) {
         await outputFile.writeAsBytes(metas.first.bytes);
         return outputFile;
@@ -211,9 +215,8 @@ class Mp4Merger {
 
       final modifiedMoovBytes = _mergeMoovBoxes(metas, newMdatPayloadOffset);
       if (modifiedMoovBytes == null) {
-        debugPrint('Moov merge returned null, falling back to copy first file');
-        await files.first.copy(outputFile.path);
-        return outputFile;
+        debugPrint('Moov merge returned null, merge failed');
+        return null;
       }
 
       final outBuilder = BytesBuilder();

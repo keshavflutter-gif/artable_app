@@ -8,6 +8,7 @@ import 'package:artable_app/app/theme/app_text_styles.dart';
 import 'package:artable_app/core/widgets/app_back_header.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
 import 'package:artable_app/data/datasources/mock_data.dart';
+import 'package:artable_app/core/utils/video_share_helper.dart';
 
 class InviteFriendsScreen extends StatefulWidget {
   const InviteFriendsScreen({super.key});
@@ -34,11 +35,18 @@ class _InviteFriendsScreenState extends State<InviteFriendsScreen> {
   }
 
   void _onShareOptionTap(String label) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Sharing via $label...'),
-        duration: const Duration(seconds: 2),
-      ),
+    final optionId = switch (label.toLowerCase()) {
+      'whatsapp' => 'whatsapp',
+      'sms' => 'sms',
+      'email' => 'email',
+      _ => 'social',
+    };
+    VideoShareHelper.shareVideo(
+      context: context,
+      optionId: optionId,
+      videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
+      title: 'Join me on Artable!',
+      caption: 'Use my referral code ART100 to join Artable and earn rewards!',
     );
   }
 

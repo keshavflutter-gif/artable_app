@@ -1,6 +1,8 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_gradients.dart';
@@ -24,6 +26,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late final TextEditingController _social;
   String _coverUrl = '';
   String _avatarUrl = '';
+  String? _localCoverPath;
+  String? _localAvatarPath;
   var _saved = false;
 
   @override
@@ -55,6 +59,44 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadUserProfile();
     });
+  }
+
+  Future<void> _pickCoverImage() async {
+    try {
+      final picker = ImagePicker();
+      final picked = await picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1920,
+        maxHeight: 1080,
+        imageQuality: 85,
+      );
+      if (picked != null) {
+        setState(() {
+          _localCoverPath = picked.path;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error picking cover image: $e');
+    }
+  }
+
+  Future<void> _pickAvatarImage() async {
+    try {
+      final picker = ImagePicker();
+      final picked = await picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1024,
+        maxHeight: 1024,
+        imageQuality: 85,
+      );
+      if (picked != null) {
+        setState(() {
+          _localAvatarPath = picked.path;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error picking avatar image: $e');
+    }
   }
 
   Future<void> _loadUserProfile() async {
@@ -159,6 +201,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       bio: bio,
       category: category,
       socialLinkUrl: social,
+      profileImagePath: _localAvatarPath ?? _avatarUrl,
+      coverImagePath: _localCoverPath ?? _coverUrl,
     );
     if (!mounted) return;
 
@@ -206,7 +250,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
                     // 1. Cover Photo & Centered Overlapping Avatar Header
                     _buildCoverAndAvatarHeader(_coverUrl, _avatarUrl),
-                    const SizedBox(height: 52),
+                    const SizedBox(height: 12),
 
                     // 2. BASIC INFO Card
                     _buildSectionCard(
@@ -365,113 +409,149 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   // --- 1. Cover Photo & Avatar Header Widget ---
   Widget _buildCoverAndAvatarHeader(String coverUrl, String avatarUrl) {
-    return Stack(
-      clipBehavior: Clip.none,
-      alignment: Alignment.bottomCenter,
-      children: [
-        // Cover Photo Banner
-        ClipRRect(
-          borderRadius: BorderRadius.circular(20),
-          child: Stack(
-            children: [
-              AppImage(
-                url: coverUrl,
-                height: 125, // Adjusted to match Figma ratio
-                width: double.infinity,
-                fit: BoxFit.cover,
-              ),
-              Positioned(
-                right: 12,
-                bottom: 12,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.45),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.photo_camera_outlined, color: Colors.white, size: 13),
-                      SizedBox(width: 5),
-                      Text(
-                        'Change Cover',
-                        style: TextStyle(
-                          fontFamily: 'Inter',
-                          color: Colors.white,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
+    final hasLocalCover = _localCoverPath != null && File(_localCoverPath!).existsSync();
+    final hasLocalAvatar = _localAvatarPath != null && File(_localAvatarPath!).existsSync();
+
+    return SizedBox(
+      height: 165,
+      child: Stack(
+        clipBehavior: Clip.none,
+        alignment: Alignment.topCenter,
+        children: [
+          // Cover Photo Banner (height: 125)
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 125,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _pickCoverImage,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(20),
+                child: Stack(
+                  children: [
+                    if (hasLocalCover)
+                      Image.file(
+                        File(_localCoverPath!),
+                        height: 125,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                      )
+                    else
+                      AppImage(
+                        url: coverUrl,
+                        height: 125,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                      ),
+                    Positioned(
+                      right: 12,
+                      bottom: 12,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.45),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.photo_camera_outlined, color: Colors.white, size: 13),
+                            SizedBox(width: 5),
+                            Text(
+                              'Change Cover',
+                              style: TextStyle(
+                                fontFamily: 'Inter',
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-
-        // Centered Overlapping Avatar with Camera Change Badge
-        Positioned(
-          bottom: -40,
-          child: Stack(
-            children: [
-              Container(
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 4.5),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF5E2EAA).withValues(alpha: 0.15),
-                      blurRadius: 20,
-                      offset: const Offset(0, 8),
                     ),
                   ],
                 ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(40),
-                  child: AppImage(
-                    url: avatarUrl,
-                    width: 80, // Size 80
-                    height: 80,
-                    fit: BoxFit.cover,
-                  ),
-                ),
               ),
+            ),
+          ),
 
-              // Camera Icon Badge on Bottom-Right of Avatar
-              Positioned(
-                right: 0,
-                bottom: 0,
-                child: Container(
-                  width: 28,
-                  height: 28,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: const LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        Color(0xFFFF3D77),
-                        Color(0xFF8B3DFF),
+          // Centered Overlapping Avatar with Camera Change Badge (bottom: 0)
+          Positioned(
+            bottom: 0,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _pickAvatarImage,
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Container(
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 4.5),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF5E2EAA).withValues(alpha: 0.15),
+                          blurRadius: 20,
+                          offset: const Offset(0, 8),
+                        ),
                       ],
                     ),
-                    border: Border.all(color: Colors.white, width: 2.2),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFFFF3D77).withValues(alpha: 0.38),
-                        blurRadius: 8,
-                        offset: const Offset(0, 3),
-                      ),
-                    ],
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(40),
+                      child: hasLocalAvatar
+                          ? Image.file(
+                              File(_localAvatarPath!),
+                              width: 80,
+                              height: 80,
+                              fit: BoxFit.cover,
+                            )
+                          : AppImage(
+                              url: avatarUrl,
+                              width: 80,
+                              height: 80,
+                              fit: BoxFit.cover,
+                            ),
+                    ),
                   ),
-                  child: const Icon(Icons.camera_alt_rounded, color: Colors.white, size: 13),
-                ),
+
+                  // Camera Icon Badge on Bottom-Right of Avatar
+                  Positioned(
+                    right: 0,
+                    bottom: 0,
+                    child: Container(
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: const LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            Color(0xFFFF3D77),
+                            Color(0xFF8B3DFF),
+                          ],
+                        ),
+                        border: Border.all(color: Colors.white, width: 2.2),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFFFF3D77).withValues(alpha: 0.38),
+                            blurRadius: 8,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(Icons.camera_alt_rounded, color: Colors.white, size: 13),
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
