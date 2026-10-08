@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -48,6 +49,7 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
   final List<VideoPlayerController> _clipControllers = [];
   int _currentClipIndex = 0;
   bool _isSwitchingClip = false;
+  Timer? _playbackTimer;
 
   Map<String, dynamic>? get _draft {
     if (widget.draftId == null) return null;
@@ -130,6 +132,8 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
     final studio = context.read<StudioCubit>();
     final draft = _draft;
 
+    _playbackTimer?.cancel();
+
     if (draft != null && draft['mergedClipPaths'] is List && (draft['mergedClipPaths'] as List).isNotEmpty) {
       _mergedClipPaths = List<String>.from(draft['mergedClipPaths'] as List);
     } else if (studio.state.mergedClipPaths != null && studio.state.mergedClipPaths!.isNotEmpty) {
@@ -156,47 +160,17 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
     debugPrint('VIDEO DETAILS PATH: $path');
     debugPrint('VIDEO DETAILS MERGED CLIPS COUNT: ${_mergedClipPaths.length}');
 
-    // 1. If multi-clip playlist is present (e.g. 3 clips), load all clip controllers for continuous sequential playback
-    if (_mergedClipPaths.length > 1) {
-      debugPrint('StudioDetailsScreen loading multi-clip playlist: ${_mergedClipPaths.length} clips');
-
-      for (final p in _mergedClipPaths) {
-        try {
-          final c = await StudioVideoPlayerUtils.initializeClipController(p, autoPlay: false, loop: false);
-          if (c != null) {
-            c.setVolume(studio.isMuted ? 0.0 : 1.0);
-            _clipControllers.add(c);
-          }
-        } catch (e) {
-          debugPrint('Error preloading clip $p: $e');
-        }
-      }
-
-      if (_clipControllers.isNotEmpty) {
-        _currentClipIndex = 0;
-        final firstController = _clipControllers.first;
-        firstController.addListener(_onVideoControllerUpdate);
-        await firstController.play();
-        if (mounted) {
-          setState(() {
-            _videoController = firstController;
-            _isVideoInitialized = true;
-            _playing = true;
-          });
-          if (studio.selectedMusic != null) {
-            unawaited(StudioMusicPlaybackService.playForEditor(
-              studio,
-              firstController.value.position.inMilliseconds,
-            ));
-          }
-        }
-        return;
+    // 1. Single merged video file (if recordedVideoPath / draft path exists)
+    bool hasSingleMergedFile = false;
+    if (path != null && path.trim().isNotEmpty) {
+      final clean = path.replaceFirst('file://', '').trim();
+      if (clean.startsWith('http') || File(clean).existsSync()) {
+        hasSingleMergedFile = true;
       }
     }
 
-    // 2. Single video file fallback (if 1 clip)
-    if (path != null && path.trim().isNotEmpty) {
-      debugPrint('StudioDetailsScreen initializing single recorded video: $path');
+    if (hasSingleMergedFile && path != null) {
+      debugPrint('StudioDetailsScreen initializing merged recorded video: $path');
       final controller = await StudioVideoPlayerUtils.initializeRecordedVideo(path);
       if (mounted && controller != null) {
         controller.setVolume(studio.isMuted ? 0.0 : 1.0);
@@ -224,11 +198,76 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
       }
     }
 
+    // 2. Multi-clip playlist fallback (if merged file not found)
+    if (_mergedClipPaths.length > 1) {
+      debugPrint('StudioDetailsScreen loading multi-clip playlist: ${_mergedClipPaths.length} clips');
+
+      for (final p in _mergedClipPaths) {
+        try {
+          final c = await StudioVideoPlayerUtils.initializeClipController(p, autoPlay: false, loop: false);
+          if (c != null && c.value.isInitialized) {
+            c.setVolume(studio.isMuted ? 0.0 : 1.0);
+            _clipControllers.add(c);
+          }
+        } catch (e) {
+          debugPrint('Error preloading clip $p: $e');
+        }
+      }
+
+      if (_clipControllers.isNotEmpty) {
+        _currentClipIndex = 0;
+        final firstController = _clipControllers.first;
+        firstController.addListener(_onVideoControllerUpdate);
+        await firstController.play();
+        if (mounted) {
+          setState(() {
+            _videoController = firstController;
+            _isVideoInitialized = true;
+            _playing = true;
+          });
+          _startPlaybackTimer();
+          if (studio.selectedMusic != null) {
+            unawaited(StudioMusicPlaybackService.playForEditor(
+              studio,
+              firstController.value.position.inMilliseconds,
+            ));
+          }
+        }
+        return;
+      }
+    }
+
     if (mounted) {
       setState(() {
         _isVideoInitialized = false;
         _playing = false;
       });
+    }
+  }
+
+  void _startPlaybackTimer() {
+    _playbackTimer?.cancel();
+    _playbackTimer = Timer.periodic(const Duration(milliseconds: 40), (_) {
+      if (!mounted) return;
+      _tickPlayback();
+    });
+  }
+
+  void _tickPlayback() {
+    if (!_playing || _isSwitchingClip || _clipControllers.isEmpty) return;
+    final controller = _videoController;
+    if (controller != null && controller.value.isInitialized) {
+      final posMs = controller.value.position.inMilliseconds;
+      final durMs = controller.value.duration.inMilliseconds;
+
+      final studio = context.read<StudioCubit>();
+      if (studio.selectedMusic != null) {
+        unawaited(StudioMusicPlaybackService.checkAndSyncPosition(posMs));
+      }
+
+      if (durMs > 0 && posMs >= durMs - 150) {
+        _advanceToNextMergedClip();
+      }
     }
   }
 
@@ -241,20 +280,14 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
       setState(() => _playing = isPlaying);
     }
 
-    final studio = context.read<StudioCubit>();
-    final posMs = controller.value.position.inMilliseconds;
+    if (_clipControllers.isEmpty) {
+      final studio = context.read<StudioCubit>();
+      final posMs = controller.value.position.inMilliseconds;
 
-    if (isPlaying && studio.selectedMusic != null) {
-      unawaited(StudioMusicPlaybackService.checkAndSyncPosition(posMs));
-    }
-
-    if (_clipControllers.isNotEmpty) {
-      final durMs = controller.value.duration.inMilliseconds;
-      if (durMs > 0 && posMs >= durMs - 250) {
-        _advanceToNextMergedClip();
-        return;
+      if (isPlaying && studio.selectedMusic != null) {
+        unawaited(StudioMusicPlaybackService.checkAndSyncPosition(posMs));
       }
-    } else {
+
       final trimStart = studio.state.videoTrimStartSeconds;
       final trimEnd = studio.state.videoTrimEndSeconds;
 
@@ -281,14 +314,12 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
 
     try {
       final oldController = _videoController;
-      oldController?.removeListener(_onVideoControllerUpdate);
       await oldController?.pause();
 
       _currentClipIndex = (_currentClipIndex + 1) % _clipControllers.length;
       final nextController = _clipControllers[_currentClipIndex];
 
       await nextController.seekTo(Duration.zero);
-      nextController.addListener(_onVideoControllerUpdate);
       await nextController.play();
 
       if (mounted) {
@@ -307,6 +338,7 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
 
   @override
   void dispose() {
+    _playbackTimer?.cancel();
     for (final c in _clipControllers) {
       c.removeListener(_onVideoControllerUpdate);
       c.pause();
@@ -518,6 +550,20 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
       ReelHelpers.challengeById(_challengeId)!;
 
   String _getDuration(StudioCubit studio) {
+    if (_clipControllers.isNotEmpty) {
+      int totalMs = 0;
+      for (final c in _clipControllers) {
+        if (c.value.isInitialized) {
+          totalMs += c.value.duration.inMilliseconds;
+        }
+      }
+      if (totalMs > 0) {
+        final sec = (totalMs / 1000).round();
+        final m = sec ~/ 60;
+        final s = sec % 60;
+        return '$m:${s.toString().padLeft(2, '0')}';
+      }
+    }
     if (studio.recordedDuration.isNotEmpty && studio.recordedDuration != '0:00') {
       return studio.recordedDuration;
     }

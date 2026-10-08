@@ -173,6 +173,10 @@ class Mp4Merger {
       }
 
       if (metas.isEmpty) return null;
+      if (metas.length < files.length) {
+        debugPrint('Mp4Merger parsed only ${metas.length} of ${files.length} files. Cannot merge.');
+        return null;
+      }
       if (metas.length == 1) {
         await outputFile.writeAsBytes(metas.first.bytes);
         return outputFile;
