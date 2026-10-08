@@ -41,6 +41,7 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
   final _hashtagsController = TextEditingController();
   VideoPlayerController? _videoController;
   bool _isVideoInitialized = false;
+  bool _videoError = false;
   bool _confirmed = false;
   bool _playing = false;
   late String _categoryId;
@@ -122,7 +123,14 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
       );
       final path = draft['videoPath']?.toString();
       if (path != null && path.isNotEmpty) {
-        studio.setRecordedVideoPath(path);
+        final draftClips = draft['mergedClipPaths'] is List
+            ? List<String>.from(draft['mergedClipPaths'] as List)
+            : <String>[];
+        studio.setRecordedVideoPath(
+          path,
+          mergedClipPaths: draftClips.isNotEmpty ? draftClips : null,
+          clearMergedClips: draftClips.isEmpty,
+        );
       }
     }
     _initVideoPlayer();
@@ -133,6 +141,13 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
     final draft = _draft;
 
     _playbackTimer?.cancel();
+    if (mounted) {
+      setState(() {
+        _isVideoInitialized = false;
+        _videoError = false;
+        _playing = false;
+      });
+    }
 
     if (draft != null && draft['mergedClipPaths'] is List && (draft['mergedClipPaths'] as List).isNotEmpty) {
       _mergedClipPaths = List<String>.from(draft['mergedClipPaths'] as List);
@@ -160,7 +175,13 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
     debugPrint('VIDEO DETAILS PATH: $path');
     debugPrint('VIDEO DETAILS MERGED CLIPS COUNT: ${_mergedClipPaths.length}');
 
-    // 1. Single merged video file (if recordedVideoPath / draft path exists)
+    // 1. Prefer clip playlist when multiple clips exist (Mp4Merger often unplayable).
+    if (_mergedClipPaths.length > 1) {
+      final loaded = await _loadClipPlaylist(studio);
+      if (loaded) return;
+    }
+
+    // 2. Single recorded / merged file
     bool hasSingleMergedFile = false;
     if (path != null && path.trim().isNotEmpty) {
       final clean = path.replaceFirst('file://', '').trim();
@@ -170,9 +191,13 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
     }
 
     if (hasSingleMergedFile && path != null) {
-      debugPrint('StudioDetailsScreen initializing merged recorded video: $path');
-      final controller = await StudioVideoPlayerUtils.initializeRecordedVideo(path);
-      if (mounted && controller != null) {
+      debugPrint('StudioDetailsScreen initializing recorded video: $path');
+      final controller = await StudioVideoPlayerUtils.initializeRecordedVideo(
+        path,
+        autoPlay: false,
+        loop: false,
+      );
+      if (mounted && controller != null && controller.value.isInitialized) {
         controller.setVolume(studio.isMuted ? 0.0 : 1.0);
         try {
           await controller.setPlaybackSpeed(studio.speedMultiplier);
@@ -182,13 +207,15 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
         if (trimStart > 0) {
           await controller.seekTo(Duration(milliseconds: (trimStart * 1000).round()));
         }
+        await controller.play();
         setState(() {
           _videoController = controller;
           _isVideoInitialized = true;
-          _playing = controller.value.isPlaying;
+          _videoError = false;
+          _playing = true;
         });
 
-        if (studio.selectedMusic != null && _playing) {
+        if (studio.selectedMusic != null) {
           unawaited(StudioMusicPlaybackService.playForEditor(
             studio,
             controller.value.position.inMilliseconds,
@@ -196,53 +223,68 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
         }
         return;
       }
+      debugPrint('Single file init failed — trying clip list fallback');
     }
 
-    // 2. Multi-clip playlist fallback (if merged file not found)
-    if (_mergedClipPaths.length > 1) {
-      debugPrint('StudioDetailsScreen loading multi-clip playlist: ${_mergedClipPaths.length} clips');
-
-      for (final p in _mergedClipPaths) {
-        try {
-          final c = await StudioVideoPlayerUtils.initializeClipController(p, autoPlay: false, loop: false);
-          if (c != null && c.value.isInitialized) {
-            c.setVolume(studio.isMuted ? 0.0 : 1.0);
-            _clipControllers.add(c);
-          }
-        } catch (e) {
-          debugPrint('Error preloading clip $p: $e');
-        }
-      }
-
-      if (_clipControllers.isNotEmpty) {
-        _currentClipIndex = 0;
-        final firstController = _clipControllers.first;
-        firstController.addListener(_onVideoControllerUpdate);
-        await firstController.play();
-        if (mounted) {
-          setState(() {
-            _videoController = firstController;
-            _isVideoInitialized = true;
-            _playing = true;
-          });
-          _startPlaybackTimer();
-          if (studio.selectedMusic != null) {
-            unawaited(StudioMusicPlaybackService.playForEditor(
-              studio,
-              firstController.value.position.inMilliseconds,
-            ));
-          }
-        }
-        return;
-      }
+    // 3. Any remaining clip path(s) as last resort
+    if (_mergedClipPaths.isNotEmpty) {
+      final loaded = await _loadClipPlaylist(studio);
+      if (loaded) return;
     }
 
     if (mounted) {
       setState(() {
         _isVideoInitialized = false;
+        _videoError = true;
         _playing = false;
       });
     }
+  }
+
+  Future<bool> _loadClipPlaylist(StudioCubit studio) async {
+    debugPrint(
+      'StudioDetailsScreen loading clip playlist: ${_mergedClipPaths.length} clips',
+    );
+
+    for (final p in _mergedClipPaths) {
+      try {
+        final c = await StudioVideoPlayerUtils.initializeClipController(
+          p,
+          autoPlay: false,
+          loop: false,
+        );
+        if (c != null && c.value.isInitialized) {
+          c.setVolume(studio.isMuted ? 0.0 : 1.0);
+          try {
+            await c.setPlaybackSpeed(studio.speedMultiplier);
+          } catch (_) {}
+          _clipControllers.add(c);
+        }
+      } catch (e) {
+        debugPrint('Error preloading clip $p: $e');
+      }
+    }
+
+    if (_clipControllers.isEmpty || !mounted) return false;
+
+    _currentClipIndex = 0;
+    final firstController = _clipControllers.first;
+    firstController.addListener(_onVideoControllerUpdate);
+    await firstController.play();
+    setState(() {
+      _videoController = firstController;
+      _isVideoInitialized = true;
+      _videoError = false;
+      _playing = true;
+    });
+    _startPlaybackTimer();
+    if (studio.selectedMusic != null) {
+      unawaited(StudioMusicPlaybackService.playForEditor(
+        studio,
+        firstController.value.position.inMilliseconds,
+      ));
+    }
+    return true;
   }
 
   void _startPlaybackTimer() {
@@ -739,7 +781,7 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
                       beautyOn: studio.recordingBeautyOn,
                       beautyIntensity: studio.recordingBeautyIntensity,
                       isMuted: studio.isMuted,
-                      hasError: !_isVideoInitialized,
+                      hasError: _videoError,
                       onRetry: _initVideoPlayer,
                     ),
                     if (music != null) ...[

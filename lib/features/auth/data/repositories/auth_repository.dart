@@ -178,30 +178,6 @@ class AuthRepository {
     return response;
   }
 
-  Future<LoginResponse> socialLogin(SocialLoginRequest request) async {
-    final data = await _apiClient.post(
-      ApiConstants.socialLogin,
-      body: request.toJson(),
-    );
-    final response = LoginResponse.fromJson(data);
-
-    if (response.sessionToken.isEmpty || response.refreshToken.isEmpty) {
-      throw ApiException(
-        'Social login response did not include session tokens.',
-      );
-    }
-
-    await _storageService.saveSession(
-      sessionToken: response.sessionToken,
-      refreshToken: response.refreshToken,
-      userId: response.userInfo?.id,
-      displayName: response.userInfo?.displayName,
-    );
-    await _persistUserProfile(response.userInfo);
-
-    return response;
-  }
-
   Future<void> saveSocialSession({
     required String sessionToken,
     required String refreshToken,

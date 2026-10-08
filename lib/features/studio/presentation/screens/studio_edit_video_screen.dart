@@ -267,8 +267,12 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
         setState(() => _globalPositionMs = newGlobal);
       }
 
-      // Auto-advance only when current clip reaches its trimEnd
-      if (_playing && !_isSwitchingClip && posMs >= trimEndMs) {
+      // Auto-advance near trimEnd (tolerance) or when player hits natural EOS.
+      final nearEnd = posMs >= trimEndMs - 200;
+      final naturalEos = !controller.value.isPlaying &&
+          posMs >= trimEndMs - 250 &&
+          posMs > trimStartMs;
+      if (_playing && !_isSwitchingClip && (nearEnd || naturalEos)) {
         _advanceToNextClip();
       }
     }
@@ -390,7 +394,16 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
       if (activeController != null) {
         final posMs = activeController.value.position.inMilliseconds;
         final trimEndMs = activeClip.trimEnd.inMilliseconds;
-        if (posMs >= trimEndMs - 50) {
+        // If current clip already finished, continue to next (or restart this clip).
+        if (posMs >= trimEndMs - 200) {
+          if (_activePlayingIndex < clips.length - 1) {
+            if (mounted) setState(() => _playing = true);
+            await _advanceToNextClip();
+            if (studio.selectedMusic != null || studio.selectedTrack != null) {
+              await StudioMusicPlaybackService.playForEditor(studio, _globalPositionMs);
+            }
+            return;
+          }
           await _seekClipToTrimStart(_activePlayingIndex);
         }
         await activeController.setVolume(studio.isMuted ? 0.0 : 1.0);
@@ -862,27 +875,29 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
       if (mergedPaths.length == 1) {
         finalEditedVideoPath = mergedPaths.first;
       } else {
-        // Multi-clip: combine all clips into a single continuous file
-        final combinedFile = await StudioVideoPlayerUtils.combineVideoFiles(mergedPaths);
-        if (combinedFile != null && await combinedFile.exists() && (await combinedFile.length()) > 0) {
+        // Try merge for upload later; Details prefers playlist if merge is unplayable.
+        final combinedFile =
+            await StudioVideoPlayerUtils.combineVideoFiles(mergedPaths);
+        if (combinedFile != null &&
+            await combinedFile.exists() &&
+            (await combinedFile.length()) > 0) {
           finalEditedVideoPath = combinedFile.path;
+          debugPrint('Multi-clip merge OK: $finalEditedVideoPath');
         } else {
-          // Merge failed: stay on Try Edits screen, re-enable NEXT, and show clear error
-          debugPrint('Multi-clip export failed in StudioEditVideoScreen');
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Failed to prepare merged video. Please try again.'),
-                backgroundColor: Colors.redAccent,
-              ),
-            );
-          }
-          return;
+          debugPrint(
+            'Multi-clip merge unavailable/unplayable — Details will use clip playlist',
+          );
+          finalEditedVideoPath = mergedPaths.first;
         }
       }
 
       debugPrint('FINAL OUTPUT PATH: $finalEditedVideoPath');
-      studio.setRecordedVideoPath(finalEditedVideoPath);
+      // Always keep individual clip paths for multi-clip playlist playback.
+      studio.setRecordedVideoPath(
+        finalEditedVideoPath,
+        mergedClipPaths: mergedPaths.length > 1 ? mergedPaths : null,
+        clearMergedClips: mergedPaths.length <= 1,
+      );
 
       if (!mounted) return;
 

@@ -143,6 +143,13 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
         _draft?['videoUrl']?.toString();
 
     debugPrint('StudioPreviewScreen loading recorded video path: $path');
+    debugPrint('StudioPreviewScreen merged clips: ${_mergedClipPaths.length}');
+
+    // Prefer clip playlist for multi-clip (custom merge is often unplayable).
+    if (_mergedClipPaths.length > 1) {
+      final loaded = await _loadPreviewClipPlaylist(studio);
+      if (loaded) return;
+    }
 
     bool hasSingleMergedFile = false;
     if (path != null && path.isNotEmpty) {
@@ -155,7 +162,11 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
     if (hasSingleMergedFile && path != null) {
       VideoPlayerController? controller;
       try {
-        controller = await StudioVideoPlayerUtils.initializeRecordedVideo(path);
+        controller = await StudioVideoPlayerUtils.initializeRecordedVideo(
+          path,
+          autoPlay: false,
+          loop: false,
+        );
       } catch (e) {
         debugPrint('StudioPreviewScreen video init error: $e');
         controller = null;
@@ -177,55 +188,21 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
         if (trimStart > 0) {
           validController.seekTo(Duration(milliseconds: (trimStart * 1000).round()));
         }
+        await validController.play();
         setState(() {
           _videoController = validController;
           _isVideoInitialized = true;
           _videoError = false;
-          _playing = validController.value.isPlaying;
+          _playing = true;
         });
-        debugPrint('VideoPlayer successfully initialized merged file at $path');
+        debugPrint('VideoPlayer successfully initialized file at $path');
         return;
       }
     }
 
-    if (_mergedClipPaths.length > 1) {
-      debugPrint('StudioPreviewScreen loading multi-clip playlist: ${_mergedClipPaths.length} clips');
-      List<VideoPlayerController> loaded = [];
-      for (final p in _mergedClipPaths) {
-        final c = await StudioVideoPlayerUtils.initializeClipController(
-          p,
-          autoPlay: false,
-          loop: false,
-        );
-        if (c != null) loaded.add(c);
-      }
-
-      if (!mounted) {
-        for (final c in loaded) {
-          await c.dispose();
-        }
-        return;
-      }
-
-      if (loaded.isNotEmpty) {
-        _clipControllers = loaded;
-        for (final c in _clipControllers) {
-          c.setVolume(studio.isMuted ? 0.0 : 1.0);
-          try {
-            c.setPlaybackSpeed(studio.speedMultiplier);
-          } catch (_) {}
-        }
-        _currentClipIndex = 0;
-        _videoController = _clipControllers[0];
-        _videoController!.addListener(_onVideoControllerUpdate);
-        await _videoController!.play();
-        setState(() {
-          _isVideoInitialized = true;
-          _videoError = false;
-          _playing = true;
-        });
-        return;
-      }
+    if (_mergedClipPaths.isNotEmpty) {
+      final loaded = await _loadPreviewClipPlaylist(studio);
+      if (loaded) return;
     }
 
     if (mounted) {
@@ -234,6 +211,48 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
         _videoError = true;
       });
     }
+  }
+
+  Future<bool> _loadPreviewClipPlaylist(StudioCubit studio) async {
+    debugPrint(
+      'StudioPreviewScreen loading clip playlist: ${_mergedClipPaths.length} clips',
+    );
+    final loaded = <VideoPlayerController>[];
+    for (final p in _mergedClipPaths) {
+      final c = await StudioVideoPlayerUtils.initializeClipController(
+        p,
+        autoPlay: false,
+        loop: false,
+      );
+      if (c != null) loaded.add(c);
+    }
+
+    if (!mounted) {
+      for (final c in loaded) {
+        await c.dispose();
+      }
+      return false;
+    }
+
+    if (loaded.isEmpty) return false;
+
+    _clipControllers = loaded;
+    for (final c in _clipControllers) {
+      c.setVolume(studio.isMuted ? 0.0 : 1.0);
+      try {
+        c.setPlaybackSpeed(studio.speedMultiplier);
+      } catch (_) {}
+    }
+    _currentClipIndex = 0;
+    _videoController = _clipControllers[0];
+    _videoController!.addListener(_onVideoControllerUpdate);
+    await _videoController!.play();
+    setState(() {
+      _isVideoInitialized = true;
+      _videoError = false;
+      _playing = true;
+    });
+    return true;
   }
 
   void _onVideoControllerUpdate() {

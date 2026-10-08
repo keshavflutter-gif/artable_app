@@ -58,8 +58,21 @@ class StudioVideoPlayerUtils {
       } else if (files.isNotEmpty) {
         final result = await Mp4Merger.mergeMp4Files(files, mergedFile);
         if (result != null && await result.exists() && (await result.length()) > 0) {
-          debugPrint('Combined ${files.length} video files using Mp4Merger into ${mergedFile.path}');
-          mergedResult = result;
+          // Mp4Merger can produce a non-empty but unplayable file — validate.
+          final playable = await canPlayVideoFile(result.path);
+          if (playable) {
+            debugPrint(
+              'Combined ${files.length} video files using Mp4Merger into ${mergedFile.path}',
+            );
+            mergedResult = result;
+          } else {
+            debugPrint(
+              'Mp4Merger output exists but is not playable: ${result.path}',
+            );
+            try {
+              await result.delete();
+            } catch (_) {}
+          }
         }
       }
 
@@ -74,6 +87,36 @@ class StudioVideoPlayerUtils {
       debugPrint('Error combining video files with Mp4Merger: $e');
     }
     return null;
+  }
+
+  /// Returns true if [path] can be opened by VideoPlayer.
+  static Future<bool> canPlayVideoFile(String path) async {
+    var cleanPath = path.trim();
+    if (cleanPath.startsWith('file://')) {
+      cleanPath = cleanPath.replaceFirst('file://', '');
+    }
+    if (cleanPath.isEmpty) return false;
+    if (!cleanPath.startsWith('http')) {
+      final file = File(cleanPath);
+      if (!file.existsSync() || file.lengthSync() <= 0) return false;
+    }
+
+    VideoPlayerController? controller;
+    try {
+      controller = cleanPath.startsWith('http://') || cleanPath.startsWith('https://')
+          ? VideoPlayerController.networkUrl(Uri.parse(cleanPath))
+          : VideoPlayerController.file(File(cleanPath));
+      await controller.initialize().timeout(const Duration(seconds: 8));
+      return controller.value.isInitialized &&
+          controller.value.duration.inMilliseconds > 0;
+    } catch (e) {
+      debugPrint('canPlayVideoFile failed for $cleanPath: $e');
+      return false;
+    } finally {
+      try {
+        await controller?.dispose();
+      } catch (_) {}
+    }
   }
 
   static Future<VideoPlayerController?> initializeClipController(
