@@ -916,7 +916,11 @@ class ApiClient {
 
     final message = _extractErrorMessage(decoded) ??
         'Request failed with status ${response.statusCode}';
-    throw ApiException(message, statusCode: response.statusCode);
+    throw ApiException(
+      message,
+      statusCode: response.statusCode,
+      data: decoded,
+    );
   }
 
   String? _extractErrorMessage(Map<String, dynamic>? decoded) {

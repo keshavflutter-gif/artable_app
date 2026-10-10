@@ -72,6 +72,36 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
+    final pending = auth.loginVerificationRequired;
+    if (pending != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            pending.channel == 'SMS'
+                ? 'Please verify your mobile number to continue.'
+                : 'Please verify your email to continue.',
+          ),
+          backgroundColor: const Color(0xFF9B51E0),
+        ),
+      );
+      context.push(
+        '${AppRoutes.otpVerification}'
+        '?from=login'
+        '&destination=${Uri.encodeComponent(pending.destination)}'
+        '&verifyId=${Uri.encodeComponent(pending.verifyId)}'
+        '&userId=${Uri.encodeComponent(pending.userId)}'
+        '&channel=${pending.channel}',
+        extra: {
+          'email': pending.email,
+          'password': pending.password,
+          'verifyId': pending.verifyId,
+          'userId': pending.userId,
+          'channel': pending.channel,
+        },
+      );
+      return;
+    }
+
     final apiMsg = auth.errorMessage ?? 'Unable to log in.';
     setState(() {
       if (apiMsg.toLowerCase().contains('email') || apiMsg.toLowerCase().contains('user')) {

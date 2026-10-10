@@ -186,6 +186,9 @@ class AuthCubit extends Cubit<AuthState> {
     }
   }
 
+  /// Set when the last [login] failed because the account is not verified yet.
+  LoginVerificationRequired? loginVerificationRequired;
+
   Future<bool> login(
     String email,
     String password, {
@@ -193,6 +196,7 @@ class AuthCubit extends Cubit<AuthState> {
     String? deviceType,
     String? deviceVersion,
   }) async {
+    loginVerificationRequired = null;
     emit(state.copyWith(isLoading: true, clearError: true));
 
     try {
@@ -235,6 +239,10 @@ class AuthCubit extends Cubit<AuthState> {
       return true;
     } on ApiException catch (e) {
       debugPrint('=== LOGIN API ERROR === ${e.message}');
+      if (_isNotVerifiedError(e)) {
+        await _prepareLoginVerification(e, email.trim(), password);
+        return false;
+      }
       emit(state.copyWith(isLoading: false, errorMessage: e.message));
       return false;
     } catch (e) {
@@ -245,6 +253,81 @@ class AuthCubit extends Cubit<AuthState> {
       ));
       return false;
     }
+  }
+
+  bool _isNotVerifiedError(ApiException e) {
+    final data = e.data;
+    final nested = data?['data'] is Map ? data!['data'] as Map : null;
+    final code = (data?['code'] ?? data?['errorCode'] ?? nested?['code'] ?? '')
+        .toString()
+        .toUpperCase();
+    if (code.contains('VERIF')) return true;
+    if (data?['isVerified'] == false || nested?['isVerified'] == false) {
+      return true;
+    }
+    final msg = e.message.toLowerCase();
+    return msg.contains('verif') || msg.contains('unverified');
+  }
+
+  Future<void> _prepareLoginVerification(
+    ApiException e,
+    String email,
+    String password,
+  ) async {
+    final data = e.data ?? const <String, dynamic>{};
+    final nested = data['data'] is Map
+        ? Map<String, dynamic>.from(data['data'] as Map)
+        : const <String, dynamic>{};
+    final user = (nested['user'] ?? data['user']) is Map
+        ? Map<String, dynamic>.from((nested['user'] ?? data['user']) as Map)
+        : const <String, dynamic>{};
+
+    String pick(List<String> keys) {
+      for (final source in [nested, data, user]) {
+        for (final key in keys) {
+          final v = source[key]?.toString().trim();
+          if (v != null && v.isNotEmpty && v != 'null') return v;
+        }
+      }
+      return '';
+    }
+
+    final userId = pick(['userId', 'user_id', '_id', 'id']);
+    var verifyId = pick(['verifyId', 'verify_id']);
+    final channel =
+        pick(['channel']).isNotEmpty ? pick(['channel']).toUpperCase() : 'EMAIL';
+    final phone = pick(['phoneNumber', 'phone', 'mobile']);
+
+    emit(state.copyWith(
+      isLoading: false,
+      pendingEmail: email,
+      pendingPassword: password,
+      pendingUserId: userId.isNotEmpty ? userId : null,
+      pendingVerifyId: verifyId.isNotEmpty ? verifyId : null,
+    ));
+
+    // Backend may not send a fresh OTP on blocked login — request one.
+    if (verifyId.isEmpty) {
+      final resend = await resendOtp(
+        userId: userId,
+        email: email,
+        channel: channel,
+      );
+      if (resend != null && resend.verifyId.isNotEmpty) {
+        verifyId = resend.verifyId;
+      }
+    }
+
+    loginVerificationRequired = LoginVerificationRequired(
+      userId: userId,
+      verifyId: verifyId,
+      channel: channel,
+      destination: channel == 'SMS' && phone.isNotEmpty ? phone : email,
+      email: email,
+      password: password,
+      message: e.message,
+    );
+    emit(state.copyWith(isLoading: false, clearError: true));
   }
 
   Future<bool> loginWithGoogle() async {
@@ -1464,4 +1547,24 @@ class AuthCubit extends Cubit<AuthState> {
     }
     return 'U';
   }
+}
+
+class LoginVerificationRequired {
+  const LoginVerificationRequired({
+    required this.userId,
+    required this.verifyId,
+    required this.channel,
+    required this.destination,
+    required this.email,
+    required this.password,
+    required this.message,
+  });
+
+  final String userId;
+  final String verifyId;
+  final String channel;
+  final String destination;
+  final String email;
+  final String password;
+  final String message;
 }

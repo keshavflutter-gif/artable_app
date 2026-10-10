@@ -34,13 +34,13 @@ class OtpVerificationScreen extends StatefulWidget {
 class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
   late final List<TextEditingController> _controllers;
   late final List<FocusNode> _focusNodes;
-  // late String _currentVerifyId;
+  late String _currentVerifyId;
   bool _hasError = false;
 
   @override
   void initState() {
     super.initState();
-    // _currentVerifyId = widget.verifyId;
+    _currentVerifyId = widget.verifyId;
     _controllers = List.generate(6, (_) => TextEditingController());
     _focusNodes = List.generate(6, (_) => FocusNode());
   }
@@ -58,55 +58,85 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
 
   bool _isOtpComplete() => _controllers.every((c) => c.text.length == 1);
 
+  void _clearOtp() {
+    for (final c in _controllers) {
+      c.clear();
+    }
+    _focusNodes.first.requestFocus();
+  }
+
+  void _showSnack(String message, Color color) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: color),
+    );
+  }
+
   Future<void> _verify() async {
-    final enteredOtp = _controllers.map((c) => c.text.trim()).join();
-    if (!_isOtpComplete() || enteredOtp != '123456') {
+    if (!_isOtpComplete()) {
       setState(() => _hasError = true);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Invalid OTP. Please enter 123456'),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
+      _showSnack('Please enter the 6-digit code.', Colors.redAccent);
       return;
     }
-    setState(() => _hasError = false);
 
-    // final otp = _controllers.map((c) => c.text.trim()).join();
-    // final auth = context.read<AuthCubit>();
-    // if (auth.isVerifyingOtp) return;
+    final otp = _controllers.map((c) => c.text.trim()).join();
+    final auth = context.read<AuthCubit>();
+    if (auth.isVerifyingOtp) return;
 
-    // final effectiveVerifyId = _currentVerifyId.isNotEmpty
-    //     ? _currentVerifyId
-    //     : widget.verifyId;
+    final effectiveVerifyId =
+        _currentVerifyId.isNotEmpty ? _currentVerifyId : (auth.pendingVerifyId ?? '');
+    if (effectiveVerifyId.isEmpty) {
+      _showSnack('Verification session expired. Tap "Resend Code".', Colors.redAccent);
+      return;
+    }
 
-    // final response = await auth.verifyOtp(
-    //   verifyId: effectiveVerifyId,
-    //   otp: otp,
-    //   channel: widget.channel,
-    //   email: widget.email,
-    //   password: widget.password,
-    // );
+    final response = await auth.verifyOtp(
+      verifyId: effectiveVerifyId,
+      otp: otp,
+      channel: widget.channel,
+      email: widget.email,
+      password: widget.password,
+    );
 
     if (!mounted) return;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('OTP Verified successfully'),
-        backgroundColor: Color(0xFF27AE60),
-      ),
+    if (response == null || !response.success) {
+      setState(() => _hasError = true);
+      _clearOtp();
+      _showSnack(
+        auth.errorMessage ??
+            (response?.message.isNotEmpty == true
+                ? response!.message
+                : 'Invalid or expired code. Please try again.'),
+        Colors.redAccent,
+      );
+      return;
+    }
+
+    setState(() => _hasError = false);
+    _showSnack(
+      widget.channel == 'SMS'
+          ? 'Mobile number verified successfully'
+          : 'Email verified successfully',
+      const Color(0xFF27AE60),
     );
 
     if (widget.from == 'forgot') {
       context.push(AppRoutes.resetPassword);
-    } else {
-      final emailParam = widget.email != null ? Uri.encodeComponent(widget.email!) : '';
-      final passParam = widget.password != null ? Uri.encodeComponent(widget.password!) : '';
-      final loginUrl = (emailParam.isNotEmpty || passParam.isNotEmpty)
-          ? '${AppRoutes.login}?email=$emailParam&password=$passParam'
-          : AppRoutes.login;
-      context.go(loginUrl);
+      return;
     }
+
+    // verifyOtp logs the user in (tokens or auto-login with email/password).
+    if (auth.isLoggedIn) {
+      context.go(AppRoutes.home);
+      return;
+    }
+
+    final emailParam =
+        widget.email != null ? Uri.encodeComponent(widget.email!) : '';
+    final loginUrl = emailParam.isNotEmpty
+        ? '${AppRoutes.login}?email=$emailParam'
+        : AppRoutes.login;
+    context.go(loginUrl);
   }
 
   Future<void> _resendOtp() async {
@@ -125,12 +155,13 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     if (!mounted) return;
 
     if (response != null && response.success) {
-      if (response.verifyId.isNotEmpty) {
-        setState(() {
-          // _currentVerifyId = response.verifyId;
-          _hasError = false;
-        });
-      }
+      setState(() {
+        if (response.verifyId.isNotEmpty) {
+          _currentVerifyId = response.verifyId;
+        }
+        _hasError = false;
+      });
+      _clearOtp();
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -167,9 +198,11 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final backRoute = widget.from == 'forgot'
-        ? AppRoutes.forgotPassword
-        : AppRoutes.signup;
+    final backRoute = switch (widget.from) {
+      'forgot' => AppRoutes.forgotPassword,
+      'login' => AppRoutes.login,
+      _ => AppRoutes.signup,
+    };
 
     return Scaffold(
       backgroundColor: Colors.white,
