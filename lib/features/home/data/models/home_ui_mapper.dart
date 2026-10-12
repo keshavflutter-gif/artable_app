@@ -1,4 +1,5 @@
 import 'package:artable_app/features/trending/data/models/trending_videos_response.dart';
+import 'package:artable_app/core/utils/reel_helpers.dart';
 import 'home_banner.dart';
 
 class HomeUiMapper {
@@ -259,6 +260,14 @@ class HomeUiMapper {
       'imageUrl': thumb,
       'thumbnailUrl': thumb,
       'videoUrl': videoUrl,
+      if (item['mergedClipPaths'] is List && (item['mergedClipPaths'] as List).isNotEmpty)
+        'mergedClipPaths': List<String>.from(item['mergedClipPaths'] as List)
+      else if (item['merged_clip_paths'] is List && (item['merged_clip_paths'] as List).isNotEmpty)
+        'mergedClipPaths': List<String>.from(item['merged_clip_paths'] as List)
+      else if (ReelHelpers.getCachedMergedClips(_stringValue(item['id'])) != null)
+        'mergedClipPaths': ReelHelpers.getCachedMergedClips(_stringValue(item['id']))
+      else if (ReelHelpers.getCachedMergedClips(videoUrl) != null)
+        'mergedClipPaths': ReelHelpers.getCachedMergedClips(videoUrl),
       'views': viewsStr.isNotEmpty ? viewsStr : _formatCompactNumber(parsedViews),
       'viewsCount': parsedViews,
       'likes': item['likesLabel'] != null

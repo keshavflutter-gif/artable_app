@@ -295,7 +295,7 @@ class AuthCubit extends Cubit<AuthState> {
     final userId = pick(['userId', 'user_id', '_id', 'id']);
     var verifyId = pick(['verifyId', 'verify_id']);
     final channel =
-        pick(['channel']).isNotEmpty ? pick(['channel']).toUpperCase() : 'EMAIL';
+        pick(['channel']).isNotEmpty ? pick(['channel']).toUpperCase() : 'SMS';
     final phone = pick(['phoneNumber', 'phone', 'mobile']);
 
     emit(state.copyWith(
@@ -655,7 +655,7 @@ class AuthCubit extends Cubit<AuthState> {
   Future<VerifyOtpResponse?> verifyOtp({
     required String verifyId,
     required String otp,
-    String channel = 'EMAIL',
+    String channel = 'SMS',
     String? email,
     String? password,
   }) async {
@@ -763,7 +763,7 @@ class AuthCubit extends Cubit<AuthState> {
   Future<ResendOtpResponse?> resendOtp({
     String? userId,
     String? email,
-    String channel = 'EMAIL',
+    String channel = 'SMS',
   }) async {
     emit(state.copyWith(isResendingOtp: true, clearError: true));
 

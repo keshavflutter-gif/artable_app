@@ -340,6 +340,9 @@ class Mp4Merger {
       for (final box in trakSubBoxes) {
         if (box.type == 'tkhd') {
           builder.add(_updateTkhd(trakBytes, box, metas, handlerType));
+        } else if (box.type == 'edts') {
+          // Skip edts box to allow the entire concatenated media timeline in mdia to play seamlessly without being clipped to clip 1's duration
+          continue;
         } else if (box.type == 'mdia') {
           final updatedMdia = _updateMdia(trakBytes, box, metas, newMdatPayloadOffset, handlerType);
           builder.add(updatedMdia ?? trakBytes.sublist(box.offset, box.offset + box.totalSize));
@@ -371,8 +374,28 @@ class Mp4Merger {
     final data = ByteData.view(bytes.buffer, bytes.offsetInBytes, bytes.length);
     final version = data.getUint8(box.payloadOffset - box.offset);
 
+    int baseTimescale = 1000;
+    if (metas.isNotEmpty) {
+      final mvhd0 = _findBox(metas.first.bytes, metas.first.topBoxes, 'mvhd');
+      if (mvhd0 != null) {
+        final mvhdData = ByteData.view(metas.first.bytes.buffer, metas.first.bytes.offsetInBytes + mvhd0.payloadOffset, mvhd0.payloadSize);
+        final v = mvhdData.getUint8(0);
+        baseTimescale = (v == 0) ? mvhdData.getUint32(12) : mvhdData.getUint32(20);
+        if (baseTimescale <= 0) baseTimescale = 1000;
+      }
+    }
+
     int totalDuration = 0;
     for (final m in metas) {
+      int mTimescale = baseTimescale;
+      final mvhd = _findBox(m.bytes, m.topBoxes, 'mvhd');
+      if (mvhd != null) {
+        final mvhdData = ByteData.view(m.bytes.buffer, m.bytes.offsetInBytes + mvhd.payloadOffset, mvhd.payloadSize);
+        final v = mvhdData.getUint8(0);
+        mTimescale = (v == 0) ? mvhdData.getUint32(12) : mvhdData.getUint32(20);
+        if (mTimescale <= 0) mTimescale = baseTimescale;
+      }
+
       final trak = _findTrakByHandler(m.bytes, m.topBoxes, handlerType);
       if (trak != null) {
         final tkhd = _findBox(m.bytes, [trak], 'tkhd');
@@ -380,7 +403,8 @@ class Mp4Merger {
           final tData = ByteData.view(m.bytes.buffer, m.bytes.offsetInBytes + tkhd.payloadOffset, tkhd.payloadSize);
           final v = tData.getUint8(0);
           final dur = (v == 0) ? tData.getUint32(20) : tData.getUint64(28);
-          totalDuration += dur;
+          final normDur = (mTimescale > 0) ? (dur * (baseTimescale / mTimescale)).round() : dur;
+          totalDuration += normDur;
         }
       }
     }
@@ -529,17 +553,32 @@ class Mp4Merger {
 
       bool chunkOffsetAdded = false;
       bool stssAdded = false;
+      bool cttsAdded = false;
+      bool stsdAdded = false;
 
       final newChunkOffsetBox = _mergeChunkOffsets(metas, newMdatPayloadOffset, handlerType);
       final newStssBox = _mergeStss(metas, handlerType);
+      final newCttsBox = _mergeCtts(metas, handlerType);
+      final stsdResult = _mergeStsd(metas, handlerType);
+      final newStsdBox = stsdResult.boxBytes;
+      final metaSampleDescMap = stsdResult.metaSampleDescMap;
 
       for (final box in stblBoxes) {
-        if (box.type == 'stts') {
+        if (box.type == 'stsd') {
+          if (!stsdAdded) {
+            if (newStsdBox != null && newStsdBox.isNotEmpty) {
+              builder.add(newStsdBox);
+            } else {
+              builder.add(stblBytes.sublist(box.offset, box.offset + box.totalSize));
+            }
+            stsdAdded = true;
+          }
+        } else if (box.type == 'stts') {
           builder.add(_mergeStts(metas, handlerType));
         } else if (box.type == 'stsz') {
           builder.add(_mergeStsz(metas, handlerType));
         } else if (box.type == 'stsc') {
-          builder.add(_mergeStsc(metas, handlerType));
+          builder.add(_mergeStsc(metas, handlerType, metaSampleDescMap));
         } else if (box.type == 'stco' || box.type == 'co64') {
           if (!chunkOffsetAdded) {
             builder.add(newChunkOffsetBox);
@@ -552,9 +591,20 @@ class Mp4Merger {
             }
             stssAdded = true;
           }
+        } else if (box.type == 'ctts') {
+          if (!cttsAdded) {
+            if (newCttsBox != null) {
+              builder.add(newCttsBox);
+            }
+            cttsAdded = true;
+          }
         } else {
           builder.add(stblBytes.sublist(box.offset, box.offset + box.totalSize));
         }
+      }
+
+      if (!stsdAdded && newStsdBox != null && newStsdBox.isNotEmpty) {
+        builder.add(newStsdBox);
       }
 
       if (!chunkOffsetAdded) {
@@ -563,6 +613,10 @@ class Mp4Merger {
 
       if (!stssAdded && newStssBox != null) {
         builder.add(newStssBox);
+      }
+
+      if (!cttsAdded && newCttsBox != null) {
+        builder.add(newCttsBox);
       }
 
       final payload = builder.takeBytes();
@@ -582,19 +636,115 @@ class Mp4Merger {
     }
   }
 
+  static Uint8List? _mergeCtts(List<Mp4FileMeta> metas, String handlerType) {
+    bool hasAnyCtts = false;
+    for (final m in metas) {
+      final trak = _findTrakByHandler(m.bytes, m.topBoxes, handlerType);
+      if (trak != null && _findBox(m.bytes, [trak], 'ctts') != null) {
+        hasAnyCtts = true;
+        break;
+      }
+    }
+    if (!hasAnyCtts) return null;
+
+    final entryBytes = BytesBuilder();
+    int totalEntries = 0;
+    int version = 0;
+
+    for (final m in metas) {
+      final trak = _findTrakByHandler(m.bytes, m.topBoxes, handlerType);
+      final clipSamples = _getTrackSampleCount(m, handlerType);
+      if (trak != null) {
+        final ctts = _findBox(m.bytes, [trak], 'ctts');
+        if (ctts != null && ctts.payloadSize >= 8) {
+          final data = ByteData.view(m.bytes.buffer, m.bytes.offsetInBytes + ctts.payloadOffset, ctts.payloadSize);
+          final v = data.getUint8(0);
+          if (v == 1) version = 1;
+          final count = data.getUint32(4);
+          totalEntries += count;
+          entryBytes.add(m.bytes.sublist(ctts.payloadOffset + 8, ctts.payloadOffset + 8 + count * 8));
+        } else if (clipSamples > 0) {
+          final b = ByteData(8);
+          b.setUint32(0, clipSamples);
+          b.setUint32(4, 0);
+          entryBytes.add(b.buffer.asUint8List());
+          totalEntries++;
+        }
+      }
+    }
+
+    if (totalEntries == 0) return null;
+
+    final payload = BytesBuilder();
+    final headerData = ByteData(8);
+    headerData.setUint8(0, version);
+    headerData.setUint32(4, totalEntries);
+    payload.add(headerData.buffer.asUint8List());
+    payload.add(entryBytes.takeBytes());
+
+    final pBytes = payload.takeBytes();
+    final boxHeader = ByteData(8);
+    boxHeader.setUint32(0, pBytes.length + 8);
+    boxHeader.setUint8(4, 0x63); // 'c'
+    boxHeader.setUint8(5, 0x74); // 't'
+    boxHeader.setUint8(6, 0x74); // 't'
+    boxHeader.setUint8(7, 0x73); // 's'
+
+    final res = BytesBuilder();
+    res.add(boxHeader.buffer.asUint8List());
+    res.add(pBytes);
+    return res.takeBytes();
+  }
+
   static Uint8List _mergeStts(List<Mp4FileMeta> metas, String handlerType) {
     final entryBytes = BytesBuilder();
     int totalEntries = 0;
 
+    int baseTimescale = 1000;
+    if (metas.isNotEmpty) {
+      final trak0 = _findTrakByHandler(metas.first.bytes, metas.first.topBoxes, handlerType);
+      if (trak0 != null) {
+        final mdhd0 = _findBox(metas.first.bytes, [trak0], 'mdhd');
+        if (mdhd0 != null) {
+          final mData = ByteData.view(metas.first.bytes.buffer, metas.first.bytes.offsetInBytes + mdhd0.payloadOffset, mdhd0.payloadSize);
+          final v = mData.getUint8(0);
+          baseTimescale = (v == 0) ? mData.getUint32(12) : mData.getUint32(20);
+          if (baseTimescale <= 0) baseTimescale = 1000;
+        }
+      }
+    }
+
     for (final m in metas) {
       final trak = _findTrakByHandler(m.bytes, m.topBoxes, handlerType);
       if (trak != null) {
+        int mTimescale = baseTimescale;
+        final mdhd = _findBox(m.bytes, [trak], 'mdhd');
+        if (mdhd != null) {
+          final mData = ByteData.view(m.bytes.buffer, m.bytes.offsetInBytes + mdhd.payloadOffset, mdhd.payloadSize);
+          final v = mData.getUint8(0);
+          mTimescale = (v == 0) ? mData.getUint32(12) : mData.getUint32(20);
+          if (mTimescale <= 0) mTimescale = baseTimescale;
+        }
+
         final stts = _findBox(m.bytes, [trak], 'stts');
         if (stts != null) {
           final data = ByteData.view(m.bytes.buffer, m.bytes.offsetInBytes + stts.payloadOffset, stts.payloadSize);
           final count = data.getUint32(4);
           totalEntries += count;
-          entryBytes.add(m.bytes.sublist(stts.payloadOffset + 8, stts.payloadOffset + 8 + count * 8));
+          if (mTimescale == baseTimescale) {
+            entryBytes.add(m.bytes.sublist(stts.payloadOffset + 8, stts.payloadOffset + 8 + count * 8));
+          } else {
+            final scaleRatio = baseTimescale / mTimescale;
+            for (var i = 0; i < count; i++) {
+              final sCount = data.getUint32(8 + i * 8);
+              final sDelta = data.getUint32(12 + i * 8);
+              final newDelta = (sDelta * scaleRatio).round();
+              final b = ByteData(8);
+              b.setUint32(0, sCount);
+              b.setUint32(4, newDelta);
+              entryBytes.add(b.buffer.asUint8List());
+            }
+          }
         }
       }
     }
@@ -697,12 +847,17 @@ class Mp4Merger {
     return 0;
   }
 
-  static Uint8List _mergeStsc(List<Mp4FileMeta> metas, String handlerType) {
+  static Uint8List _mergeStsc(
+    List<Mp4FileMeta> metas,
+    String handlerType, [
+    Map<int, Map<int, int>>? metaSampleDescMap,
+  ]) {
     final entryBytes = BytesBuilder();
     int totalEntries = 0;
     int currentChunkOffset = 0;
 
-    for (final m in metas) {
+    for (int mIdx = 0; mIdx < metas.length; mIdx++) {
+      final m = metas[mIdx];
       final trak = _findTrakByHandler(m.bytes, m.topBoxes, handlerType);
       if (trak != null) {
         final stsc = _findBox(m.bytes, [trak], 'stsc');
@@ -717,10 +872,12 @@ class Mp4Merger {
             final samplesPerChunk = ByteData.view(m.bytes.buffer, m.bytes.offsetInBytes + offset + 4, 4).getUint32(0);
             final sampleDescIndex = ByteData.view(m.bytes.buffer, m.bytes.offsetInBytes + offset + 8, 4).getUint32(0);
 
+            final newSampleDescIndex = metaSampleDescMap?[mIdx]?[sampleDescIndex] ?? sampleDescIndex;
+
             final entry = ByteData(12);
             entry.setUint32(0, (firstChunk - 1) + currentChunkOffset + 1);
             entry.setUint32(4, samplesPerChunk);
-            entry.setUint32(8, sampleDescIndex);
+            entry.setUint32(8, newSampleDescIndex);
             entryBytes.add(entry.buffer.asUint8List());
           }
         }
@@ -869,6 +1026,14 @@ class Mp4Merger {
             allKeyframes.add(s + currentSampleOffset);
           }
         }
+
+        // Ensure the very first sample of each clip is always marked as a sync keyframe
+        if (clipSampleCount > 0 && handlerType == 'vide') {
+          final firstSample = 1 + currentSampleOffset;
+          if (!allKeyframes.contains(firstSample)) {
+            allKeyframes.add(firstSample);
+          }
+        }
       }
 
       currentSampleOffset += clipSampleCount;
@@ -876,6 +1041,8 @@ class Mp4Merger {
 
     if (!hasAnyStss && handlerType != 'vide') return null;
     if (allKeyframes.isEmpty) return null;
+
+    allKeyframes.sort();
 
     final entryBytes = BytesBuilder();
     for (final k in allKeyframes) {
@@ -904,4 +1071,106 @@ class Mp4Merger {
     res.add(pBytes);
     return res.takeBytes();
   }
+
+  static _StsdMergeResult _mergeStsd(List<Mp4FileMeta> metas, String handlerType) {
+    final uniqueEntries = <Uint8List>[];
+    final metaSampleDescMap = <int, Map<int, int>>{};
+
+    for (int mIdx = 0; mIdx < metas.length; mIdx++) {
+      final m = metas[mIdx];
+      metaSampleDescMap[mIdx] = {};
+      final trak = _findTrakByHandler(m.bytes, m.topBoxes, handlerType);
+      if (trak == null) continue;
+
+      final stsd = _findBox(m.bytes, [trak], 'stsd');
+      if (stsd == null || stsd.payloadSize < 8) continue;
+
+      final data = ByteData.view(m.bytes.buffer, m.bytes.offsetInBytes + stsd.payloadOffset, stsd.payloadSize);
+      final entryCount = data.getUint32(4);
+
+      int currentEntryOffset = stsd.payloadOffset + 8;
+      for (int eIdx = 1; eIdx <= entryCount; eIdx++) {
+        if (currentEntryOffset + 8 > stsd.payloadOffset + stsd.payloadSize) break;
+        final entrySize = ByteData.view(m.bytes.buffer, m.bytes.offsetInBytes + currentEntryOffset, 4).getUint32(0);
+        if (entrySize < 8 || currentEntryOffset + entrySize > stsd.payloadOffset + stsd.payloadSize) break;
+
+        final entryBytes = m.bytes.sublist(currentEntryOffset, currentEntryOffset + entrySize);
+        currentEntryOffset += entrySize;
+
+        int matchIdx = -1;
+        for (int u = 0; u < uniqueEntries.length; u++) {
+          if (_areByteListsEqual(uniqueEntries[u], entryBytes)) {
+            matchIdx = u;
+            break;
+          }
+        }
+
+        if (matchIdx >= 0) {
+          metaSampleDescMap[mIdx]![eIdx] = matchIdx + 1;
+        } else {
+          uniqueEntries.add(entryBytes);
+          metaSampleDescMap[mIdx]![eIdx] = uniqueEntries.length;
+        }
+      }
+    }
+
+    if (uniqueEntries.isEmpty) {
+      if (metas.isNotEmpty) {
+        final trak0 = _findTrakByHandler(metas.first.bytes, metas.first.topBoxes, handlerType);
+        if (trak0 != null) {
+          final stsd0 = _findBox(metas.first.bytes, [trak0], 'stsd');
+          if (stsd0 != null) {
+            final raw = metas.first.bytes.sublist(stsd0.offset, stsd0.offset + stsd0.totalSize);
+            return _StsdMergeResult(boxBytes: raw, metaSampleDescMap: {});
+          }
+        }
+      }
+      return _StsdMergeResult(boxBytes: null, metaSampleDescMap: {});
+    }
+
+    final payloadBuilder = BytesBuilder();
+    final headerData = ByteData(8);
+    headerData.setUint32(0, 0); // version=0, flags=0
+    headerData.setUint32(4, uniqueEntries.length);
+    payloadBuilder.add(headerData.buffer.asUint8List());
+
+    for (final eb in uniqueEntries) {
+      payloadBuilder.add(eb);
+    }
+
+    final pBytes = payloadBuilder.takeBytes();
+    final boxHeader = ByteData(8);
+    boxHeader.setUint32(0, pBytes.length + 8);
+    boxHeader.setUint8(4, 0x73); // 's'
+    boxHeader.setUint8(5, 0x74); // 't'
+    boxHeader.setUint8(6, 0x73); // 's'
+    boxHeader.setUint8(7, 0x64); // 'd'
+
+    final res = BytesBuilder();
+    res.add(boxHeader.buffer.asUint8List());
+    res.add(pBytes);
+    return _StsdMergeResult(
+      boxBytes: res.takeBytes(),
+      metaSampleDescMap: metaSampleDescMap,
+    );
+  }
+
+  static bool _areByteListsEqual(Uint8List a, Uint8List b) {
+    if (identical(a, b)) return true;
+    if (a.length != b.length) return false;
+    for (int i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+}
+
+class _StsdMergeResult {
+  final Uint8List? boxBytes;
+  final Map<int, Map<int, int>> metaSampleDescMap;
+
+  _StsdMergeResult({
+    required this.boxBytes,
+    required this.metaSampleDescMap,
+  });
 }

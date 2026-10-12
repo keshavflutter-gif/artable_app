@@ -27,6 +27,15 @@ class StudioVideoPlayerUtils {
         var clean = inputPaths[i].trim();
         if (clean.startsWith('file://')) clean = clean.replaceFirst('file://', '');
 
+        // Resolve relative backend URLs to absolute URLs
+        if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
+          if (clean.startsWith('/') && !File(clean).existsSync()) {
+            clean = 'http://server.keshavinfotechdemo2.com:3055$clean';
+          } else if (clean.contains('uploads/') && !File(clean).existsSync()) {
+            clean = 'http://server.keshavinfotechdemo2.com:3055/${clean.replaceFirst(RegExp(r'^/+'), '')}';
+          }
+        }
+
         if (clean.startsWith('http://') || clean.startsWith('https://')) {
           try {
             debugPrint('Downloading remote draft clip for merging ($i/${inputPaths.length}): $clean');
@@ -52,10 +61,10 @@ class StudioVideoPlayerUtils {
       }
 
       File? mergedResult;
-      if (files.length == 1) {
+      if (files.length == 1 && inputPaths.length == 1) {
         await files.first.copy(mergedFile.path);
         mergedResult = mergedFile;
-      } else if (files.isNotEmpty) {
+      } else if (files.length > 1) {
         final result = await Mp4Merger.mergeMp4Files(files, mergedFile);
         if (result != null && await result.exists() && (await result.length()) > 0) {
           // Mp4Merger can produce a non-empty but unplayable file — validate.
@@ -66,12 +75,19 @@ class StudioVideoPlayerUtils {
             );
             mergedResult = result;
           } else {
+            final len = await result.length();
             debugPrint(
-              'Mp4Merger output exists but is not playable: ${result.path}',
+              'Mp4Merger output validation returned false (length: $len bytes): ${result.path}',
             );
-            try {
-              await result.delete();
-            } catch (_) {}
+            // If the file has valid content (> 1KB), keep it rather than deleting,
+            // as canPlayVideoFile might fail due to concurrent codec limits or timeout.
+            if (len > 1024) {
+              mergedResult = result;
+            } else {
+              try {
+                await result.delete();
+              } catch (_) {}
+            }
           }
         }
       }

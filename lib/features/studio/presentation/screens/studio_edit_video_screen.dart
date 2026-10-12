@@ -120,10 +120,6 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
     final bool hasRec = recPath != null && recPath.isNotEmpty;
 
     final List<String> finalPaths = [];
-    if (hasRec) {
-      finalPaths.add(recPath);
-    }
-
     if (_mergedClipPaths.isNotEmpty) {
       for (final p in _mergedClipPaths) {
         final clean = p.trim();
@@ -131,8 +127,12 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
           finalPaths.add(clean);
         }
       }
-    } else if (combinedPath != null && combinedPath.trim().isNotEmpty && !finalPaths.contains(combinedPath.trim())) {
-      finalPaths.add(combinedPath.trim());
+    } else {
+      if (hasRec) {
+        finalPaths.add(recPath);
+      } else if (combinedPath != null && combinedPath.trim().isNotEmpty && !finalPaths.contains(combinedPath.trim())) {
+        finalPaths.add(combinedPath.trim());
+      }
     }
 
     for (int i = 0; i < finalPaths.length; i++) {
@@ -898,6 +898,16 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
         mergedClipPaths: mergedPaths.length > 1 ? mergedPaths : null,
         clearMergedClips: mergedPaths.length <= 1,
       );
+
+      if (widget.draftId != null && _draft != null) {
+        final updatedDraft = Map<String, dynamic>.from(_draft!);
+        updatedDraft['videoPath'] = finalEditedVideoPath;
+        updatedDraft['videoUrl'] = finalEditedVideoPath;
+        updatedDraft['mergedClipPaths'] = mergedPaths;
+        updatedDraft['mergedClipDurations'] = mergedDurations;
+        updatedDraft['duration'] = formattedDur;
+        studio.updateDraftMap(updatedDraft);
+      }
 
       if (!mounted) return;
 

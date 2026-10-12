@@ -14,7 +14,7 @@ class OtpVerificationScreen extends StatefulWidget {
     this.destination = '+1 •••• •• 123',
     this.verifyId = '',
     this.userId = '',
-    this.channel = 'EMAIL',
+    this.channel = 'SMS',
     this.email,
     this.password,
   });
@@ -289,9 +289,11 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                   const SizedBox(height: 8),
 
                   // Subtitle
-                  const Text(
-                    'Enter the verification code sent to your mobile number/email',
-                    style: TextStyle(
+                  Text(
+                    widget.channel == 'SMS'
+                        ? 'Enter the verification code sent to your mobile number'
+                        : 'Enter the verification code sent to your email',
+                    style: const TextStyle(
                       fontSize: 12.5,
                       color: Color(0xFF8E82A6),
                       fontWeight: FontWeight.w400,

@@ -2,7 +2,7 @@ class VerifyOtpRequest {
   const VerifyOtpRequest({
     required this.verifyId,
     required this.otp,
-    this.channel = 'EMAIL',
+    this.channel = 'SMS',
   });
 
   final String verifyId;

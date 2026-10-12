@@ -79,7 +79,10 @@ class RecordedVideoPreview extends StatelessWidget {
                       filterId: filterId,
                       beautyOn: beautyOn,
                       beautyIntensity: beautyIntensity,
-                      child: VideoPlayer(videoController!),
+                      child: VideoPlayer(
+                        key: ValueKey(videoController),
+                        videoController!,
+                      ),
                     ),
                   ),
                 ),

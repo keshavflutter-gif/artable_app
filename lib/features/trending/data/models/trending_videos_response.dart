@@ -1,3 +1,5 @@
+import 'package:artable_app/core/utils/reel_helpers.dart';
+
 class TrendingVideosResponse {
   const TrendingVideosResponse({
     required this.success,
@@ -225,6 +227,7 @@ class TrendingVideoItem {
     this.isLiked = false,
     this.isSaved = false,
     this.hashtags = const [],
+    this.mergedClipPaths,
   });
 
   final String id;
@@ -232,6 +235,7 @@ class TrendingVideoItem {
   final String? description;
   final String? videoUrl;
   final String? thumbnailUrl;
+  final List<String>? mergedClipPaths;
   final String? status;
   final Map<String, dynamic>? statusMeta;
   final Map<String, dynamic>? statusBadge;
@@ -535,6 +539,12 @@ class TrendingVideoItem {
       'imageUrl': displayThumbnail,
       'thumbnailUrl': displayThumbnail,
       'videoUrl': playableVideoUrl,
+      if (mergedClipPaths != null && mergedClipPaths!.isNotEmpty)
+        'mergedClipPaths': mergedClipPaths
+      else if (ReelHelpers.getCachedMergedClips(id) != null)
+        'mergedClipPaths': ReelHelpers.getCachedMergedClips(id)
+      else if (ReelHelpers.getCachedMergedClips(playableVideoUrl) != null)
+        'mergedClipPaths': ReelHelpers.getCachedMergedClips(playableVideoUrl),
       'views': displayViews,
       'viewsCount': resolvedViewsCount,
       'likes': displayLikes,
@@ -890,6 +900,12 @@ class TrendingVideoItem {
       isTrending: json['isTrending'] == true,
       isLiked: _extractIsLiked(json),
       isSaved: parsedIsSaved,
+      mergedClipPaths: json['mergedClipPaths'] is List
+          ? List<String>.from((json['mergedClipPaths'] as List).map((e) => e.toString()))
+          : (json['merged_clip_paths'] is List
+              ? List<String>.from((json['merged_clip_paths'] as List).map((e) => e.toString()))
+              : (ReelHelpers.getCachedMergedClips(json['id']?.toString() ?? json['_id']?.toString()) ??
+                 ReelHelpers.getCachedMergedClips(json['videoUrl']?.toString() ?? json['video_url']?.toString()))),
     );
   }
 

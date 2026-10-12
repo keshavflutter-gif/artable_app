@@ -2,7 +2,7 @@ class ResendOtpRequest {
   const ResendOtpRequest({
     required this.userId,
     required this.email,
-    this.channel = 'EMAIL',
+    this.channel = 'SMS',
   });
 
   final String userId;

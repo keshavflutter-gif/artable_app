@@ -44,6 +44,7 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
   List<String> _mergedClipPaths = [];
   int _currentClipIndex = 0;
   bool _isSwitchingClip = false;
+  Timer? _playbackTimer;
 
   @override
   void initState() {
@@ -110,6 +111,17 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
     final studio = context.read<StudioCubit>();
     await StudioMusicPlaybackService.preloadForStudio(studio);
     if (!mounted) return;
+
+    _playbackTimer?.cancel();
+
+    final draft = _draft;
+    if (draft != null && draft['mergedClipPaths'] is List && (draft['mergedClipPaths'] as List).isNotEmpty) {
+      _mergedClipPaths = List<String>.from(draft['mergedClipPaths'] as List);
+    } else if (studio.state.mergedClipPaths != null && studio.state.mergedClipPaths!.isNotEmpty) {
+      _mergedClipPaths = List<String>.from(studio.state.mergedClipPaths!);
+    } else {
+      _mergedClipPaths = [];
+    }
 
     for (final c in _clipControllers) {
       try {
@@ -252,7 +264,25 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
       _videoError = false;
       _playing = true;
     });
+    _startPlaybackTimer();
     return true;
+  }
+
+  void _startPlaybackTimer() {
+    _playbackTimer?.cancel();
+    if (_clipControllers.isEmpty) return;
+    _playbackTimer = Timer.periodic(const Duration(milliseconds: 40), (_) {
+      if (!mounted || _isSwitchingClip || _clipControllers.isEmpty) return;
+      final controller = _videoController;
+      if (controller != null && controller.value.isInitialized) {
+        final posMs = controller.value.position.inMilliseconds;
+        final durMs = controller.value.duration.inMilliseconds;
+        final isPlaying = controller.value.isPlaying;
+        if (durMs > 0 && (posMs >= durMs - 200 || (!isPlaying && posMs >= durMs - 350 && posMs > 0))) {
+          _advanceToNextMergedClip();
+        }
+      }
+    });
   }
 
   void _onVideoControllerUpdate() {
@@ -267,7 +297,7 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
     if (_clipControllers.isNotEmpty) {
       final posMs = controller.value.position.inMilliseconds;
       final durMs = controller.value.duration.inMilliseconds;
-      if (durMs > 0 && posMs >= durMs - 250) {
+      if (durMs > 0 && (posMs >= durMs - 200 || (!isPlaying && posMs >= durMs - 350 && posMs > 0))) {
         _advanceToNextMergedClip();
         return;
       }
@@ -322,6 +352,7 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
 
   @override
   void dispose() {
+    _playbackTimer?.cancel();
     for (final c in _clipControllers) {
       try {
         c.removeListener(_onVideoControllerUpdate);
@@ -740,11 +771,14 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
                     SecondaryOutlineButton(
                       label: 'Edit Video',
                       icon: const Icon(Icons.edit_outlined, size: 17),
-                      onPressed: () {
+                      onPressed: () async {
                         _videoController?.pause();
-                        context.push(
+                        await context.push(
                           '${AppRoutes.studioEditVideo}?id=${challenge['id']}$draftParam',
                         );
+                        if (mounted) {
+                          _initVideoPlayer();
+                        }
                       },
                     ),
                     const SizedBox(height: 14),

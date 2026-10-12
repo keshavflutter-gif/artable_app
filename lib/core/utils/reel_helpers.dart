@@ -50,4 +50,29 @@ abstract final class ReelHelpers {
   }
 
   static int ratingImpact(double talentScore) => (talentScore * 6).round();
+
+  static final Map<String, List<String>> _mergedClipsCache = {};
+
+  static void cacheMergedClips(String? key, List<String>? clips) {
+    if (key == null || key.trim().isEmpty || clips == null || clips.length <= 1) return;
+    final cleanKey = key.trim();
+    _mergedClipsCache[cleanKey] = List<String>.from(clips);
+    final withoutHost = cleanKey.replaceFirst(RegExp(r'^https?://[^/]+'), '');
+    if (withoutHost.isNotEmpty && withoutHost != cleanKey) {
+      _mergedClipsCache[withoutHost] = List<String>.from(clips);
+    }
+  }
+
+  static List<String>? getCachedMergedClips(String? key) {
+    if (key == null || key.trim().isEmpty) return null;
+    final cleanKey = key.trim();
+    if (_mergedClipsCache.containsKey(cleanKey)) {
+      return _mergedClipsCache[cleanKey];
+    }
+    final withoutHost = cleanKey.replaceFirst(RegExp(r'^https?://[^/]+'), '');
+    if (withoutHost.isNotEmpty && _mergedClipsCache.containsKey(withoutHost)) {
+      return _mergedClipsCache[withoutHost];
+    }
+    return null;
+  }
 }

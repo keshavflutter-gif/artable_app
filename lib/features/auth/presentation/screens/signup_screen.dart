@@ -130,18 +130,20 @@ class _SignupScreenState extends State<SignupScreen> {
       final userId = response.userId.isNotEmpty
           ? response.userId
           : (auth.pendingUserId ?? '');
-      final destination = Uri.encodeComponent(email);
+      final targetPhone = phone.trim();
+      final destinationVal = targetPhone.isNotEmpty ? targetPhone : email;
+      final destination = Uri.encodeComponent(destinationVal);
       final encodedVerifyId = Uri.encodeComponent(verifyId);
       final encodedUserId = Uri.encodeComponent(userId);
 
       context.push(
-        '${AppRoutes.otpVerification}?from=signup&destination=$destination&verifyId=$encodedVerifyId&userId=$encodedUserId&channel=EMAIL',
+        '${AppRoutes.otpVerification}?from=signup&destination=$destination&verifyId=$encodedVerifyId&userId=$encodedUserId&channel=SMS',
         extra: {
           'email': email,
           'password': pass,
           'verifyId': verifyId,
           'userId': userId,
-          'channel': 'EMAIL',
+          'channel': 'SMS',
         },
       );
       return;

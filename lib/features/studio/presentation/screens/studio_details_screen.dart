@@ -125,11 +125,11 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
       if (path != null && path.isNotEmpty) {
         final draftClips = draft['mergedClipPaths'] is List
             ? List<String>.from(draft['mergedClipPaths'] as List)
-            : <String>[];
+            : (studio.state.mergedClipPaths ?? <String>[]);
         studio.setRecordedVideoPath(
           path,
           mergedClipPaths: draftClips.isNotEmpty ? draftClips : null,
-          clearMergedClips: draftClips.isEmpty,
+          clearMergedClips: draftClips.isEmpty && (studio.state.mergedClipPaths == null || studio.state.mergedClipPaths!.isEmpty),
         );
       }
     }
@@ -307,7 +307,8 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
         unawaited(StudioMusicPlaybackService.checkAndSyncPosition(posMs));
       }
 
-      if (durMs > 0 && posMs >= durMs - 150) {
+      final isPlaying = controller.value.isPlaying;
+      if (durMs > 0 && (posMs >= durMs - 200 || (!isPlaying && posMs >= durMs - 350 && posMs > 0))) {
         _advanceToNextMergedClip();
       }
     }
@@ -356,12 +357,14 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
 
     try {
       final oldController = _videoController;
+      oldController?.removeListener(_onVideoControllerUpdate);
       await oldController?.pause();
 
       _currentClipIndex = (_currentClipIndex + 1) % _clipControllers.length;
       final nextController = _clipControllers[_currentClipIndex];
 
       await nextController.seekTo(Duration.zero);
+      nextController.addListener(_onVideoControllerUpdate);
       await nextController.play();
 
       if (mounted) {
@@ -444,6 +447,16 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
       'categoryId': _categoryId,
       'title': title.isNotEmpty ? title : 'Studio Draft',
     };
+
+    if (_mergedClipPaths.isNotEmpty) {
+      studio.setMergedClipPaths(_mergedClipPaths);
+      final currentRec = studio.recordedVideoPath;
+      studio.setRecordedVideoPath(
+        (currentRec != null && currentRec.isNotEmpty) ? currentRec : _mergedClipPaths.first,
+        mergedClipPaths: _mergedClipPaths.length > 1 ? _mergedClipPaths : null,
+        clearMergedClips: _mergedClipPaths.length <= 1,
+      );
+    }
 
     final existingDraftId = widget.draftId ?? _draft?['id'] as String?;
 
@@ -1050,6 +1063,18 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
                                       final finalChalId = Validators.isRealDatabaseId(_challengeId)
                                           ? _challengeId
                                           : null;
+
+                                      if (_mergedClipPaths.isNotEmpty) {
+                                        studioCubit.setMergedClipPaths(_mergedClipPaths);
+                                        final currentRec = studioCubit.recordedVideoPath;
+                                        studioCubit.setRecordedVideoPath(
+                                          (currentRec != null && currentRec.isNotEmpty)
+                                              ? currentRec
+                                              : _mergedClipPaths.first,
+                                          mergedClipPaths: _mergedClipPaths.length > 1 ? _mergedClipPaths : null,
+                                          clearMergedClips: _mergedClipPaths.length <= 1,
+                                        );
+                                      }
 
                                       studioCubit.setVideoSubmissionDetails(
                                         title: _titleController.text.trim(),

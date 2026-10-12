@@ -536,7 +536,18 @@ class StudioCubit extends Cubit<StudioState> {
 
         final updatedDrafts = state.drafts.map((d) {
           if (d['id'] == cleanVideoId) {
-            return {...d, ...uiDraftMap};
+            final merged = {...d, ...uiDraftMap};
+            if (state.recordedVideoPath != null && state.recordedVideoPath!.isNotEmpty) {
+              merged['videoPath'] = state.recordedVideoPath;
+              merged['videoUrl'] = state.recordedVideoPath;
+            }
+            if (state.mergedClipPaths != null && state.mergedClipPaths!.isNotEmpty) {
+              merged['mergedClipPaths'] = state.mergedClipPaths;
+            }
+            if (state.mergedClipDurations != null && state.mergedClipDurations!.isNotEmpty) {
+              merged['mergedClipDurations'] = state.mergedClipDurations;
+            }
+            return merged;
           }
           return d;
         }).toList();
@@ -737,7 +748,7 @@ class StudioCubit extends Cubit<StudioState> {
     emit(state.copyWith(recordedDuration: duration));
   }
 
-  void setRecordedVideoPath(String? path, {List<String>? mergedClipPaths, bool clearMergedClips = true}) {
+  void setRecordedVideoPath(String? path, {List<String>? mergedClipPaths, bool clearMergedClips = false}) {
     if (path == null) {
       emit(state.copyWith(
         clearRecordedVideoPath: true,
@@ -872,6 +883,18 @@ class StudioCubit extends Cubit<StudioState> {
     if (state.drafts.length >= maxDraftsLimit) return;
     final updated = List<Map<String, dynamic>>.from(state.drafts);
     updated.insert(0, draft);
+    emit(state.copyWith(drafts: updated));
+  }
+
+  void updateDraftMap(Map<String, dynamic> draft) {
+    final id = draft['id']?.toString();
+    if (id == null || id.isEmpty) return;
+    final updated = state.drafts.map((d) {
+      if (d['id'] == id) {
+        return {...d, ...draft};
+      }
+      return d;
+    }).toList();
     emit(state.copyWith(drafts: updated));
   }
 

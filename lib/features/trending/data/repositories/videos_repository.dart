@@ -7,6 +7,7 @@ import 'package:artable_app/core/storage/auth_storage_service.dart';
 import 'package:artable_app/features/studio/data/services/video_thumbnail_generator.dart';
 import 'package:artable_app/data/datasources/mock_data.dart';
 import 'package:artable_app/core/utils/validators.dart';
+import 'package:artable_app/core/utils/reel_helpers.dart';
 import '../models/trending_videos_response.dart';
 
 class VideosRepository {
@@ -208,6 +209,7 @@ class VideosRepository {
     String? refreshToken,
     double? videoTrimStartSeconds,
     double? videoTrimEndSeconds,
+    List<String>? mergedClipPaths,
   }) async {
     // 1. Ensure video URL is ready
     String finalVideoUrl = videoPathOrUrl;
@@ -218,6 +220,42 @@ class VideosRepository {
         sessionToken: sessionToken,
         refreshToken: refreshToken,
       );
+    }
+
+    // 1b. Ensure merged clip URLs are uploaded if present
+    final List<String> finalMergedClipUrls = [];
+    if (mergedClipPaths != null && mergedClipPaths.isNotEmpty) {
+      for (final clip in mergedClipPaths) {
+        var cleanClip = clip.trim();
+        if (cleanClip.startsWith('file://')) cleanClip = cleanClip.replaceFirst('file://', '');
+        if (cleanClip.isEmpty) continue;
+        if (cleanClip.startsWith('http://') || cleanClip.startsWith('https://')) {
+          finalMergedClipUrls.add(cleanClip);
+        } else if (cleanClip.startsWith('/') && !File(cleanClip).existsSync()) {
+          final fullUrl = 'http://server.keshavinfotechdemo2.com:3055$cleanClip';
+          finalMergedClipUrls.add(fullUrl);
+        } else if (cleanClip.contains('uploads/') && !File(cleanClip).existsSync()) {
+          final fullUrl = 'http://server.keshavinfotechdemo2.com:3055/${cleanClip.replaceFirst(RegExp(r'^/+'), '')}';
+          finalMergedClipUrls.add(fullUrl);
+        } else {
+          try {
+            final uploadedClip = await _uploadFile(
+              cleanClip,
+              isVideo: true,
+              sessionToken: sessionToken,
+              refreshToken: refreshToken,
+            );
+            if (uploadedClip.isNotEmpty) {
+              finalMergedClipUrls.add(uploadedClip);
+            } else {
+              finalMergedClipUrls.add(cleanClip);
+            }
+          } catch (e) {
+            debugPrint('Error uploading clip in createVideo: $e');
+            finalMergedClipUrls.add(cleanClip);
+          }
+        }
+      }
     }
 
     // 2. Resolve Thumbnail (Priority: Manual selected thumbnail > Video-generated thumbnail)
@@ -279,6 +317,8 @@ class VideosRepository {
       'title': title,
       'videoUrl': finalVideoUrl,
       'thumbnailUrl': finalThumbnailUrl,
+      if (finalMergedClipUrls.isNotEmpty)
+        'mergedClipPaths': finalMergedClipUrls,
       if (description != null && description.trim().isNotEmpty)
         'description': description.trim(),
       if (realCategoryId != null)
@@ -317,6 +357,8 @@ class VideosRepository {
       'verified': true,
       'imageUrl': finalThumbnailUrl,
       'videoUrl': finalVideoUrl,
+      if (finalMergedClipUrls.isNotEmpty)
+        'mergedClipPaths': finalMergedClipUrls,
       'avatarUrl': 'https://i.pravatar.cc/100?u=user',
       'views': '1',
       'challengeId': challengeId ?? 'c1',
@@ -331,6 +373,13 @@ class VideosRepository {
       if (videoTrimEndSeconds != null)
         'videoTrimEndSeconds': videoTrimEndSeconds,
     };
+    if (finalMergedClipUrls.isNotEmpty) {
+      if (createdId != 'N/A' && createdId.isNotEmpty) {
+        ReelHelpers.cacheMergedClips(createdId, finalMergedClipUrls);
+      }
+      ReelHelpers.cacheMergedClips(finalVideoUrl, finalMergedClipUrls);
+      newReelItem['mergedClipPaths'] = finalMergedClipUrls;
+    }
     MockData.REELS.insert(0, newReelItem);
 
     debugPrint('=== CREATE VIDEO === Create Video API status: ${response['status'] ?? 200}');

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -57,6 +58,13 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
     void addReels(List<Map<String, dynamic>> list) {
       for (final r in list) {
         final id = r['id']?.toString() ?? r['_id']?.toString() ?? '';
+        final vUrl = r['videoUrl']?.toString() ?? '';
+        if (r['mergedClipPaths'] == null || (r['mergedClipPaths'] is List && (r['mergedClipPaths'] as List).isEmpty)) {
+          final cached = ReelHelpers.getCachedMergedClips(id) ?? ReelHelpers.getCachedMergedClips(vUrl);
+          if (cached != null && cached.isNotEmpty) {
+            r['mergedClipPaths'] = cached;
+          }
+        }
         if (id.isNotEmpty && !seenIds.contains(id)) {
           seenIds.add(id);
           rawList.add(r);
@@ -464,6 +472,9 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
                     playbackSpeed: _playbackSpeed,
                     trimStart: (reel['videoTrimStartSeconds'] as num?)?.toDouble(),
                     trimEnd: (reel['videoTrimEndSeconds'] as num?)?.toDouble(),
+                    mergedClipPaths: (reel['mergedClipPaths'] is List)
+                        ? List<String>.from(reel['mergedClipPaths'] as List)
+                        : null,
                   ),
                   DecoratedBox(
                     decoration: BoxDecoration(
@@ -846,6 +857,7 @@ class _ReelVideoPlayer extends StatefulWidget {
     this.playbackSpeed = 1.0,
     this.trimStart,
     this.trimEnd,
+    this.mergedClipPaths,
   });
 
   final String videoUrl;
@@ -854,6 +866,7 @@ class _ReelVideoPlayer extends StatefulWidget {
   final double playbackSpeed;
   final double? trimStart;
   final double? trimEnd;
+  final List<String>? mergedClipPaths;
 
   @override
   State<_ReelVideoPlayer> createState() => _ReelVideoPlayerState();
@@ -863,6 +876,22 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer> {
   VideoPlayerController? _controller;
   bool _isInitializing = false;
   bool _isInitialized = false;
+  int _currentClipIndex = 0;
+  bool _isSwitchingClip = false;
+  Timer? _playbackTimer;
+
+  List<String> get _effectiveMergedClips {
+    if (widget.mergedClipPaths != null && widget.mergedClipPaths!.length > 1) {
+      return widget.mergedClipPaths!;
+    }
+    final cached = ReelHelpers.getCachedMergedClips(widget.videoUrl);
+    if (cached != null && cached.length > 1) {
+      return cached;
+    }
+    return widget.mergedClipPaths ?? const [];
+  }
+
+  bool get _hasMultiClips => _effectiveMergedClips.length > 1;
 
   @override
   void initState() {
@@ -877,6 +906,9 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer> {
     debugPrint('=== TRENDING REEL VIDEO ===');
     debugPrint('Video URL: ${widget.videoUrl}');
     debugPrint('Thumbnail URL: ${widget.thumbnailUrl}');
+    if (widget.mergedClipPaths != null) {
+      debugPrint('Merged Clips: ${widget.mergedClipPaths!.length}');
+    }
   }
 
   String? _resolvePlayableUrl(String rawUrl) {
@@ -910,8 +942,10 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer> {
   @override
   void didUpdateWidget(covariant _ReelVideoPlayer oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.videoUrl != oldWidget.videoUrl) {
+    if (widget.videoUrl != oldWidget.videoUrl ||
+        widget.mergedClipPaths != oldWidget.mergedClipPaths) {
       _logDebugInfo();
+      _currentClipIndex = 0;
       _disposeController();
       if (widget.isActive) {
         _initVideo();
@@ -940,7 +974,19 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer> {
 
   Future<void> _initVideo() async {
     await StudioMusicPlaybackService.releaseForVideoPlayback();
-    final resolvedUrl = _resolvePlayableUrl(widget.videoUrl);
+
+    final String targetUrl;
+    if (_hasMultiClips) {
+      final clips = _effectiveMergedClips;
+      if (_currentClipIndex >= clips.length) {
+        _currentClipIndex = 0;
+      }
+      targetUrl = clips[_currentClipIndex];
+    } else {
+      targetUrl = widget.videoUrl;
+    }
+
+    final resolvedUrl = _resolvePlayableUrl(targetUrl);
 
     if (resolvedUrl == null || resolvedUrl.isEmpty) {
       if (mounted) {
@@ -979,10 +1025,10 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer> {
       if (!mounted) return;
       controller.addListener(_onVideoControllerUpdate);
       final trimStart = widget.trimStart ?? 0.0;
-      if (trimStart > 0) {
+      if (trimStart > 0 && !_hasMultiClips) {
         await controller.seekTo(Duration(milliseconds: (trimStart * 1000).round()));
       }
-      controller.setLooping(true);
+      controller.setLooping(!_hasMultiClips);
       controller.setVolume(1.0);
       if (widget.playbackSpeed != 1.0) {
         await controller.setPlaybackSpeed(widget.playbackSpeed);
@@ -997,6 +1043,7 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer> {
           _isInitializing = false;
         });
       }
+      _startPlaybackTimer();
       return;
     } catch (e) {
       debugPrint('=== VIDEO PLAYBACK === Primary player error: $e');
@@ -1010,14 +1057,31 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer> {
     }
   }
 
+  void _startPlaybackTimer() {
+    _playbackTimer?.cancel();
+    if (!_hasMultiClips) return;
+    _playbackTimer = Timer.periodic(const Duration(milliseconds: 60), (_) {
+      if (!mounted || _isSwitchingClip || !_hasMultiClips) return;
+      final controller = _controller;
+      if (controller != null && controller.value.isInitialized) {
+        final posMs = controller.value.position.inMilliseconds;
+        final durMs = controller.value.duration.inMilliseconds;
+        final isPlaying = controller.value.isPlaying;
+        if (durMs > 0 && (posMs >= durMs - 200 || (!isPlaying && posMs >= durMs - 350 && posMs > 0))) {
+          _advanceToNextClip();
+        }
+      }
+    });
+  }
+
   void _onVideoControllerUpdate() {
     final controller = _controller;
-    if (controller == null || !mounted) return;
+    if (controller == null || !mounted || _isSwitchingClip) return;
 
     final trimStart = widget.trimStart ?? 0.0;
     final trimEnd = widget.trimEnd;
 
-    if (trimEnd != null && trimEnd > trimStart) {
+    if (trimEnd != null && trimEnd > trimStart && !_hasMultiClips) {
       final startMs = (trimStart * 1000).round();
       final endMs = (trimEnd * 1000).round();
       final posMs = controller.value.position.inMilliseconds;
@@ -1029,9 +1093,89 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer> {
         }
       }
     }
+
+    if (_hasMultiClips) {
+      final durMs = controller.value.duration.inMilliseconds;
+      final posMs = controller.value.position.inMilliseconds;
+      final isPlaying = controller.value.isPlaying;
+      if (durMs > 0 && (posMs >= durMs - 200 || (!isPlaying && posMs >= durMs - 350 && posMs > 0))) {
+        _advanceToNextClip();
+      }
+    }
+  }
+
+  Future<void> _advanceToNextClip() async {
+    final clips = _effectiveMergedClips;
+    if (_isSwitchingClip || clips.isEmpty) return;
+    _isSwitchingClip = true;
+    try {
+      final nextIndex = (_currentClipIndex + 1) % clips.length;
+      _currentClipIndex = nextIndex;
+      final nextUrl = clips[nextIndex];
+      await _switchClipController(nextUrl);
+    } catch (e) {
+      debugPrint('Error advancing reel clip: $e');
+    } finally {
+      _isSwitchingClip = false;
+    }
+  }
+
+  Future<void> _switchClipController(String nextUrl) async {
+    final resolvedUrl = _resolvePlayableUrl(nextUrl);
+    if (resolvedUrl == null || resolvedUrl.isEmpty) return;
+
+    final oldController = _controller;
+    try {
+      VideoPlayerController controller;
+      var cleanFilePath = resolvedUrl.startsWith('file://') ? resolvedUrl.replaceFirst('file://', '') : resolvedUrl;
+      final localFile = File(cleanFilePath);
+
+      if (resolvedUrl.startsWith('file://') || localFile.existsSync() || resolvedUrl.startsWith('/data/') || resolvedUrl.startsWith('/storage/')) {
+        controller = VideoPlayerController.file(localFile);
+      } else {
+        final uri = Uri.parse(resolvedUrl);
+        controller = VideoPlayerController.networkUrl(
+          uri,
+          videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
+        );
+      }
+
+      await controller.initialize().timeout(const Duration(seconds: 15));
+      if (!mounted) {
+        controller.dispose();
+        return;
+      }
+
+      oldController?.removeListener(_onVideoControllerUpdate);
+      await oldController?.pause();
+      oldController?.dispose();
+
+      controller.addListener(_onVideoControllerUpdate);
+      controller.setLooping(false);
+      controller.setVolume(1.0);
+      if (widget.playbackSpeed != 1.0) {
+        await controller.setPlaybackSpeed(widget.playbackSpeed);
+      }
+
+      _controller = controller;
+      if (widget.isActive) {
+        await controller.play();
+      }
+
+      if (mounted) {
+        setState(() {
+          _isInitialized = true;
+          _isInitializing = false;
+        });
+      }
+      _startPlaybackTimer();
+    } catch (e) {
+      debugPrint('Error switching to next clip in reel: $e');
+    }
   }
 
   void _disposeController() {
+    _playbackTimer?.cancel();
     _controller?.removeListener(_onVideoControllerUpdate);
     _controller?.pause();
     _controller?.dispose();
@@ -1042,6 +1186,7 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer> {
 
   @override
   void dispose() {
+    _playbackTimer?.cancel();
     _disposeController();
     super.dispose();
   }
@@ -1114,7 +1259,10 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer> {
                 height: _controller!.value.size.height > 0
                     ? _controller!.value.size.height
                     : 640,
-                child: VideoPlayer(_controller!),
+                child: VideoPlayer(
+                  key: ValueKey(_controller),
+                  _controller!,
+                ),
               ),
             ),
 

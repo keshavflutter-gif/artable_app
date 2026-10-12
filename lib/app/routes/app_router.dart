@@ -106,7 +106,7 @@ abstract final class AppRouter {
                 '';
             final channel = state.uri.queryParameters['channel'] ??
                 extraMap?['channel']?.toString() ??
-                'EMAIL';
+                'SMS';
             final email = state.uri.queryParameters['email'] ??
                 extraMap?['email']?.toString();
             final password = state.uri.queryParameters['password'] ??

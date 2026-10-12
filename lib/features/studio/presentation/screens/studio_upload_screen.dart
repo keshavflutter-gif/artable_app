@@ -7,12 +7,15 @@ import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_text_styles.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/core/utils/reel_helpers.dart';
+import 'package:artable_app/core/utils/studio_video_player_utils.dart';
 import 'package:artable_app/core/widgets/app_screen_header.dart';
 import 'package:artable_app/features/studio/presentation/bloc/studio_cubit.dart';
 import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
 import 'package:artable_app/features/home/presentation/bloc/home_cubit.dart';
 import 'package:artable_app/features/trending/presentation/bloc/trending_videos_cubit.dart';
 import 'package:artable_app/features/trending/data/repositories/videos_repository.dart';
+import 'package:artable_app/features/reels/presentation/bloc/reels_cubit.dart';
+import 'package:artable_app/data/datasources/mock_data.dart';
 import 'package:artable_app/core/utils/validators.dart';
 
 class StudioUploadScreen extends StatefulWidget {
@@ -63,9 +66,43 @@ class _StudioUploadScreenState extends State<StudioUploadScreen> {
 
     try {
       // Step 0: Preparing Video
-      final videoPath = studioCubit.recordedVideoPath;
+      // Collect all merged clips if multi-clip video
+      List<String> mergedClips = [];
+      if (studioCubit.state.mergedClipPaths != null && studioCubit.state.mergedClipPaths!.isNotEmpty) {
+        mergedClips = List<String>.from(studioCubit.state.mergedClipPaths!);
+      } else {
+        final targetDraftId = widget.draftId ?? studioCubit.activeDraftId;
+        if (targetDraftId != null && targetDraftId.isNotEmpty) {
+          final draftMatch = studioCubit.drafts.where((d) => d['id'] == targetDraftId).firstOrNull;
+          if (draftMatch != null && draftMatch['mergedClipPaths'] is List) {
+            mergedClips = List<String>.from(draftMatch['mergedClipPaths'] as List);
+          }
+        }
+      }
+
+      String? videoPath = studioCubit.recordedVideoPath;
+
+      // If we have multiple clips, ensure they are combined into a single merged video file
+      if (mergedClips.length > 1) {
+        debugPrint('StudioUploadScreen: Combining ${mergedClips.length} clips before upload...');
+        final combined = await StudioVideoPlayerUtils.combineVideoFiles(mergedClips);
+        if (combined != null && await combined.exists() && (await combined.length()) > 0) {
+          videoPath = combined.path;
+          studioCubit.setRecordedVideoPath(
+            videoPath,
+            mergedClipPaths: mergedClips,
+            clearMergedClips: false,
+          );
+          debugPrint('StudioUploadScreen: Successfully created merged video: $videoPath');
+        }
+      }
+
       if (videoPath == null || videoPath.trim().isEmpty) {
-        throw Exception('No recorded video path found. Please re-record video.');
+        if (mergedClips.isNotEmpty) {
+          videoPath = mergedClips.first;
+        } else {
+          throw Exception('No recorded video path found. Please re-record video.');
+        }
       }
 
       setState(() {
@@ -114,6 +151,7 @@ class _StudioUploadScreenState extends State<StudioUploadScreen> {
             ? studioCubit.state.videoTrimStartSeconds
             : null,
         videoTrimEndSeconds: studioCubit.state.videoTrimEndSeconds,
+        mergedClipPaths: mergedClips.isNotEmpty ? mergedClips : null,
       );
 
       // Step 3: Submitting Entry & Feed Refresh
@@ -138,6 +176,10 @@ class _StudioUploadScreenState extends State<StudioUploadScreen> {
       if (mounted) {
         final homeCubit = context.read<HomeCubit>();
         final trendingCubit = context.read<TrendingVideosCubit>();
+        final reelsCubit = context.read<ReelsCubit>();
+        if (MockData.REELS.isNotEmpty) {
+          reelsCubit.syncVideos([MockData.REELS.first]);
+        }
         try {
           await homeCubit.loadHomeDashboard(forceRefresh: true);
         } catch (_) {}
