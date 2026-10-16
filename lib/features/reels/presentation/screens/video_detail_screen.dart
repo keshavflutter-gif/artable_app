@@ -57,9 +57,21 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
       if (reelsMatch != null) return reelsMatch;
     }
 
-    return available.isNotEmpty
+    final baseMap = available.isNotEmpty
         ? available.first
         : (MockData.REELS.isNotEmpty ? MockData.REELS.first : {});
+
+    final res = Map<String, dynamic>.from(baseMap);
+    final id = res['id']?.toString() ?? res['_id']?.toString() ?? targetId;
+    final vUrl = res['videoUrl']?.toString() ?? '';
+    if (res['mergedClipPaths'] == null || (res['mergedClipPaths'] is List && (res['mergedClipPaths'] as List).isEmpty)) {
+      final descClips = ReelHelpers.parseDescriptionClips(res['description']?.toString() ?? res['caption']?.toString()).clips;
+      final cached = descClips ?? ReelHelpers.getCachedMergedClips(id) ?? ReelHelpers.getCachedMergedClips(vUrl);
+      if (cached != null && cached.isNotEmpty) {
+        res['mergedClipPaths'] = cached;
+      }
+    }
+    return res;
   }
 
   @override
@@ -272,7 +284,14 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
       child: GestureDetector(
         onTap: () {
           if (reelId.isNotEmpty) {
-            context.push('${AppRoutes.reelsFeed}?id=$reelId');
+            final effectiveClips = reel['mergedClipPaths'] is List
+                ? List<String>.from(reel['mergedClipPaths'] as List)
+                : ReelHelpers.getCachedMergedClips(reelId);
+            if (effectiveClips != null && effectiveClips.isNotEmpty) {
+              ReelHelpers.cacheMergedClips(reelId, effectiveClips);
+              context.read<ReelsCubit>().syncVideos([reel]);
+            }
+            context.push('${AppRoutes.reelsFeed}?id=$reelId', extra: reel);
           }
         },
         child: Container(

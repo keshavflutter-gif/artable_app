@@ -248,6 +248,7 @@ abstract final class AppRouter {
           path: AppRoutes.reelsFeed,
           builder: (context, state) => ReelsFeedScreen(
             initialReelId: state.uri.queryParameters['id'],
+            initialReelData: state.extra is Map ? Map<String, dynamic>.from(state.extra as Map) : null,
           ),
         ),
         GoRoute(

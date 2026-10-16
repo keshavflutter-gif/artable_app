@@ -187,7 +187,8 @@ class HomeUiMapper {
           .join(' ');
     }
 
-    final cleanRawDesc = rawDescription.replaceAll(RegExp(r'#+'), '#');
+    final parsedClipsDesc = ReelHelpers.parseDescriptionClips(rawDescription);
+    final cleanRawDesc = (parsedClipsDesc.cleanDescription.isNotEmpty ? parsedClipsDesc.cleanDescription : rawDescription).replaceAll(RegExp(r'#+'), '#');
 
     String finalCaption = '';
     if (cleanRawDesc.isNotEmpty && formattedHashtags.isNotEmpty) {
@@ -264,6 +265,8 @@ class HomeUiMapper {
         'mergedClipPaths': List<String>.from(item['mergedClipPaths'] as List)
       else if (item['merged_clip_paths'] is List && (item['merged_clip_paths'] as List).isNotEmpty)
         'mergedClipPaths': List<String>.from(item['merged_clip_paths'] as List)
+      else if (parsedClipsDesc.clips != null && parsedClipsDesc.clips!.isNotEmpty)
+        'mergedClipPaths': parsedClipsDesc.clips
       else if (ReelHelpers.getCachedMergedClips(_stringValue(item['id'])) != null)
         'mergedClipPaths': ReelHelpers.getCachedMergedClips(_stringValue(item['id']))
       else if (ReelHelpers.getCachedMergedClips(videoUrl) != null)

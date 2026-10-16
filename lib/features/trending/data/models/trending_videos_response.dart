@@ -836,11 +836,35 @@ class TrendingVideoItem {
     final parsedViews = _extractViews(json);
     final parsedSaves = _extractSaves(json);
     final parsedIsSaved = _extractIsSaved(json);
+
+    final rawDesc = json['description']?.toString();
+    final parsedClipsDesc = ReelHelpers.parseDescriptionClips(rawDesc);
+    final effectiveDesc = parsedClipsDesc.cleanDescription.isNotEmpty ? parsedClipsDesc.cleanDescription : rawDesc;
+
+    final idStr = json['id']?.toString() ?? json['_id']?.toString() ?? '';
+    final videoUrlStr = _extractVideoUrl(json);
+
+    List<String>? effectiveMergedClips = json['mergedClipPaths'] is List
+        ? List<String>.from((json['mergedClipPaths'] as List).map((e) => e.toString()))
+        : (json['merged_clip_paths'] is List
+            ? List<String>.from((json['merged_clip_paths'] as List).map((e) => e.toString()))
+            : parsedClipsDesc.clips);
+
+    if (effectiveMergedClips == null || effectiveMergedClips.isEmpty) {
+      effectiveMergedClips = ReelHelpers.getCachedMergedClips(idStr) ??
+          ReelHelpers.getCachedMergedClips(videoUrlStr);
+    }
+
+    if (effectiveMergedClips != null && effectiveMergedClips.length > 1) {
+      if (idStr.isNotEmpty) ReelHelpers.cacheMergedClips(idStr, effectiveMergedClips);
+      if (videoUrlStr != null && videoUrlStr.isNotEmpty) ReelHelpers.cacheMergedClips(videoUrlStr, effectiveMergedClips);
+    }
+
     return TrendingVideoItem(
-      id: json['id']?.toString() ?? '',
+      id: idStr,
       title: json['title']?.toString() ?? '',
-      description: json['description']?.toString(),
-      videoUrl: _extractVideoUrl(json),
+      description: effectiveDesc,
+      videoUrl: videoUrlStr,
       thumbnailUrl: _extractThumbnailUrl(json),
       hashtags: _extractHashtags(json),
       status: json['status']?.toString(),
@@ -900,12 +924,7 @@ class TrendingVideoItem {
       isTrending: json['isTrending'] == true,
       isLiked: _extractIsLiked(json),
       isSaved: parsedIsSaved,
-      mergedClipPaths: json['mergedClipPaths'] is List
-          ? List<String>.from((json['mergedClipPaths'] as List).map((e) => e.toString()))
-          : (json['merged_clip_paths'] is List
-              ? List<String>.from((json['merged_clip_paths'] as List).map((e) => e.toString()))
-              : (ReelHelpers.getCachedMergedClips(json['id']?.toString() ?? json['_id']?.toString()) ??
-                 ReelHelpers.getCachedMergedClips(json['videoUrl']?.toString() ?? json['video_url']?.toString()))),
+      mergedClipPaths: effectiveMergedClips,
     );
   }
 

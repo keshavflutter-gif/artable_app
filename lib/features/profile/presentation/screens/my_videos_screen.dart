@@ -9,6 +9,7 @@ import 'package:artable_app/core/widgets/app_image.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
 import 'package:artable_app/core/widgets/filter_pills.dart';
 import 'package:artable_app/features/profile/data/models/my_videos_response.dart';
+import 'package:artable_app/features/reels/presentation/bloc/reels_cubit.dart';
 import 'package:artable_app/features/profile/presentation/bloc/my_videos_cubit.dart';
 import 'package:artable_app/features/profile/presentation/bloc/my_videos_state.dart';
 
@@ -234,7 +235,17 @@ class _FigmaMyVideoCard extends StatelessWidget {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  AppImage(url: thumbnailUrl, fit: BoxFit.cover),
+                  GestureDetector(
+                    onTap: () {
+                      final challengeObj = item.challenge;
+                      final challengeId = challengeObj?['id']?.toString() ?? '';
+                      final routeId = item.id.isNotEmpty ? item.id : challengeId;
+                      final uiMap = item.toUiMap();
+                      context.read<ReelsCubit>().syncVideos([uiMap]);
+                      context.push('/video-detail?id=$routeId', extra: uiMap);
+                    },
+                    child: AppImage(url: thumbnailUrl, fit: BoxFit.cover),
+                  ),
                   // Status Badge (Top-Left)
                   Positioned(
                     top: 8,
@@ -456,8 +467,10 @@ class _FigmaMyVideoCard extends StatelessWidget {
                             onTap: () {
                               final challengeObj = item.challenge;
                               final challengeId = challengeObj?['id']?.toString() ?? '';
-                              final routeId = challengeId.isNotEmpty ? challengeId : item.id;
-                              context.push('/video-detail?id=$routeId');
+                              final routeId = item.id.isNotEmpty ? item.id : challengeId;
+                              final uiMap = item.toUiMap();
+                              context.read<ReelsCubit>().syncVideos([uiMap]);
+                              context.push('/video-detail?id=$routeId', extra: uiMap);
                             },
                           ),
                         ),

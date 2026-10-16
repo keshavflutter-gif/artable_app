@@ -19,9 +19,10 @@ import 'package:artable_app/features/reels/presentation/widgets/talent_rating_sl
 import 'package:artable_app/features/studio/data/services/studio_music_playback_service.dart';
 
 class ReelsFeedScreen extends StatefulWidget {
-  const ReelsFeedScreen({super.key, this.initialReelId});
+  const ReelsFeedScreen({super.key, this.initialReelId, this.initialReelData});
 
   final String? initialReelId;
+  final Map<String, dynamic>? initialReelData;
 
   @override
   State<ReelsFeedScreen> createState() => _ReelsFeedScreenState();
@@ -60,7 +61,8 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
         final id = r['id']?.toString() ?? r['_id']?.toString() ?? '';
         final vUrl = r['videoUrl']?.toString() ?? '';
         if (r['mergedClipPaths'] == null || (r['mergedClipPaths'] is List && (r['mergedClipPaths'] as List).isEmpty)) {
-          final cached = ReelHelpers.getCachedMergedClips(id) ?? ReelHelpers.getCachedMergedClips(vUrl);
+          final descClips = ReelHelpers.parseDescriptionClips(r['description']?.toString() ?? r['caption']?.toString()).clips;
+          final cached = descClips ?? ReelHelpers.getCachedMergedClips(id) ?? ReelHelpers.getCachedMergedClips(vUrl);
           if (cached != null && cached.isNotEmpty) {
             r['mergedClipPaths'] = cached;
           }
@@ -72,6 +74,9 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
       }
     }
 
+    if (widget.initialReelData != null && widget.initialReelData!.isNotEmpty) {
+      addReels([widget.initialReelData!]);
+    }
     if (trendingCubit.hero != null) {
       addReels([trendingCubit.hero!.toUiMap()]);
     }
@@ -470,6 +475,8 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
                     thumbnailUrl: imageUrl,
                     isActive: isActive,
                     playbackSpeed: _playbackSpeed,
+                    reelId: reel['id']?.toString() ?? reel['_id']?.toString(),
+                    caption: (reel['caption'] ?? reel['description'])?.toString(),
                     trimStart: (reel['videoTrimStartSeconds'] as num?)?.toDouble(),
                     trimEnd: (reel['videoTrimEndSeconds'] as num?)?.toDouble(),
                     mergedClipPaths: (reel['mergedClipPaths'] is List)
@@ -855,6 +862,8 @@ class _ReelVideoPlayer extends StatefulWidget {
     required this.thumbnailUrl,
     required this.isActive,
     this.playbackSpeed = 1.0,
+    this.reelId,
+    this.caption,
     this.trimStart,
     this.trimEnd,
     this.mergedClipPaths,
@@ -864,6 +873,8 @@ class _ReelVideoPlayer extends StatefulWidget {
   final String thumbnailUrl;
   final bool isActive;
   final double playbackSpeed;
+  final String? reelId;
+  final String? caption;
   final double? trimStart;
   final double? trimEnd;
   final List<String>? mergedClipPaths;
@@ -884,9 +895,21 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer> {
     if (widget.mergedClipPaths != null && widget.mergedClipPaths!.length > 1) {
       return widget.mergedClipPaths!;
     }
+    if (widget.reelId != null && widget.reelId!.isNotEmpty) {
+      final cachedById = ReelHelpers.getCachedMergedClips(widget.reelId);
+      if (cachedById != null && cachedById.length > 1) {
+        return cachedById;
+      }
+    }
     final cached = ReelHelpers.getCachedMergedClips(widget.videoUrl);
     if (cached != null && cached.length > 1) {
       return cached;
+    }
+    if (widget.caption != null && widget.caption!.isNotEmpty) {
+      final descClips = ReelHelpers.parseDescriptionClips(widget.caption).clips;
+      if (descClips != null && descClips.length > 1) {
+        return descClips;
+      }
     }
     return widget.mergedClipPaths ?? const [];
   }

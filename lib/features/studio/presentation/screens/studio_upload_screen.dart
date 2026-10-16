@@ -94,6 +94,14 @@ class _StudioUploadScreenState extends State<StudioUploadScreen> {
             clearMergedClips: false,
           );
           debugPrint('StudioUploadScreen: Successfully created merged video: $videoPath');
+        } else {
+          videoPath = mergedClips.first;
+          studioCubit.setRecordedVideoPath(
+            videoPath,
+            mergedClipPaths: mergedClips,
+            clearMergedClips: false,
+          );
+          debugPrint('StudioUploadScreen: Using first clip for base videoPath: $videoPath');
         }
       }
 

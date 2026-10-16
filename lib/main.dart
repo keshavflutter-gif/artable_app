@@ -5,12 +5,14 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'core/services/notification_service.dart';
+import 'core/storage/local_storage.dart';
 import 'app/app.dart';
 import 'data/datasources/music_api_service.dart';
 
 void main() async {
   // 1. Ensure Flutter Engine binding is initialized before async startup tasks
   final binding = WidgetsFlutterBinding.ensureInitialized();
+  await LocalStorage.init();
 
   // 2. Safe Firebase & NotificationService Initialization
   try {

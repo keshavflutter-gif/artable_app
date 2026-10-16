@@ -79,15 +79,11 @@ class StudioVideoPlayerUtils {
             debugPrint(
               'Mp4Merger output validation returned false (length: $len bytes): ${result.path}',
             );
-            // If the file has valid content (> 1KB), keep it rather than deleting,
-            // as canPlayVideoFile might fail due to concurrent codec limits or timeout.
-            if (len > 1024) {
-              mergedResult = result;
-            } else {
-              try {
-                await result.delete();
-              } catch (_) {}
-            }
+            // If canPlayVideoFile returned false, the container cannot be decoded reliably by VideoPlayer.
+            // Do not return an unplayable file; callers will use the clip playlist and files.first.
+            try {
+              await result.delete();
+            } catch (_) {}
           }
         }
       }

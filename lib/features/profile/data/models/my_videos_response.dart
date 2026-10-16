@@ -1,3 +1,5 @@
+import 'package:artable_app/core/utils/reel_helpers.dart';
+
 class MyVideosResponse {
   const MyVideosResponse({
     required this.success,
@@ -81,6 +83,7 @@ class MyVideoItem {
     this.actions = const [],
     this.challenge,
     this.category,
+    this.mergedClipPaths,
   });
 
   final String id;
@@ -104,6 +107,7 @@ class MyVideoItem {
   final List<MyVideoAction> actions;
   final Map<String, dynamic>? challenge;
   final Map<String, dynamic>? category;
+  final List<String>? mergedClipPaths;
 
   factory MyVideoItem.fromJson(Map<String, dynamic> json) {
     final actionsRaw = json['actions'];
@@ -167,12 +171,39 @@ class MyVideoItem {
     final statusStr = json['status']?.toString() ?? 'APPROVED';
     final isDraftStatus = statusStr.toLowerCase().contains('draft');
 
+    final rawDesc = json['description']?.toString();
+    final parsedClipsDesc = ReelHelpers.parseDescriptionClips(rawDesc);
+    final effectiveDesc = parsedClipsDesc.cleanDescription.isNotEmpty
+        ? parsedClipsDesc.cleanDescription
+        : rawDesc;
+
+    final idStr = json['id']?.toString() ?? json['_id']?.toString() ?? '';
+    final videoUrlStr = json['videoUrl']?.toString() ?? json['video_url']?.toString();
+
+    List<String>? effectiveMergedClips = json['mergedClipPaths'] is List
+        ? List<String>.from((json['mergedClipPaths'] as List).map((e) => e.toString()))
+        : (json['merged_clip_paths'] is List
+            ? List<String>.from((json['merged_clip_paths'] as List).map((e) => e.toString()))
+            : parsedClipsDesc.clips);
+
+    if (effectiveMergedClips == null || effectiveMergedClips.isEmpty) {
+      effectiveMergedClips = ReelHelpers.getCachedMergedClips(idStr) ??
+          ReelHelpers.getCachedMergedClips(videoUrlStr);
+    }
+
+    if (effectiveMergedClips != null && effectiveMergedClips.length > 1) {
+      if (idStr.isNotEmpty) ReelHelpers.cacheMergedClips(idStr, effectiveMergedClips);
+      if (videoUrlStr != null && videoUrlStr.isNotEmpty) {
+        ReelHelpers.cacheMergedClips(videoUrlStr, effectiveMergedClips);
+      }
+    }
+
     return MyVideoItem(
-      id: json['id']?.toString() ?? '',
+      id: idStr,
       title: titleStr,
-      description: json['description']?.toString(),
+      description: effectiveDesc,
       thumbnailUrl: thumb,
-      videoUrl: json['videoUrl']?.toString() ?? json['video_url']?.toString(),
+      videoUrl: videoUrlStr,
       status: statusStr,
       statusBadge: json['statusBadge'] is Map
           ? MyVideoStatusBadge.fromJson(Map<String, dynamic>.from(json['statusBadge'] as Map))
@@ -191,6 +222,7 @@ class MyVideoItem {
       actions: actionsList,
       challenge: challengeObj,
       category: categoryObj,
+      mergedClipPaths: effectiveMergedClips,
     );
   }
 
@@ -199,15 +231,22 @@ class MyVideoItem {
     final challengeId = challengeObj?['id']?.toString() ?? '';
     final challengeTitle = challengeObj?['title']?.toString() ?? title;
 
+    final resolvedClips = (mergedClipPaths != null && mergedClipPaths!.isNotEmpty)
+        ? mergedClipPaths
+        : (ReelHelpers.getCachedMergedClips(id) ?? ReelHelpers.getCachedMergedClips(videoUrl));
+
     return {
       'id': id,
       'title': title,
       'description': description ?? '',
+      'caption': (description != null && description!.trim().isNotEmpty) ? description! : title,
       'challengeId': challengeId,
       'challengeTitle': challengeTitle,
       'imageUrl': thumbnailUrl,
       'thumbnailUrl': thumbnailUrl,
       'videoUrl': videoUrl ?? '',
+      if (resolvedClips != null && resolvedClips.isNotEmpty)
+        'mergedClipPaths': resolvedClips,
       'status': status.toLowerCase(),
       'statusLabel': statusLabel ?? statusBadge?.label ?? status,
       'statusTone': statusBadge?.tone ?? 'success',

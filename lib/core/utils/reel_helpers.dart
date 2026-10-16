@@ -2,7 +2,70 @@ import 'package:flutter/material.dart';
 
 import 'package:artable_app/data/datasources/mock_data.dart';
 
+import 'dart:convert';
+import 'package:artable_app/core/storage/local_storage.dart';
+
 abstract final class ReelHelpers {
+  static final RegExp _clipsRegex = RegExp(r'<!--artable_clips:(.*?)-->', dotAll: true);
+  static final RegExp _legacyClipsRegex = RegExp(r'\[CLIPS:(.*?)\]');
+
+  /// Extracts clips list from description if embedded.
+  static ({String cleanDescription, List<String>? clips}) parseDescriptionClips(String? description) {
+    if (description == null || description.isEmpty) {
+      return (cleanDescription: '', clips: null);
+    }
+
+    final match = _clipsRegex.firstMatch(description);
+    if (match != null) {
+      final jsonStr = match.group(1)?.trim();
+      final clean = description.replaceAll(_clipsRegex, '').trim();
+      if (jsonStr != null && jsonStr.isNotEmpty) {
+        try {
+          final decoded = jsonDecode(jsonStr);
+          if (decoded is List) {
+            final list = decoded
+                .map((e) => e.toString().trim())
+                .where((e) => e.isNotEmpty && e != 'null')
+                .toList();
+            if (list.length > 1) {
+              return (cleanDescription: clean, clips: list);
+            }
+          }
+        } catch (_) {}
+      }
+      return (cleanDescription: clean, clips: null);
+    }
+
+    final legacyMatch = _legacyClipsRegex.firstMatch(description);
+    if (legacyMatch != null) {
+      final raw = legacyMatch.group(1)?.trim();
+      final clean = description.replaceAll(_legacyClipsRegex, '').trim();
+      if (raw != null && raw.isNotEmpty) {
+        final list = raw
+            .split('|')
+            .map((e) => e.trim())
+            .where((e) => e.isNotEmpty && e != 'null')
+            .toList();
+        if (list.length > 1) {
+          return (cleanDescription: clean, clips: list);
+        }
+      }
+      return (cleanDescription: clean, clips: null);
+    }
+
+    return (cleanDescription: description.trim(), clips: null);
+  }
+
+  /// Appends clips JSON tag to description for reliable server persistence.
+  static String embedClipsInDescription(String? description, List<String>? clips) {
+    final baseDesc = (description != null && description.trim().isNotEmpty)
+        ? description.replaceAll(_clipsRegex, '').replaceAll(_legacyClipsRegex, '').trim()
+        : '';
+    if (clips == null || clips.length <= 1) return baseDesc;
+    final tag = '<!--artable_clips:${jsonEncode(clips)}-->';
+    return baseDesc.isNotEmpty ? '$baseDesc\n$tag' : tag;
+  }
+
   static Map<String, dynamic>? reelById(String id, {List<Map<String, dynamic>>? availableReels}) {
     final cleanId = id.trim();
     if (cleanId.isEmpty) {
@@ -61,6 +124,13 @@ abstract final class ReelHelpers {
     if (withoutHost.isNotEmpty && withoutHost != cleanKey) {
       _mergedClipsCache[withoutHost] = List<String>.from(clips);
     }
+    try {
+      final jsonStr = jsonEncode(clips);
+      LocalStorage.setString('cached_clips_$cleanKey', jsonStr);
+      if (withoutHost.isNotEmpty && withoutHost != cleanKey) {
+        LocalStorage.setString('cached_clips_$withoutHost', jsonStr);
+      }
+    } catch (_) {}
   }
 
   static List<String>? getCachedMergedClips(String? key) {
@@ -73,6 +143,19 @@ abstract final class ReelHelpers {
     if (withoutHost.isNotEmpty && _mergedClipsCache.containsKey(withoutHost)) {
       return _mergedClipsCache[withoutHost];
     }
+    try {
+      final rawPrefs = LocalStorage.rawPrefs;
+      final saved = rawPrefs?.getString('cached_clips_$cleanKey') ??
+          (withoutHost.isNotEmpty ? rawPrefs?.getString('cached_clips_$withoutHost') : null);
+      if (saved != null && saved.isNotEmpty) {
+        final decoded = jsonDecode(saved);
+        if (decoded is List) {
+          final list = decoded.map((e) => e.toString()).toList();
+          _mergedClipsCache[cleanKey] = list;
+          return list;
+        }
+      }
+    } catch (_) {}
     return null;
   }
 }

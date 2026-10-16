@@ -313,14 +313,19 @@ class VideosRepository {
 
     final hashtagsList = _parseHashtagsList(hashtags);
 
+    final effectiveDescription = ReelHelpers.embedClipsInDescription(
+      description,
+      finalMergedClipUrls,
+    );
+
     final body = <String, dynamic>{
       'title': title,
       'videoUrl': finalVideoUrl,
       'thumbnailUrl': finalThumbnailUrl,
       if (finalMergedClipUrls.isNotEmpty)
         'mergedClipPaths': finalMergedClipUrls,
-      if (description != null && description.trim().isNotEmpty)
-        'description': description.trim(),
+      if (effectiveDescription.isNotEmpty)
+        'description': effectiveDescription,
       if (realCategoryId != null)
         'categoryId': realCategoryId,
       if (realChallengeId != null)

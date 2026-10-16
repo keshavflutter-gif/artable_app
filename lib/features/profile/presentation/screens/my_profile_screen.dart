@@ -9,6 +9,7 @@ import 'package:artable_app/features/shell/presentation/widgets/bottom_nav_layou
 import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
 import 'package:artable_app/features/profile/presentation/bloc/profile_cubit.dart';
 import 'package:artable_app/features/profile/data/models/my_videos_response.dart';
+import 'package:artable_app/features/reels/presentation/bloc/reels_cubit.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
 
 class MyProfileScreen extends StatefulWidget {
@@ -840,7 +841,15 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  AppImage(url: thumbnailUrl, fit: BoxFit.cover),
+                  GestureDetector(
+                    onTap: () {
+                      final routeId = video.id.isNotEmpty ? video.id : challengeId;
+                      final uiMap = video.toUiMap();
+                      context.read<ReelsCubit>().syncVideos([uiMap]);
+                      context.push('/video-detail?id=$routeId', extra: uiMap);
+                    },
+                    child: AppImage(url: thumbnailUrl, fit: BoxFit.cover),
+                  ),
                   Positioned(
                     top: 8,
                     left: 8,
@@ -1022,8 +1031,10 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
                             icon: Icons.remove_red_eye_outlined,
                             label: 'View',
                             onTap: () {
-                              final routeId = challengeId.isNotEmpty ? challengeId : video.id;
-                              context.push('/video-detail?id=$routeId');
+                              final routeId = video.id.isNotEmpty ? video.id : challengeId;
+                              final uiMap = video.toUiMap();
+                              context.read<ReelsCubit>().syncVideos([uiMap]);
+                              context.push('/video-detail?id=$routeId', extra: uiMap);
                             },
                           ),
                         ),

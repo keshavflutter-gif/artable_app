@@ -5,9 +5,15 @@ class LocalStorage {
 
   static SharedPreferences? _prefs;
 
+  static SharedPreferences? get rawPrefs => _prefs;
+
   static Future<SharedPreferences> get instance async {
     _prefs ??= await SharedPreferences.getInstance();
     return _prefs!;
+  }
+
+  static Future<void> init() async {
+    _prefs ??= await SharedPreferences.getInstance();
   }
 
   static Future<bool> setString(String key, String value) async {
