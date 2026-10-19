@@ -43,9 +43,15 @@ class SocialLoginRequest {
     putIfPresent('middleName', middleName);
     putIfPresent('lastName', lastName);
     putIfPresent('profilePhotoUrl', profilePhotoUrl);
-    putIfPresent('fcmToken', fcmToken);
-    putIfPresent('deviceType', deviceType);
-    putIfPresent('deviceVersion', deviceVersion);
+    map['fcmToken'] = (fcmToken != null && fcmToken!.trim().isNotEmpty)
+        ? fcmToken!.trim()
+        : 'optional-fcm-token';
+    map['deviceType'] = (deviceType != null && deviceType!.trim().isNotEmpty)
+        ? deviceType!.trim()
+        : 'mobile-app';
+    map['deviceVersion'] = (deviceVersion != null && deviceVersion!.trim().isNotEmpty)
+        ? deviceVersion!.trim()
+        : '1.0.0';
 
     return map;
   }

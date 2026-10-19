@@ -1,3 +1,4 @@
+import 'package:artable_app/core/utils/media_url_utils.dart';
 import 'my_videos_response.dart';
 
 class ProfileResponse {
@@ -115,7 +116,10 @@ class ProfileData {
       }
     }
 
-    final videosRaw = root['recentVideos'] ?? root['videos'];
+    final videosRaw = root['recentVideos'] ??
+        root['videos'] ??
+        (root['user'] is Map ? (root['user'] as Map)['recentVideos'] ?? (root['user'] as Map)['videos'] : null) ??
+        (root['data'] is Map ? (root['data'] as Map)['recentVideos'] ?? (root['data'] as Map)['videos'] : null);
     final videosList = <MyVideoItem>[];
     if (videosRaw is List) {
       for (final item in videosRaw) {
@@ -202,13 +206,40 @@ class ProfileUser {
   final bool isPrime;
 
   factory ProfileUser.fromJson(Map<String, dynamic> json) {
+    final rawPhoto = json['profilePhotoUrl']?.toString() ??
+        json['profile_photo_url']?.toString() ??
+        json['avatarUrl']?.toString() ??
+        json['avatar_url']?.toString() ??
+        json['avatar']?.toString() ??
+        json['profileImage']?.toString() ??
+        json['profile_image']?.toString() ??
+        json['profilePicture']?.toString() ??
+        json['profile_picture']?.toString() ??
+        json['photoUrl']?.toString() ??
+        json['image']?.toString();
+    final photo = rawPhoto != null && rawPhoto.trim().isNotEmpty
+        ? MediaUrlUtils.resolve(rawPhoto)
+        : null;
+
+    final rawCover = json['coverImageUrl']?.toString() ??
+        json['cover_image_url']?.toString() ??
+        json['coverUrl']?.toString() ??
+        json['cover_url']?.toString() ??
+        json['cover']?.toString() ??
+        json['bannerUrl']?.toString() ??
+        json['banner_url']?.toString() ??
+        json['banner']?.toString();
+    final cover = rawCover != null && rawCover.trim().isNotEmpty
+        ? MediaUrlUtils.resolve(rawCover)
+        : null;
+
     return ProfileUser(
       id: json['id']?.toString() ?? json['_id']?.toString() ?? '',
       fullName: json['fullName']?.toString() ?? json['full_name']?.toString() ?? json['name']?.toString(),
       username: json['username']?.toString() ?? json['user_name']?.toString(),
       email: json['email']?.toString(),
-      profilePhotoUrl: json['profilePhotoUrl']?.toString() ?? json['profile_photo_url']?.toString() ?? json['avatarUrl']?.toString(),
-      coverImageUrl: json['coverImageUrl']?.toString() ?? json['cover_image_url']?.toString() ?? json['coverUrl']?.toString(),
+      profilePhotoUrl: photo,
+      coverImageUrl: cover,
       bio: json['bio']?.toString(),
       socialLinks: json['socialLinks'],
       talentCategory: json['talentCategory']?.toString() ?? json['talent_category']?.toString() ?? json['category']?.toString(),

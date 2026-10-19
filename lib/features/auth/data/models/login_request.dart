@@ -14,22 +14,25 @@ class LoginRequest {
   final String? fcmToken;
 
   Map<String, dynamic> toJson() {
-    final map = <String, dynamic>{
+    final effectiveDeviceType = (deviceType != null && deviceType!.trim().isNotEmpty)
+        ? deviceType!.trim()
+        : 'mobile-app';
+
+    final effectiveDeviceVersion = (deviceVersion != null && deviceVersion!.trim().isNotEmpty)
+        ? deviceVersion!.trim()
+        : '1.0.0';
+
+    final effectiveFcmToken = (fcmToken != null && fcmToken!.trim().isNotEmpty)
+        ? fcmToken!.trim()
+        : 'optional-fcm-token';
+
+    return <String, dynamic>{
       'email': email,
       'password': password,
+      'deviceType': effectiveDeviceType,
+      'deviceVersion': effectiveDeviceVersion,
+      'fcmToken': effectiveFcmToken,
     };
-
-    if (deviceType != null && deviceType!.isNotEmpty) {
-      map['deviceType'] = deviceType;
-    }
-    if (deviceVersion != null && deviceVersion!.isNotEmpty) {
-      map['deviceVersion'] = deviceVersion;
-    }
-    if (fcmToken != null && fcmToken!.isNotEmpty) {
-      map['fcmToken'] = fcmToken;
-    }
-
-    return map;
   }
 }
 

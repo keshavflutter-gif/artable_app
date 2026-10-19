@@ -8,6 +8,7 @@ import 'package:artable_app/core/widgets/app_scaffold.dart';
 import 'package:artable_app/features/shell/presentation/widgets/bottom_nav_layout.dart';
 import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
 import 'package:artable_app/features/profile/presentation/bloc/profile_cubit.dart';
+import 'package:artable_app/features/profile/presentation/bloc/my_videos_cubit.dart';
 import 'package:artable_app/features/profile/data/models/my_videos_response.dart';
 import 'package:artable_app/features/reels/presentation/bloc/reels_cubit.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
@@ -28,6 +29,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         context.read<ProfileCubit>().loadProfile(forceRefresh: true);
+        context.read<MyVideosCubit>().loadMyVideos(forceRefresh: true);
         context.read<AuthCubit>().fetchUserDetails();
       }
     });
@@ -133,6 +135,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
         onRefresh: () async {
           await Future.wait([
             context.read<ProfileCubit>().loadProfile(forceRefresh: true),
+            context.read<MyVideosCubit>().loadMyVideos(forceRefresh: true),
             context.read<AuthCubit>().fetchUserDetails(),
           ]);
         },
@@ -723,7 +726,14 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
   // --- 6. Recent Videos Grid ---
   Widget _buildRecentVideosGrid(BuildContext context) {
     final profileState = context.watch<ProfileCubit>();
-    final videos = profileState.recentVideos;
+    var videos = profileState.recentVideos;
+
+    if (videos.isEmpty) {
+      final myVideos = context.watch<MyVideosCubit>().videos;
+      if (myVideos.isNotEmpty) {
+        videos = myVideos.take(6).toList();
+      }
+    }
 
     if (profileState.isLoading && videos.isEmpty) {
       return const Padding(
@@ -848,7 +858,12 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
                       context.read<ReelsCubit>().syncVideos([uiMap]);
                       context.push('/video-detail?id=$routeId', extra: uiMap);
                     },
-                    child: AppImage(url: thumbnailUrl, fit: BoxFit.cover),
+                    child: AppImage(
+                      url: thumbnailUrl,
+                      videoUrl: video.videoUrl,
+                      fit: BoxFit.cover,
+                      isVideo: true,
+                    ),
                   ),
                   Positioned(
                     top: 8,

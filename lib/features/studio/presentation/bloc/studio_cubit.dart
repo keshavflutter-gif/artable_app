@@ -668,6 +668,13 @@ class StudioCubit extends Cubit<StudioState> {
     if (end != null && end > start) {
       return end - start;
     }
+    final parts = state.recordedDuration.split(':');
+    if (parts.length == 2) {
+      final m = int.tryParse(parts[0]) ?? 0;
+      final s = int.tryParse(parts[1]) ?? 0;
+      final total = m * 60 + s;
+      if (total > 0) return total.toDouble();
+    }
     return 15.0;
   }
 
@@ -749,7 +756,24 @@ class StudioCubit extends Cubit<StudioState> {
   }
 
   void setRecordedDuration(String duration) {
-    emit(state.copyWith(recordedDuration: duration));
+    double? recSecs;
+    final parts = duration.split(':');
+    if (parts.length == 2) {
+      final m = int.tryParse(parts[0]) ?? 0;
+      final s = int.tryParse(parts[1]) ?? 0;
+      final total = m * 60 + s;
+      if (total > 0) recSecs = total.toDouble();
+    }
+    if (recSecs != null && recSecs > 0) {
+      emit(state.copyWith(
+        recordedDuration: duration,
+        musicCropDuration: recSecs,
+        videoTrimStartSeconds: 0.0,
+        videoTrimEndSeconds: recSecs,
+      ));
+    } else {
+      emit(state.copyWith(recordedDuration: duration));
+    }
   }
 
   void setRecordedVideoPath(String? path, {List<String>? mergedClipPaths, bool clearMergedClips = false}) {

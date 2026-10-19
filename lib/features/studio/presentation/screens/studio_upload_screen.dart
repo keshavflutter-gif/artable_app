@@ -17,6 +17,8 @@ import 'package:artable_app/features/trending/data/repositories/videos_repositor
 import 'package:artable_app/features/reels/presentation/bloc/reels_cubit.dart';
 import 'package:artable_app/data/datasources/mock_data.dart';
 import 'package:artable_app/core/utils/validators.dart';
+import 'package:artable_app/features/profile/presentation/bloc/profile_cubit.dart';
+import 'package:artable_app/features/profile/presentation/bloc/my_videos_cubit.dart';
 
 class StudioUploadScreen extends StatefulWidget {
   const StudioUploadScreen({super.key, this.challengeId, this.draftId});
@@ -185,6 +187,8 @@ class _StudioUploadScreenState extends State<StudioUploadScreen> {
         final homeCubit = context.read<HomeCubit>();
         final trendingCubit = context.read<TrendingVideosCubit>();
         final reelsCubit = context.read<ReelsCubit>();
+        final profileCubit = context.read<ProfileCubit>();
+        final myVideosCubit = context.read<MyVideosCubit>();
         if (MockData.REELS.isNotEmpty) {
           reelsCubit.syncVideos([MockData.REELS.first]);
         }
@@ -193,6 +197,12 @@ class _StudioUploadScreenState extends State<StudioUploadScreen> {
         } catch (_) {}
         try {
           await trendingCubit.loadTrendingVideos(forceRefresh: true);
+        } catch (_) {}
+        try {
+          profileCubit.loadProfile(forceRefresh: true);
+        } catch (_) {}
+        try {
+          myVideosCubit.loadMyVideos(forceRefresh: true);
         } catch (_) {}
       }
 

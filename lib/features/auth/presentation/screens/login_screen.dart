@@ -5,6 +5,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:artable_app/app/theme/app_gradients.dart';
 import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
+import 'package:artable_app/core/services/notification_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({
@@ -64,7 +65,20 @@ class _LoginScreenState extends State<LoginScreen> {
     final auth = context.read<AuthCubit>();
     if (auth.isLoading) return;
 
-    final success = await auth.login(email, password);
+    // Fetch FCM token before login
+    String? fcmToken = NotificationService.instance.currentToken;
+    if (fcmToken == null || fcmToken.trim().isEmpty) {
+      try {
+        fcmToken = await NotificationService.instance.getFcmToken();
+      } catch (e) {
+        debugPrint('Error getting FCM token on login: $e');
+      }
+    }
+    if (fcmToken == null || fcmToken.trim().isEmpty) {
+      fcmToken = 'optional-fcm-token';
+    }
+
+    final success = await auth.login(email, password, fcmToken: fcmToken);
     if (!mounted) return;
 
     if (success) {

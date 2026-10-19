@@ -815,7 +815,9 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                               children: [
                                 AppImage(
                                   url: r['imageUrl'] as String? ?? r['thumbnailUrl'] as String? ?? '',
+                                  videoUrl: r['videoUrl'] as String? ?? r['video_url'] as String?,
                                   fit: BoxFit.cover,
+                                  isVideo: true,
                                 ),
                                 DecoratedBox(
                                   decoration: BoxDecoration(

@@ -13,6 +13,7 @@ import 'package:artable_app/features/studio/presentation/bloc/studio_cubit.dart'
 import 'package:artable_app/features/studio/presentation/bloc/studio_state.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/core/utils/app_filter_utils.dart';
+import 'package:artable_app/features/studio/data/models/studio_filters_response.dart';
 import 'package:artable_app/core/utils/reel_helpers.dart';
 import 'package:artable_app/data/datasources/music_api_service.dart';
 import 'package:artable_app/features/studio/data/services/studio_music_playback_service.dart';
@@ -59,6 +60,9 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
   int _cameraSetupGeneration = 0;
   int _livePreviewToken = 0;
   bool _isSwitchingCamera = false;
+  bool _isStartingRecording = false;
+  bool _isStoppingRecording = false;
+  bool _isFilterSheetOpen = false;
   VoidCallback? _cameraValueListener;
 
   Map<String, dynamic> get _challenge =>
@@ -394,8 +398,17 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
   }
 
   Future<void> _startRecording() async {
+    if (_isStartingRecording || _isStoppingRecording) return;
+    _isStartingRecording = true;
+
+    if (_isFilterSheetOpen && mounted) {
+      Navigator.of(context, rootNavigator: true).pop();
+      _isFilterSheetOpen = false;
+    }
+
     final controller = _cameraController;
     if (controller == null || !controller.value.isInitialized) {
+      _isStartingRecording = false;
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Camera is not ready. Please wait and try again.')),
@@ -424,6 +437,7 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
     }
 
     if (!started) {
+      _isStartingRecording = false;
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Could not start recording. Please try again.')),
@@ -449,6 +463,8 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
     if (mounted) {
       setState(() => _state = _CameraState.recording);
     }
+    _isStartingRecording = false;
+
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (_seconds >= _maxSeconds) {
         _stopRecording();
@@ -464,27 +480,33 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
   }
 
   Future<void> _stopRecording() async {
+    if (_isStoppingRecording) return;
+    _isStoppingRecording = true;
     _timer?.cancel();
+
+    // 1. Instantly pause background music synchronously so sound stops without delay
+    StudioMusicPlaybackService.directPause();
+    unawaited(StudioMusicPlaybackService.pause());
 
     final controller = _cameraController;
     String? savedPath;
 
+    // 2. Stop camera video recording cleanly while session is active
     if (controller != null && controller.value.isRecordingVideo) {
       try {
-        await StudioMusicPlaybackService.releaseForVideoPlayback();
         final XFile videoFile = await controller.stopVideoRecording();
         savedPath = videoFile.path;
         debugPrint('Recorded video saved to: $savedPath');
       } catch (e) {
         debugPrint('Error stopping video recording: $e');
       }
-    } else {
-      await StudioMusicPlaybackService.releaseForVideoPlayback();
     }
 
+    // 3. Release camera hardware
     await _releaseCameraForPlayback();
     // Give CameraX / MediaCodec time to fully release before ExoPlayer opens the file.
     await Future<void>.delayed(const Duration(milliseconds: 350));
+    _isStoppingRecording = false;
 
     if (!mounted) return;
 
@@ -505,19 +527,33 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
       return;
     }
 
+    final durationSecs = _seconds > 0 ? _seconds.toDouble() : 10.0;
     context.read<StudioCubit>().setRecordedVideoPath(savedPath);
     setRecordedDuration(_timerText);
 
-    if (mounted) {
-      setState(() {
-        _state = _CameraState.recorded;
-        _recordedVideoReady = false;
-        _recordedVideoPlaying = false;
-        _recordedVideoError = false;
-      });
+    final studio = context.read<StudioCubit>();
+    if (studio.selectedTrack != null || studio.selectedMusic != null) {
+      studio.updateMusicCrop(studio.musicStartSeconds, durationSecs);
     }
 
-    await _initRecordedVideoPreview(savedPath);
+    // Release music playback so preview screen audio starts fresh without conflict
+    await StudioMusicPlaybackService.releaseForVideoPlayback();
+
+    if (mounted) {
+      if (_isFilterSheetOpen) {
+        Navigator.of(context, rootNavigator: true).pop();
+        _isFilterSheetOpen = false;
+      }
+      setState(() {
+        _state = _CameraState.idle;
+        _seconds = 0;
+        _secondsNotifier.value = 0;
+      });
+      await context.push('${AppRoutes.studioPreview}?id=${_challenge['id']}');
+      if (mounted) {
+        _retake();
+      }
+    }
   }
 
   void setRecordedDuration(String duration) {
@@ -568,8 +604,9 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
 
     if (controller != null && controller.value.isInitialized) {
       final studio = context.read<StudioCubit>();
+      final hasBgm = studio.selectedMusic != null || studio.selectedTrack != null;
       try {
-        await controller.setVolume(studio.isMuted ? 0.0 : 1.0);
+        await controller.setVolume((studio.isMuted || hasBgm) ? 0.0 : 1.0);
       } catch (_) {}
       try {
         await controller.setPlaybackSpeed(studio.speedMultiplier);
@@ -578,6 +615,9 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
         try {
           await controller.play();
         } catch (_) {}
+      }
+      if (hasBgm) {
+        unawaited(StudioMusicPlaybackService.playForEditor(studio, 0));
       }
       setState(() {
         _recordedVideoController = controller;
@@ -597,11 +637,23 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
     final controller = _recordedVideoController;
     if (controller == null || !_recordedVideoReady) return;
 
+    final studio = context.read<StudioCubit>();
+    final hasBgm = studio.selectedMusic != null || studio.selectedTrack != null;
+
     if (controller.value.isPlaying) {
       controller.pause();
+      if (hasBgm) {
+        unawaited(StudioMusicPlaybackService.pause());
+      }
       setState(() => _recordedVideoPlaying = false);
     } else {
       controller.play();
+      if (hasBgm) {
+        unawaited(StudioMusicPlaybackService.playForEditor(
+          studio,
+          controller.value.position.inMilliseconds,
+        ));
+      }
       setState(() => _recordedVideoPlaying = true);
     }
   }
@@ -898,6 +950,300 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
         );
       },
     );
+  }
+
+  Future<void> _showFiltersPickerSheet(BuildContext context) async {
+    if (_state == _CameraState.recording) return;
+
+    final studio = context.read<StudioCubit>();
+    if (studio.state.filtersConfig == null) {
+      unawaited(studio.loadFiltersConfig());
+    }
+
+    _isFilterSheetOpen = true;
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        backgroundColor: const Color(0xFF1B0E36).withValues(alpha: 0.95),
+        barrierColor: Colors.black.withValues(alpha: 0.25),
+        isScrollControlled: true,
+        useSafeArea: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        builder: (sheetContext) {
+          return BlocBuilder<StudioCubit, StudioState>(
+            bloc: studio,
+            builder: (context, state) {
+              final bottomInset = MediaQuery.of(sheetContext).padding.bottom;
+              final config = state.filtersConfig;
+              final List<StudioFilterItem> filtersList = () {
+                final baseList = (config != null && config.filters.isNotEmpty)
+                    ? config.filters
+                    : AppFilterUtils.presets
+                        .map((p) => StudioFilterItem(key: p.id, name: p.label))
+                        .toList();
+
+                final existingKeys = baseList.map((f) => f.key.toLowerCase()).toSet();
+                final merged = List<StudioFilterItem>.from(baseList);
+                for (final preset in AppFilterUtils.presets) {
+                  if (!existingKeys.contains(preset.id.toLowerCase())) {
+                    merged.add(StudioFilterItem(key: preset.id, name: preset.label));
+                  }
+                }
+                return merged;
+              }();
+
+              final selectedFilter = state.selectedFilter;
+              final beautyOn = state.beautyOn;
+              final beautyIntensity = state.beautyIntensity;
+              final showBeauty = config?.beautyFilterAvailable ?? true;
+
+              return Padding(
+                padding: EdgeInsets.fromLTRB(16, 12, 16, 16 + bottomInset),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 38,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.3),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.auto_awesome, color: AppColors.purple, size: 18),
+                            const SizedBox(width: 8),
+                            const Text(
+                              'Filters & Effects',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                        Row(
+                          children: [
+                            if (selectedFilter != 'natural' || beautyOn)
+                              GestureDetector(
+                                onTap: () {
+                                  studio.setFilter('natural');
+                                  studio.setBeautyOn(false);
+                                },
+                                child: Padding(
+                                  padding: const EdgeInsets.only(right: 12),
+                                  child: Text(
+                                    'Reset',
+                                    style: TextStyle(
+                                      color: Colors.white.withValues(alpha: 0.7),
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            GestureDetector(
+                              onTap: () => Navigator.of(sheetContext).pop(),
+                              child: Container(
+                                padding: const EdgeInsets.all(4),
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: Colors.white.withValues(alpha: 0.12),
+                                ),
+                                child: const Icon(Icons.close, size: 16, color: Colors.white70),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    SizedBox(
+                      height: 94,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                        itemCount: filtersList.length,
+                        separatorBuilder: (_, _) => const SizedBox(width: 14),
+                        itemBuilder: (context, i) {
+                          final item = filtersList[i];
+                          final preset = AppFilterUtils.presets.firstWhere(
+                            (p) => p.id.toLowerCase() == item.key.toLowerCase(),
+                            orElse: () => FilterPreset(
+                              id: item.key,
+                              label: item.name,
+                              icon: Icons.auto_awesome,
+                              gradient: const [Color(0xFFC9C2FF), Color(0xFF8B3DFF)],
+                            ),
+                          );
+                          final active = selectedFilter == preset.id;
+                          return GestureDetector(
+                            onTap: () => studio.setFilter(preset.id),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                AnimatedContainer(
+                                  duration: const Duration(milliseconds: 200),
+                                  width: 54,
+                                  height: 54,
+                                  padding: const EdgeInsets.all(2.5),
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: active ? AppColors.purple : Colors.white.withValues(alpha: 0.2),
+                                      width: active ? 2.5 : 1.2,
+                                    ),
+                                    boxShadow: active
+                                        ? [
+                                            BoxShadow(
+                                              color: AppColors.purple.withValues(alpha: 0.45),
+                                              blurRadius: 10,
+                                              spreadRadius: 2,
+                                            ),
+                                          ]
+                                        : null,
+                                  ),
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      gradient: LinearGradient(colors: preset.gradient),
+                                    ),
+                                    child: Icon(
+                                      preset.icon,
+                                      size: 22,
+                                      color: active ? Colors.white : Colors.white.withValues(alpha: 0.9),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                SizedBox(
+                                  width: 62,
+                                  child: Text(
+                                    item.name.isNotEmpty ? item.name : preset.label,
+                                    textAlign: TextAlign.center,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                                      color: active ? AppColors.purple : Colors.white70,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    if (showBeauty) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.06),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(
+                                      Icons.face_retouching_natural,
+                                      size: 18,
+                                      color: beautyOn ? AppColors.purple : Colors.white70,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    const Text(
+                                      'Beauty Smooth',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                Transform.scale(
+                                  scale: 0.8,
+                                  child: Switch(
+                                    value: beautyOn,
+                                    activeThumbColor: AppColors.purple,
+                                    activeTrackColor: AppColors.purple.withValues(alpha: 0.4),
+                                    onChanged: (v) => studio.setBeautyOn(v),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (beautyOn) ...[
+                              Row(
+                                children: [
+                                  const Text(
+                                    'Smoothness',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.white60,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  Text(
+                                    '${beautyIntensity.round()}%',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.purple,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              SliderTheme(
+                                data: SliderTheme.of(sheetContext).copyWith(
+                                  trackHeight: 3,
+                                  activeTrackColor: AppColors.purple,
+                                  inactiveTrackColor: Colors.white.withValues(alpha: 0.15),
+                                  thumbColor: Colors.white,
+                                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                                  overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+                                ),
+                                child: Slider(
+                                  value: beautyIntensity,
+                                  min: 0,
+                                  max: 100,
+                                  onChanged: (v) => studio.setBeautyIntensity(v),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      _isFilterSheetOpen = false;
+    }
   }
 
   Widget _buildCameraViewfinder() {
@@ -1382,6 +1728,7 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
                               icon: isMuted ? Icons.volume_off : Icons.volume_up,
                               label: isMuted ? 'Muted' : 'Mute',
                               active: isMuted,
+                              disabled: _state == _CameraState.recording,
                               onTap: _state == _CameraState.recording
                                   ? null
                                   : () async {
@@ -1398,23 +1745,27 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
                               icon: Icons.timer_outlined,
                               label: 'Timer',
                               active: _timerActive,
-                              onTap: () => setState(() => _timerActive = !_timerActive),
+                              disabled: _state == _CameraState.recording,
+                              onTap: _state == _CameraState.recording
+                                  ? null
+                                  : () => setState(() => _timerActive = !_timerActive),
                             ),
                             const SizedBox(width: 14),
                             _ControlItem(
                               icon: Icons.auto_awesome,
                               label: 'Filters',
+                              active: studioState.selectedFilter != 'natural' || studioState.beautyOn,
+                              disabled: _state == _CameraState.recording,
                               onTap: _state == _CameraState.recording
                                   ? null
-                                  : () => context.push(
-                                        '${AppRoutes.studioFilters}?id=${challenge['id']}',
-                                      ),
+                                  : () => _showFiltersPickerSheet(context),
                             ),
                             const SizedBox(width: 14),
                             _ControlItem(
                               icon: Icons.bolt,
                               label: studioState.selectedSpeed,
                               active: studioState.selectedSpeed != '1x',
+                              disabled: _state == _CameraState.recording,
                               onTap: _state == _CameraState.recording
                                   ? null
                                   : () => _showSpeedPickerSheet(context),
@@ -1424,9 +1775,12 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
                               icon: Icons.music_note,
                               label: 'Music',
                               active: studioState.selectedTrack != null,
-                              onTap: () => context.push(
-                                '${AppRoutes.studioMusic}?id=${challenge['id']}',
-                              ),
+                              disabled: _state == _CameraState.recording,
+                              onTap: _state == _CameraState.recording
+                                  ? null
+                                  : () => context.push(
+                                    '${AppRoutes.studioMusic}?id=${challenge['id']}',
+                                  ),
                             ),
                           ],
                         ),
@@ -1701,6 +2055,7 @@ class _ControlItem extends StatelessWidget {
     required this.label,
     this.onTap,
     this.active = false,
+    this.disabled = false,
     this.spinning,
   });
 
@@ -1708,41 +2063,46 @@ class _ControlItem extends StatelessWidget {
   final String label;
   final VoidCallback? onTap;
   final bool active;
+  final bool disabled;
   final AnimationController? spinning;
 
   @override
   Widget build(BuildContext context) {
+    final effectiveActive = active && !disabled;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
-      child: Column(
-        children: [
-          Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: active ? AppGradients.button : null,
-              color: active ? null : Colors.white.withValues(alpha: 0.14),
-              border: active ? null : Border.all(color: Colors.white.withValues(alpha: 0.2)),
+      child: Opacity(
+        opacity: (disabled || onTap == null) ? 0.38 : 1.0,
+        child: Column(
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: effectiveActive ? AppGradients.button : null,
+                color: effectiveActive ? null : Colors.white.withValues(alpha: 0.14),
+                border: effectiveActive ? null : Border.all(color: Colors.white.withValues(alpha: 0.2)),
+              ),
+              child: spinning != null
+                  ? RotationTransition(
+                      turns: spinning!,
+                      child: Icon(icon, size: 15, color: Colors.white),
+                    )
+                  : Icon(icon, size: 15, color: Colors.white),
             ),
-            child: spinning != null
-                ? RotationTransition(
-                    turns: spinning!,
-                    child: Icon(icon, size: 15, color: Colors.white),
-                  )
-                : Icon(icon, size: 15, color: Colors.white),
-          ),
-          const SizedBox(height: 5),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 9,
-              fontWeight: FontWeight.w700,
-              color: active ? Colors.white : Colors.white.withValues(alpha: 0.85),
+            const SizedBox(height: 5),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 9,
+                fontWeight: FontWeight.w700,
+                color: effectiveActive ? Colors.white : Colors.white.withValues(alpha: 0.85),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

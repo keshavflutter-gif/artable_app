@@ -9,6 +9,7 @@ import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:crypto/crypto.dart';
 
 import 'package:artable_app/core/network/api_exception.dart';
+import 'package:artable_app/core/services/notification_service.dart';
 import 'package:artable_app/features/auth/data/apple_auth_config.dart';
 import 'package:artable_app/features/auth/data/models/change_password_request.dart';
 import 'package:artable_app/features/auth/data/models/forgot_password_request.dart';
@@ -200,13 +201,28 @@ class AuthCubit extends Cubit<AuthState> {
     emit(state.copyWith(isLoading: true, clearError: true));
 
     try {
+      String? effectiveFcm = fcmToken;
+      if (effectiveFcm == null || effectiveFcm.trim().isEmpty) {
+        effectiveFcm = NotificationService.instance.currentToken;
+      }
+      if (effectiveFcm == null || effectiveFcm.trim().isEmpty) {
+        try {
+          effectiveFcm = await NotificationService.instance.getFcmToken();
+        } catch (e) {
+          debugPrint('AuthCubit error retrieving FCM token: $e');
+        }
+      }
+      if (effectiveFcm == null || effectiveFcm.trim().isEmpty) {
+        effectiveFcm = 'optional-fcm-token';
+      }
+
       final response = await _authRepository.login(
         LoginRequest(
           email: email.trim(),
           password: password,
           deviceType: deviceType ?? 'mobile-app',
           deviceVersion: deviceVersion ?? '1.0.0',
-          fcmToken: fcmToken,
+          fcmToken: effectiveFcm,
         ),
       );
 
@@ -373,6 +389,16 @@ class AuthCubit extends Cubit<AuthState> {
 
       final (firstName, middleName, lastName) = _splitFullNameParts(name);
 
+      String? googleFcm = NotificationService.instance.currentToken;
+      if (googleFcm == null || googleFcm.trim().isEmpty) {
+        try {
+          googleFcm = await NotificationService.instance.getFcmToken();
+        } catch (_) {}
+      }
+      if (googleFcm == null || googleFcm.trim().isEmpty) {
+        googleFcm = 'optional-fcm-token';
+      }
+
       final response = await _authRepository.socialLogin(
         SocialLoginRequest(
           provider: 'GOOGLE',
@@ -383,6 +409,7 @@ class AuthCubit extends Cubit<AuthState> {
           middleName: middleName,
           lastName: lastName,
           profilePhotoUrl: photoUrl,
+          fcmToken: googleFcm,
           deviceType: Platform.isIOS ? 'ios' : 'android',
           deviceVersion: Platform.operatingSystemVersion,
         ),
@@ -513,6 +540,16 @@ class AuthCubit extends Cubit<AuthState> {
       final resolvedMiddle = splitParts.$2;
       final resolvedLast = splitParts.$3;
 
+      String? appleFcm = NotificationService.instance.currentToken;
+      if (appleFcm == null || appleFcm.trim().isEmpty) {
+        try {
+          appleFcm = await NotificationService.instance.getFcmToken();
+        } catch (_) {}
+      }
+      if (appleFcm == null || appleFcm.trim().isEmpty) {
+        appleFcm = 'optional-fcm-token';
+      }
+
       final response = await _authRepository.socialLogin(
         SocialLoginRequest(
           provider: 'APPLE',
@@ -523,6 +560,7 @@ class AuthCubit extends Cubit<AuthState> {
           middleName: resolvedMiddle,
           lastName: resolvedLast,
           profilePhotoUrl: photoUrl,
+          fcmToken: appleFcm,
           deviceType: Platform.isIOS ? 'ios' : 'android',
           deviceVersion: Platform.operatingSystemVersion,
         ),

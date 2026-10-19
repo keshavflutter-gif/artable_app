@@ -45,6 +45,8 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
   int _currentClipIndex = 0;
   bool _isSwitchingClip = false;
   Timer? _playbackTimer;
+  int _lastVideoPosMs = 0;
+  bool _isLooping = false;
 
   @override
   void initState() {
@@ -177,7 +179,7 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
         controller = await StudioVideoPlayerUtils.initializeRecordedVideo(
           path,
           autoPlay: false,
-          loop: false,
+          loop: true,
         );
       } catch (e) {
         debugPrint('StudioPreviewScreen video init error: $e');
@@ -191,7 +193,8 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
 
       if (controller != null && controller.value.isInitialized) {
         final validController = controller;
-        validController.setVolume(studio.isMuted ? 0.0 : 1.0);
+        final hasBgm = studio.selectedMusic != null || studio.selectedTrack != null;
+        validController.setVolume((studio.isMuted || hasBgm) ? 0.0 : 1.0);
         try {
           await validController.setPlaybackSpeed(studio.speedMultiplier);
         } catch (_) {}
@@ -207,6 +210,10 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
           _videoError = false;
           _playing = true;
         });
+        if (hasBgm) {
+          final posMs = validController.value.position.inMilliseconds;
+          unawaited(StudioMusicPlaybackService.playForEditor(studio, posMs));
+        }
         debugPrint('VideoPlayer successfully initialized file at $path');
         return;
       }
@@ -249,8 +256,10 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
     if (loaded.isEmpty) return false;
 
     _clipControllers = loaded;
+    final hasBgm = studio.selectedMusic != null || studio.selectedTrack != null;
+    final clipVolume = (studio.isMuted || hasBgm) ? 0.0 : 1.0;
     for (final c in _clipControllers) {
-      c.setVolume(studio.isMuted ? 0.0 : 1.0);
+      c.setVolume(clipVolume);
       try {
         c.setPlaybackSpeed(studio.speedMultiplier);
       } catch (_) {}
@@ -287,41 +296,68 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
 
   void _onVideoControllerUpdate() {
     final controller = _videoController;
-    if (controller == null || !mounted || _isSwitchingClip) return;
+    if (controller == null || !mounted || _isSwitchingClip || _isLooping) return;
 
     final isPlaying = controller.value.isPlaying;
-    if (isPlaying != _playing) {
+    if (isPlaying != _playing && !_isLooping) {
       setState(() => _playing = isPlaying);
+      if (!isPlaying) {
+        StudioMusicPlaybackService.directPause();
+      }
     }
+
+    final studio = context.read<StudioCubit>();
+    final hasBgm = studio.selectedMusic != null || studio.selectedTrack != null;
 
     if (_clipControllers.isNotEmpty) {
       final posMs = controller.value.position.inMilliseconds;
       final durMs = controller.value.duration.inMilliseconds;
+      if (isPlaying && hasBgm) {
+        unawaited(StudioMusicPlaybackService.checkAndSyncVideoPosition(studio, posMs));
+      }
       if (durMs > 0 && (posMs >= durMs - 200 || (!isPlaying && posMs >= durMs - 350 && posMs > 0))) {
         _advanceToNextMergedClip();
         return;
       }
     } else {
-      final studio = context.read<StudioCubit>();
+      final totalDurMs = controller.value.duration.inMilliseconds;
       final trimStart = studio.state.videoTrimStartSeconds;
       final trimEnd = studio.state.videoTrimEndSeconds;
 
-      if (trimEnd != null && trimEnd > trimStart) {
-        final startMs = (trimStart * 1000).round();
-        final endMs = (trimEnd * 1000).round();
-        final posMs = controller.value.position.inMilliseconds;
+      final startMs = (trimStart * 1000).round();
+      final endMs = (trimEnd != null && trimEnd > trimStart)
+          ? (trimEnd * 1000).round()
+          : totalDurMs;
+      final posMs = controller.value.position.inMilliseconds;
 
-        if (posMs >= endMs - 150 || posMs < startMs) {
-          controller.seekTo(Duration(milliseconds: startMs));
-          controller.play();
-          if (mounted) setState(() => _playing = true);
+      // Detect native video loop: position dropped back near start while playing
+      final didLoopBack = isPlaying && posMs < _lastVideoPosMs - 500 && posMs < 1000;
+      if (didLoopBack && hasBgm && !_isLooping) {
+        _isLooping = true;
+        unawaited(StudioMusicPlaybackService.playForEditor(studio, 0));
+        Future.delayed(const Duration(milliseconds: 300), () => _isLooping = false);
+      } else if (trimEnd != null && trimEnd > trimStart && endMs > 0 && posMs >= endMs - 120 && !_isLooping) {
+        // Explicit trim range reached: manually loop back to trim start
+        _isLooping = true;
+        controller.seekTo(Duration(milliseconds: startMs));
+        if (hasBgm) {
+          unawaited(StudioMusicPlaybackService.playForEditor(studio, 0));
         }
+        Future.delayed(const Duration(milliseconds: 300), () => _isLooping = false);
+      } else if (isPlaying && hasBgm && !_isLooping) {
+        unawaited(StudioMusicPlaybackService.checkAndSyncVideoPosition(
+          studio,
+          (posMs - startMs).clamp(0, 3600000),
+        ));
       }
+
+      _lastVideoPosMs = posMs;
     }
   }
 
   Future<void> _advanceToNextMergedClip() async {
     if (_isSwitchingClip || _clipControllers.isEmpty) return;
+    final studio = context.read<StudioCubit>();
     _isSwitchingClip = true;
 
     try {
@@ -331,10 +367,18 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
 
       _currentClipIndex = (_currentClipIndex + 1) % _clipControllers.length;
       final nextController = _clipControllers[_currentClipIndex];
+      final hasBgm = studio.selectedMusic != null || studio.selectedTrack != null;
+      try {
+        await nextController.setVolume((studio.isMuted || hasBgm) ? 0.0 : 1.0);
+      } catch (_) {}
 
       await nextController.seekTo(Duration.zero);
       nextController.addListener(_onVideoControllerUpdate);
       await nextController.play();
+
+      if (hasBgm && _currentClipIndex == 0) {
+        unawaited(StudioMusicPlaybackService.playForEditor(studio, 0));
+      }
 
       if (mounted) {
         setState(() {
@@ -369,6 +413,7 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
     } catch (_) {}
     _videoController = null;
 
+    StudioMusicPlaybackService.directPause();
     unawaited(StudioMusicPlaybackService.stop());
     super.dispose();
   }
@@ -377,19 +422,36 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
     final controller = _videoController;
     if (controller != null && _isVideoInitialized) {
       final studio = context.read<StudioCubit>();
+      final hasBgm = studio.selectedMusic != null || studio.selectedTrack != null;
       if (controller.value.isPlaying) {
         controller.pause();
-        StudioMusicPlaybackService.pause();
+        StudioMusicPlaybackService.directPause();
+        unawaited(StudioMusicPlaybackService.pause());
         setState(() => _playing = false);
       } else {
         if (_clipControllers.isNotEmpty &&
             controller.value.position.inMilliseconds >= controller.value.duration.inMilliseconds - 250) {
           _advanceToNextMergedClip();
         } else {
+          final trimStart = studio.state.videoTrimStartSeconds;
+          final trimEnd = studio.state.videoTrimEndSeconds;
+          final startMs = (trimStart * 1000).round();
+          final totalDurMs = controller.value.duration.inMilliseconds;
+          final endMs = (trimEnd != null && trimEnd > trimStart)
+              ? (trimEnd * 1000).round()
+              : totalDurMs;
+          final posMs = controller.value.position.inMilliseconds;
+
+          if (endMs > 0 && (posMs >= endMs - 200 || posMs < startMs)) {
+            controller.seekTo(Duration(milliseconds: startMs));
+          }
           controller.play();
-          if (studio.selectedMusic != null || studio.selectedTrack != null) {
-            final posMs = controller.value.position.inMilliseconds;
-            StudioMusicPlaybackService.playForEditor(studio, posMs);
+          if (hasBgm) {
+            final curPosMs = controller.value.position.inMilliseconds;
+            unawaited(StudioMusicPlaybackService.playForEditor(
+              studio,
+              (curPosMs - startMs).clamp(0, 3600000),
+            ));
           }
           setState(() => _playing = true);
         }

@@ -217,7 +217,9 @@ class ApiClient {
       return _decodeResponse(response);
     } catch (e) {
       if (e is ApiException) rethrow;
-      debugPrint('=== API REQUEST ERROR === Path: $path, Error: $e');
+      debugPrint('=== API REQUEST ERROR === Path: $path');
+      debugPrint('=== Error Type: ${e.runtimeType} ===');
+      debugPrint('=== Error Detail: $e ===');
       throw ApiException('Unable to connect to server. Please check internet connection.');
     }
   }

@@ -8,6 +8,7 @@ import 'package:artable_app/features/studio/data/services/video_thumbnail_genera
 import 'package:artable_app/data/datasources/mock_data.dart';
 import 'package:artable_app/core/utils/validators.dart';
 import 'package:artable_app/core/utils/reel_helpers.dart';
+import 'package:artable_app/core/widgets/app_image.dart';
 import '../models/trending_videos_response.dart';
 
 class VideosRepository {
@@ -260,6 +261,7 @@ class VideosRepository {
 
     // 2. Resolve Thumbnail (Priority: Manual selected thumbnail > Video-generated thumbnail)
     String finalThumbnailUrl = '';
+    Uint8List? localThumbBytes;
     if (manualSelectedThumbnailPath != null &&
         manualSelectedThumbnailPath.trim().isNotEmpty &&
         manualSelectedThumbnailPath.trim() != 'null') {
@@ -268,6 +270,10 @@ class VideosRepository {
         finalThumbnailUrl = path;
       } else {
         try {
+          final file = File(path);
+          if (await file.exists()) {
+            localThumbBytes = await file.readAsBytes();
+          }
           finalThumbnailUrl = await _uploadFile(
             path,
             isVideo: false,
@@ -283,6 +289,7 @@ class VideosRepository {
         final generatedFile =
             await VideoThumbnailGenerator.generateThumbnailFromVideo(videoPathOrUrl);
         if (generatedFile != null && await generatedFile.exists()) {
+          localThumbBytes = await generatedFile.readAsBytes();
           finalThumbnailUrl = await _uploadFile(
             generatedFile.path,
             isVideo: false,
@@ -293,6 +300,16 @@ class VideosRepository {
       } catch (e) {
         debugPrint('Generated thumbnail upload error fallback to default: $e');
       }
+    }
+
+    if (localThumbBytes != null && localThumbBytes.isNotEmpty) {
+      if (finalThumbnailUrl.isNotEmpty) {
+        AppImage.cacheThumbnail(finalThumbnailUrl, localThumbBytes);
+      }
+      if (finalVideoUrl.isNotEmpty) {
+        AppImage.cacheThumbnail(finalVideoUrl, localThumbBytes);
+      }
+      AppImage.cacheThumbnail(videoPathOrUrl, localThumbBytes);
     }
 
     // 3. Call Create Video API (POST /app/videos) with ready videoUrl & thumbnailUrl

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
@@ -22,11 +23,11 @@ class StudioMusicPlaybackService {
   static Future<void> _chain = Future.value();
 
   static Future<T?> _enqueue<T>(Future<T> Function() action) {
-    final result = _chain.then((_) => action()).catchError((Object e, StackTrace st) {
+    final result = _chain.then<T?>((_) => action()).catchError((Object e, StackTrace st) {
       debugPrint('StudioMusicPlaybackService op error: $e');
       return null;
     });
-    _chain = result.then((_) {}, onError: (_, __) {});
+    _chain = result.then((_) {}, onError: (_, _) {});
     return result;
   }
 
@@ -183,6 +184,18 @@ class StudioMusicPlaybackService {
       await player.setLoopMode(LoopMode.one);
 
       final musicStartMs = (studio.musicStartSeconds * 1000).round();
+      final cropDurMs = (studio.musicCropDuration * 1000).round();
+
+      // If requested position is beyond the crop duration, stop / do not play
+      if (cropDurMs > 0 && globalPositionMs >= cropDurMs) {
+        if (player.playing) {
+          try {
+            await player.pause();
+          } catch (_) {}
+        }
+        return;
+      }
+
       final targetMs = musicStartMs + globalPositionMs;
       final trackDurMs = player.duration?.inMilliseconds ?? 0;
       final effectiveMs = (trackDurMs > 0 && targetMs >= trackDurMs)
@@ -193,7 +206,10 @@ class StudioMusicPlaybackService {
       if (!player.playing) {
         await player.seek(Duration(milliseconds: seekMs));
         await player.setSpeed(1.0);
-        await player.play();
+        // Do NOT await player.play()! In just_audio, play() returns a Future that
+        // only completes when playback finishes or is paused/stopped.
+        // Awaiting it inside the serial queue causes a permanent deadlock.
+        unawaited(player.play());
       } else {
         final currentAudioMs = player.position.inMilliseconds;
         if ((currentAudioMs - seekMs).abs() > 350) {
@@ -203,13 +219,28 @@ class StudioMusicPlaybackService {
     });
   }
 
+  /// Instantly pause audio playback synchronously without waiting for the async queue.
+  static void directPause() {
+    try {
+      final p = _player;
+      if (p != null) {
+        p.pause();
+      }
+    } catch (e) {
+      debugPrint('StudioMusicPlaybackService directPause error: $e');
+    }
+  }
+
   static Future<void> pause() async {
+    directPause();
     await _enqueue(() async {
       final player = _player;
       if (player != null && player.playing) {
-        await player.pause();
+        try {
+          await player.pause();
+        } catch (_) {}
       }
-    });
+    }).timeout(const Duration(milliseconds: 300), onTimeout: () => null);
   }
 
   static Future<void> seekToMs(int ms) async {
@@ -221,6 +252,39 @@ class StudioMusicPlaybackService {
           (trackDurMs > 0 && ms >= trackDurMs) ? ms % trackDurMs : ms;
       await player.seek(Duration(milliseconds: effectiveMs.clamp(0, 3600000)));
     });
+  }
+
+  static int _lastSyncCheckMs = 0;
+
+  /// Keeps background music strictly in sync with video position.
+  /// Throttled to prevent audio stutter/clicks.
+  static Future<void> checkAndSyncVideoPosition(
+    StudioCubit studio,
+    int videoPositionMs,
+  ) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    // Throttle to at most once every 350ms to ensure butter-smooth playback without micro-stutters
+    if (now - _lastSyncCheckMs < 350) return;
+    _lastSyncCheckMs = now;
+
+    final player = _player;
+    if (player == null || _isLoading || !player.playing) return;
+
+    try {
+      final musicStartMs = (studio.musicStartSeconds * 1000).round();
+      final targetMs = musicStartMs + videoPositionMs;
+      final trackDurMs = player.duration?.inMilliseconds ?? 0;
+      final effectiveMs = (trackDurMs > 0 && targetMs >= trackDurMs)
+          ? targetMs % trackDurMs
+          : targetMs;
+      final currentAudioMs = player.position.inMilliseconds;
+      // Only seek if audio has drifted significantly from video position (> 500ms)
+      if ((currentAudioMs - effectiveMs).abs() > 500) {
+        await seekToMs(effectiveMs);
+      }
+    } catch (e) {
+      debugPrint('StudioMusicPlaybackService sync check error: $e');
+    }
   }
 
   static Future<void> checkAndSyncPosition(int expectedMs) async {
@@ -242,6 +306,7 @@ class StudioMusicPlaybackService {
   }
 
   static Future<void> stop() async {
+    directPause();
     await _enqueue(() async {
       final player = _player;
       _player = null;
@@ -256,11 +321,12 @@ class StudioMusicPlaybackService {
           await player.dispose();
         } catch (_) {}
       }
-    });
+    }).timeout(const Duration(milliseconds: 500), onTimeout: () => null);
   }
 
   /// Releases music audio focus so [VideoPlayerController] can initialize.
   static Future<void> releaseForVideoPlayback() async {
+    directPause();
     await _enqueue(() async {
       final player = _player;
       _player = null;
@@ -280,6 +346,6 @@ class StudioMusicPlaybackService {
         await session.setActive(false);
       } catch (_) {}
       _sessionConfigured = false;
-    });
+    }).timeout(const Duration(milliseconds: 500), onTimeout: () => null);
   }
 }

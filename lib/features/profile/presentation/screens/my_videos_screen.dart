@@ -244,7 +244,12 @@ class _FigmaMyVideoCard extends StatelessWidget {
                       context.read<ReelsCubit>().syncVideos([uiMap]);
                       context.push('/video-detail?id=$routeId', extra: uiMap);
                     },
-                    child: AppImage(url: thumbnailUrl, fit: BoxFit.cover),
+                    child: AppImage(
+                      url: thumbnailUrl,
+                      videoUrl: item.videoUrl,
+                      fit: BoxFit.cover,
+                      isVideo: true,
+                    ),
                   ),
                   // Status Badge (Top-Left)
                   Positioned(

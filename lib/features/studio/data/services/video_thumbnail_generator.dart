@@ -14,24 +14,38 @@ class VideoThumbnailGenerator {
       if (cleanPath.startsWith('file://')) {
         cleanPath = cleanPath.replaceFirst('file://', '');
       }
-      final videoFile = File(cleanPath);
-      if (!await videoFile.exists()) {
-        debugPrint('VideoThumbnailGenerator: File not found at $cleanPath');
-        return null;
+      final isRemote = cleanPath.startsWith('http://') || cleanPath.startsWith('https://');
+      if (!isRemote) {
+        final videoFile = File(cleanPath);
+        if (!await videoFile.exists()) {
+          debugPrint('VideoThumbnailGenerator: File not found at $cleanPath');
+          return null;
+        }
       }
 
       final tempDir = await getTemporaryDirectory();
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       final outPath = '${tempDir.path}/thumb_$timestamp.jpg';
 
-      final generatedPath = await VideoThumbnail.thumbnailFile(
+      var generatedPath = await VideoThumbnail.thumbnailFile(
         video: cleanPath,
         thumbnailPath: outPath,
         imageFormat: ImageFormat.JPEG,
         maxWidth: 720,
         quality: 75,
-        timeMs: 1000,
+        timeMs: 500,
       );
+
+      if (generatedPath == null || generatedPath.isEmpty) {
+        generatedPath = await VideoThumbnail.thumbnailFile(
+          video: cleanPath,
+          thumbnailPath: outPath,
+          imageFormat: ImageFormat.JPEG,
+          maxWidth: 720,
+          quality: 75,
+          timeMs: 0,
+        );
+      }
 
       if (generatedPath == null || generatedPath.isEmpty) {
         debugPrint('VideoThumbnailGenerator: thumbnailFile returned null');

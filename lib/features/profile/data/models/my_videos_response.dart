@@ -141,10 +141,39 @@ class MyVideoItem {
         challengeObj?['imageUrl']?.toString() ??
         '';
 
-    // Never fall back to videoUrl — AppImage cannot render .mp4 as a thumbnail.
+    final videoUrlStr = MediaUrlUtils.extractVideoUrl(json) ??
+        json['videoUrl']?.toString() ??
+        json['video_url']?.toString();
+
+    // Determine effective video URL (checking direct fields and clips)
+    String? resolvedVideoUrl;
+    if (videoUrlStr != null && videoUrlStr.trim().isNotEmpty && videoUrlStr != 'null') {
+      resolvedVideoUrl = MediaUrlUtils.resolve(videoUrlStr);
+    }
+
+    // 1. Try static image thumbnail first
     String thumb = MediaUrlUtils.extractThumbnail(json) ?? '';
     if (thumb.isEmpty && bannerUrl.isNotEmpty && !bannerUrl.contains('storage.example')) {
       thumb = MediaUrlUtils.resolve(bannerUrl);
+    }
+    // 2. If no image thumbnail or if thumb is a dummy placeholder, check raw thumbnail fields
+    if (thumb.isEmpty || MediaUrlUtils.isDummyThumbnail(thumb)) {
+      final rawThumb = json['thumbnailUrl']?.toString() ??
+          json['thumbnail_url']?.toString() ??
+          json['videoThumbnail']?.toString() ??
+          json['thumbnail']?.toString();
+      if (rawThumb != null && rawThumb.trim().isNotEmpty && rawThumb != 'null') {
+        final resThumb = MediaUrlUtils.resolve(rawThumb);
+        if (!MediaUrlUtils.isDummyThumbnail(resThumb)) {
+          thumb = resThumb;
+        }
+      }
+    }
+    // 3. Fall back to videoUrl if available (AppImage will render the video thumbnail)
+    if ((thumb.isEmpty || MediaUrlUtils.isDummyThumbnail(thumb)) &&
+        resolvedVideoUrl != null &&
+        resolvedVideoUrl.trim().isNotEmpty) {
+      thumb = resolvedVideoUrl;
     }
 
     String dateStr = json['dateLabel']?.toString() ?? json['date']?.toString() ?? '';
@@ -171,7 +200,6 @@ class MyVideoItem {
         : rawDesc;
 
     final idStr = json['id']?.toString() ?? json['_id']?.toString() ?? '';
-    final videoUrlStr = json['videoUrl']?.toString() ?? json['video_url']?.toString();
 
     List<String>? effectiveMergedClips = json['mergedClipPaths'] is List
         ? List<String>.from((json['mergedClipPaths'] as List).map((e) => e.toString()))
@@ -191,12 +219,24 @@ class MyVideoItem {
       }
     }
 
+    final finalVideoUrl = (resolvedVideoUrl != null && resolvedVideoUrl.isNotEmpty)
+        ? resolvedVideoUrl
+        : (effectiveMergedClips != null && effectiveMergedClips.isNotEmpty
+            ? MediaUrlUtils.resolve(effectiveMergedClips.first)
+            : videoUrlStr);
+
+    if ((thumb.isEmpty || MediaUrlUtils.isDummyThumbnail(thumb)) &&
+        finalVideoUrl != null &&
+        finalVideoUrl.trim().isNotEmpty) {
+      thumb = finalVideoUrl;
+    }
+
     return MyVideoItem(
       id: idStr,
       title: titleStr,
       description: effectiveDesc,
       thumbnailUrl: thumb,
-      videoUrl: videoUrlStr,
+      videoUrl: finalVideoUrl,
       status: statusStr,
       statusBadge: json['statusBadge'] is Map
           ? MyVideoStatusBadge.fromJson(Map<String, dynamic>.from(json['statusBadge'] as Map))

@@ -240,6 +240,12 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
       );
       if (controller != null && controller.value.isInitialized) {
         await controller.setLooping(false);
+        if (!mounted) return controller;
+        final studio = context.read<StudioCubit>();
+        final hasBgm = studio.selectedMusic != null || studio.selectedTrack != null;
+        if (studio.isMuted || hasBgm) {
+          await controller.setVolume(0.0);
+        }
         return controller;
       }
     } catch (e) {
@@ -373,7 +379,8 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
       _ignoreAdvanceUntil =
           DateTime.now().add(const Duration(milliseconds: 500));
       await nextController.play();
-      await _applyOriginalAudioMute(studio.isMuted);
+      final hasBgm = studio.selectedMusic != null || studio.selectedTrack != null;
+      await _applyOriginalAudioMute(studio.isMuted || hasBgm);
       if (mounted) setState(() {});
     }
 
@@ -418,6 +425,7 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
 
       final activeClip = clips[_activePlayingIndex];
       final activeController = _controllers[activeClip.id];
+      final hasBgm = studio.selectedMusic != null || studio.selectedTrack != null;
       if (activeController != null) {
         final posMs = activeController.value.position.inMilliseconds;
         final trimEndMs = activeClip.trimEnd.inMilliseconds;
@@ -430,16 +438,13 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
         _ignoreAdvanceUntil =
             DateTime.now().add(const Duration(milliseconds: 500));
         await activeController.play();
-        // Re-apply after play — some devices reset volume on play().
-        await _applyOriginalAudioMute(studio.isMuted);
+        // Re-apply after play — keep muted under BGM so it does not echo.
+        await _applyOriginalAudioMute(studio.isMuted || hasBgm);
       }
 
-      if (studio.selectedMusic != null || studio.selectedTrack != null) {
+      if (hasBgm) {
         await StudioMusicPlaybackService.playForEditor(studio, _globalPositionMs);
-        // Keep original clip silent under BGM so it does not echo.
-        if (studio.isMuted) {
-          await _applyOriginalAudioMute(true);
-        }
+        await _applyOriginalAudioMute(true);
       }
       if (mounted) setState(() => _playing = true);
     }
