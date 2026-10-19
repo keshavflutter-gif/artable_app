@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_gradients.dart';
+import 'package:artable_app/core/utils/media_url_utils.dart';
 import 'package:artable_app/core/widgets/app_image.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
 import 'package:artable_app/core/widgets/secondary_outline_button.dart';
@@ -231,16 +232,17 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
         final id = v['id']?.toString() ?? '';
         if (id.isNotEmpty && !seenIds.contains(id)) {
           seenIds.add(id);
-          final rawThumb = v['thumbnailUrl']?.toString() ?? v['thumbnail']?.toString() ?? '';
-          final videoUrl = v['videoUrl']?.toString() ?? v['video_url']?.toString() ?? '';
-          final imgUrl = (rawThumb.isNotEmpty && !rawThumb.contains('storage.example')) ? rawThumb : videoUrl;
+          final rawThumb = MediaUrlUtils.extractThumbnail(v) ?? '';
+          final videoUrl = MediaUrlUtils.resolve(
+            v['videoUrl']?.toString() ?? v['video_url']?.toString() ?? '',
+          );
 
           displayReels.add({
             'id': id,
             'userId': targetUserId,
             'title': v['title']?.toString() ?? '',
             'description': v['description']?.toString() ?? '',
-            'imageUrl': imgUrl,
+            'imageUrl': rawThumb,
             'thumbnailUrl': rawThumb,
             'videoUrl': videoUrl,
             'views': v['views'] ?? 0,
@@ -312,14 +314,15 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
     Map<String, dynamic>? topReelItem;
     if (u.topVideo != null && u.topVideo!.isNotEmpty) {
       final tv = u.topVideo!;
-      final rawThumb = tv['thumbnailUrl']?.toString() ?? tv['thumbnail']?.toString() ?? '';
-      final videoUrl = tv['videoUrl']?.toString() ?? tv['video_url']?.toString() ?? '';
-      final imgUrl = (rawThumb.isNotEmpty && !rawThumb.contains('storage.example')) ? rawThumb : videoUrl;
+      final rawThumb = MediaUrlUtils.extractThumbnail(tv) ?? '';
+      final videoUrl = MediaUrlUtils.resolve(
+        tv['videoUrl']?.toString() ?? tv['video_url']?.toString() ?? '',
+      );
       topReelItem = {
         'id': tv['id']?.toString() ?? '',
         'title': tv['title']?.toString() ?? '',
         'description': tv['description']?.toString() ?? '',
-        'imageUrl': imgUrl,
+        'imageUrl': rawThumb,
         'thumbnailUrl': rawThumb,
         'videoUrl': videoUrl,
         'views': tv['views'] ?? 0,

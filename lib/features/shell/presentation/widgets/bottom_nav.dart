@@ -114,7 +114,7 @@ const _homeItems = [
   ),
   _NavItemData(
     label: 'Upload',
-    path: AppRoutes.submitEntry,
+    path: AppRoutes.studioStart,
     icon: _plusIcon,
     isUpload: true,
   ),
@@ -143,7 +143,7 @@ const _standardItems = [
   ),
   _NavItemData(
     label: 'Upload',
-    path: AppRoutes.submitEntry,
+    path: AppRoutes.studioStart,
     icon: _plusIcon,
     isUpload: true,
   ),

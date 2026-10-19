@@ -2,6 +2,8 @@ import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
+import 'package:artable_app/core/utils/media_url_utils.dart';
+
 class AppImage extends StatelessWidget {
   const AppImage({
     super.key,
@@ -57,30 +59,11 @@ class AppImage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     Widget img;
-    final cleanUrl = url.trim();
+    final cleanUrl = MediaUrlUtils.resolve(url);
 
-    if (cleanUrl.isEmpty || cleanUrl.contains('storage.example')) {
+    if (cleanUrl.isEmpty || MediaUrlUtils.looksLikeVideoUrl(cleanUrl)) {
       img = _buildFallbackContainer();
-    } else if (cleanUrl.startsWith('/') ||
-        cleanUrl.startsWith('file://') ||
-        (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://'))) {
-      var filePath = cleanUrl;
-      if (filePath.startsWith('file://')) {
-        filePath = filePath.replaceFirst('file://', '');
-      }
-      final file = File(filePath);
-      if (file.existsSync()) {
-        img = Image.file(
-          file,
-          width: width,
-          height: height,
-          fit: fit,
-          errorBuilder: (context, error, stackTrace) => _buildFallbackContainer(),
-        );
-      } else {
-        img = _buildFallbackContainer();
-      }
-    } else {
+    } else if (cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://')) {
       img = CachedNetworkImage(
         imageUrl: cleanUrl,
         width: width,
@@ -93,6 +76,19 @@ class AppImage extends StatelessWidget {
         ),
         errorWidget: (context, url, error) => _buildFallbackContainer(),
       );
+    } else {
+      final file = File(cleanUrl);
+      if (file.existsSync()) {
+        img = Image.file(
+          file,
+          width: width,
+          height: height,
+          fit: fit,
+          errorBuilder: (context, error, stackTrace) => _buildFallbackContainer(),
+        );
+      } else {
+        img = _buildFallbackContainer();
+      }
     }
 
     if (borderRadius != null) {

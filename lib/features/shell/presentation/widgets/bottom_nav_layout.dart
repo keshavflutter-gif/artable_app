@@ -45,7 +45,7 @@ class AppBottomNav extends StatelessWidget {
   static final _homeItems = [
     _NavItemData('Home', AppRoutes.home, (c) => AppIcons.home(color: c)),
     _NavItemData('Challenges', AppRoutes.challenges, (c) => AppIcons.trophy(color: c)),
-    _NavItemData('Upload', AppRoutes.submitEntry, (_) => AppIcons.plus(), upload: true),
+    _NavItemData('Upload', AppRoutes.studioStart, (_) => AppIcons.plus(), upload: true),
     _NavItemData('Activity', AppRoutes.activityCenter, (c) => AppIcons.activity(color: c)),
     _NavItemData('Profile', AppRoutes.myProfile, (c) => AppIcons.profile(color: c)),
   ];
@@ -53,7 +53,7 @@ class AppBottomNav extends StatelessWidget {
   static final _categoriesItems = [
     _NavItemData('Home', AppRoutes.home, (c) => AppIcons.home(color: c)),
     _NavItemData('Categories', AppRoutes.categories, (c) => AppIcons.grid(color: c)),
-    _NavItemData('Upload', AppRoutes.submitEntry, (_) => AppIcons.plus(), upload: true),
+    _NavItemData('Upload', AppRoutes.studioStart, (_) => AppIcons.plus(), upload: true),
     _NavItemData('Challenges', AppRoutes.challenges, (c) => AppIcons.trophy(color: c)),
     _NavItemData('Profile', AppRoutes.myProfile, (c) => AppIcons.profile(color: c)),
   ];

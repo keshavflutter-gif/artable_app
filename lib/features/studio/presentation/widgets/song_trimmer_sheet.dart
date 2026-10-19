@@ -44,6 +44,7 @@ class SongTrimmerSheet extends StatefulWidget {
                 start: start,
                 duration: duration,
               );
+          // Pop trimmer first; music screen will dispose its preview player.
           Navigator.pop(ctx);
           if (context.mounted && Navigator.canPop(context)) {
             Navigator.pop(context);

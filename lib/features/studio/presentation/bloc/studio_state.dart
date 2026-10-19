@@ -148,6 +148,7 @@ class StudioState {
     bool clearSaveDraftError = false,
     bool clearMergedClipPaths = false,
     bool clearActiveDraftId = false,
+    bool clearVideoTrimEndSeconds = false,
   }) {
     return StudioState(
       recordedDuration: recordedDuration ?? this.recordedDuration,
@@ -165,7 +166,9 @@ class StudioState {
       musicCropDuration: musicCropDuration ?? this.musicCropDuration,
       videoCropAspectRatio: videoCropAspectRatio ?? this.videoCropAspectRatio,
       videoTrimStartSeconds: videoTrimStartSeconds ?? this.videoTrimStartSeconds,
-      videoTrimEndSeconds: videoTrimEndSeconds ?? this.videoTrimEndSeconds,
+      videoTrimEndSeconds: clearVideoTrimEndSeconds
+          ? null
+          : (videoTrimEndSeconds ?? this.videoTrimEndSeconds),
       cameraMode: cameraMode ?? this.cameraMode,
       selectedFilter: selectedFilter ?? this.selectedFilter,
       selectedSpeed: selectedSpeed ?? this.selectedSpeed,

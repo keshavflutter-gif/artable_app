@@ -483,6 +483,8 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
     }
 
     await _releaseCameraForPlayback();
+    // Give CameraX / MediaCodec time to fully release before ExoPlayer opens the file.
+    await Future<void>.delayed(const Duration(milliseconds: 350));
 
     if (!mounted) return;
 
@@ -506,13 +508,16 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
     context.read<StudioCubit>().setRecordedVideoPath(savedPath);
     setRecordedDuration(_timerText);
 
-    await _initRecordedVideoPreview(savedPath);
-
     if (mounted) {
       setState(() {
         _state = _CameraState.recorded;
+        _recordedVideoReady = false;
+        _recordedVideoPlaying = false;
+        _recordedVideoError = false;
       });
     }
+
+    await _initRecordedVideoPreview(savedPath);
   }
 
   void setRecordedDuration(String duration) {
@@ -522,15 +527,38 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
   }
 
   Future<void> _initRecordedVideoPreview(String path) async {
-    await _recordedVideoController?.dispose();
+    try {
+      await _recordedVideoController?.dispose();
+    } catch (_) {}
     _recordedVideoController = null;
 
+    if (mounted) {
+      setState(() {
+        _recordedVideoReady = false;
+        _recordedVideoPlaying = false;
+        _recordedVideoError = false;
+      });
+    }
+
     VideoPlayerController? controller;
-    try {
-      controller = await StudioVideoPlayerUtils.initializeRecordedVideo(path);
-    } catch (e) {
-      debugPrint('Recorded preview init error: $e');
+    // Outer retries on top of utils retries — covers flaky CameraX handoff.
+    for (var attempt = 1; attempt <= 3; attempt++) {
+      try {
+        controller = await StudioVideoPlayerUtils.initializeRecordedVideo(
+          path,
+          autoPlay: true,
+          loop: true,
+          copyToStableTemp: true,
+        );
+      } catch (e) {
+        debugPrint('Recorded preview init error (attempt $attempt): $e');
+        controller = null;
+      }
+      if (controller != null && controller.value.isInitialized) break;
       controller = null;
+      if (attempt < 3) {
+        await Future<void>.delayed(Duration(milliseconds: 400 * attempt));
+      }
     }
 
     if (!mounted) {
@@ -538,20 +566,23 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
       return;
     }
 
-    if (controller != null) {
+    if (controller != null && controller.value.isInitialized) {
       final studio = context.read<StudioCubit>();
-      if (studio.isMuted) {
-        try {
-          await controller.setVolume(0.0);
-        } catch (_) {}
-      }
+      try {
+        await controller.setVolume(studio.isMuted ? 0.0 : 1.0);
+      } catch (_) {}
       try {
         await controller.setPlaybackSpeed(studio.speedMultiplier);
       } catch (_) {}
+      if (!controller.value.isPlaying) {
+        try {
+          await controller.play();
+        } catch (_) {}
+      }
       setState(() {
         _recordedVideoController = controller;
         _recordedVideoReady = true;
-        _recordedVideoPlaying = true;
+        _recordedVideoPlaying = controller!.value.isPlaying;
         _recordedVideoError = false;
       });
     } else {

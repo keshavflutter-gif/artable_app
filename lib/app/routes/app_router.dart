@@ -166,10 +166,13 @@ abstract final class AppRouter {
         ),
         GoRoute(
           path: AppRoutes.submitEntry,
-          builder: (context, state) => MainTabShell(
-            initialIndex: 2,
-            challengeId: state.uri.queryParameters['id'],
-          ),
+          redirect: (context, state) {
+            final id = state.uri.queryParameters['id'];
+            if (id != null && id.isNotEmpty) {
+              return '${AppRoutes.studioStart}?id=$id';
+            }
+            return AppRoutes.studioStart;
+          },
         ),
         GoRoute(
           path: AppRoutes.challengeDetail,

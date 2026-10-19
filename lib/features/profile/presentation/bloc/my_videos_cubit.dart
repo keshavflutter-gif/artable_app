@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:artable_app/core/utils/formatters.dart';
+import 'package:artable_app/core/utils/media_url_utils.dart';
 import 'package:artable_app/features/profile/data/models/my_videos_response.dart';
 import 'package:artable_app/features/profile/data/repositories/profile_videos_repository.dart';
 import 'package:artable_app/features/studio/data/repositories/studio_repository.dart';
@@ -154,10 +155,10 @@ class MyVideosCubit extends Cubit<MyVideosState> {
                 id: vId,
                 title: v['title']?.toString() ?? 'Saved Video',
                 description: v['description']?.toString(),
-                thumbnailUrl: v['thumbnailUrl']?.toString() ??
-                    v['thumbnail']?.toString() ??
-                    '',
-                videoUrl: v['videoUrl']?.toString() ?? v['video_url']?.toString(),
+                thumbnailUrl: MediaUrlUtils.extractThumbnail(v) ?? '',
+                videoUrl: MediaUrlUtils.resolve(
+                  v['videoUrl']?.toString() ?? v['video_url']?.toString() ?? '',
+                ),
                 status: 'SAVED',
                 statusLabel: 'SAVED',
                 viewsLabel: v['views']?.toString() ?? '0',

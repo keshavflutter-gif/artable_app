@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:artable_app/core/utils/media_url_utils.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -19,7 +20,7 @@ abstract final class VideoShareHelper {
     String? title,
     String? caption,
   }) async {
-    final cleanUrl = videoUrl.trim();
+    final resolvedUrl = MediaUrlUtils.resolve(videoUrl);
     final shareText = (caption != null && caption.trim().isNotEmpty)
         ? caption.trim()
         : (title != null && title.trim().isNotEmpty)
@@ -27,7 +28,9 @@ abstract final class VideoShareHelper {
             : 'Check out this video on Artable!';
 
     if (optionId == 'copy') {
-      final copyText = cleanUrl.isNotEmpty ? cleanUrl : 'https://artable.app/video';
+      final copyText = resolvedUrl.isNotEmpty
+          ? resolvedUrl
+          : 'https://artable.app/video';
       await Clipboard.setData(ClipboardData(text: copyText));
       if (context.mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
@@ -49,64 +52,79 @@ abstract final class VideoShareHelper {
       return;
     }
 
-    const defaultSampleUrl = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
-    final targetUrl = (cleanUrl.isNotEmpty && (cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://') || File(cleanUrl).existsSync()))
-        ? cleanUrl
-        : defaultSampleUrl;
+    final isRemote = resolvedUrl.startsWith('http://') ||
+        resolvedUrl.startsWith('https://');
+    final isLocal = resolvedUrl.isNotEmpty && File(resolvedUrl).existsSync();
 
-    // For WhatsApp, SMS, Email, Social Share: share actual .mp4 video file
+    if (!isRemote && !isLocal) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Video is not available to share.')),
+        );
+      }
+      return;
+    }
+
     File? videoFile;
-    if (targetUrl.startsWith('http://') || targetUrl.startsWith('https://')) {
-      videoFile = await _downloadAndCacheVideo(context, targetUrl);
-      if (videoFile == null) {
-        // Download was cancelled or failed
-        return;
-      }
-    } else if (File(targetUrl).existsSync()) {
-      videoFile = File(targetUrl);
+    if (isRemote) {
+      videoFile = await _downloadAndCacheVideo(context, resolvedUrl);
+      if (videoFile == null) return;
+    } else {
+      videoFile = File(resolvedUrl);
     }
 
-    if (videoFile != null && videoFile.existsSync()) {
-      final xFile = XFile(videoFile.path, mimeType: 'video/mp4', name: 'artable_video.mp4');
-      
-      switch (optionId) {
-        case 'whatsapp':
-        case 'sms':
-        case 'email':
-        case 'social':
-        default:
-          // ignore: deprecated_member_use
-          await Share.shareXFiles([xFile]);
-          break;
+    if (!await videoFile.exists()) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not prepare video file.')),
+        );
       }
-    } else {
-      // Fallback if file system error occurred
-      // ignore: deprecated_member_use
-      await Share.share(
-        '$shareText\n$targetUrl',
-        subject: title,
-      );
+      return;
     }
+
+    final xFile = XFile(
+      videoFile.path,
+      mimeType: 'video/mp4',
+      name: 'artable_video.mp4',
+    );
+
+    final box = context.findRenderObject() as RenderBox?;
+    final origin = (box != null && box.hasSize)
+        ? box.localToGlobal(Offset.zero) & box.size
+        : null;
+
+    // WhatsApp / SMS / Email / Social all open the system share sheet with the
+    // actual .mp4 so the user can pick WhatsApp (or another app).
+    await SharePlus.instance.share(
+      ShareParams(
+        files: [xFile],
+        text: isRemote ? '$shareText\n$resolvedUrl' : shareText,
+        subject: title,
+        title: title ?? 'Share video',
+        sharePositionOrigin: origin,
+      ),
+    );
   }
 
-  /// Downloads network video silently in background and caches it locally
-  static Future<File?> _downloadAndCacheVideo(BuildContext context, String url) async {
+  /// Downloads network video to a local cache file (streamed, not all-in-memory).
+  static Future<File?> _downloadAndCacheVideo(
+    BuildContext context,
+    String url,
+  ) async {
+    final client = http.Client();
     try {
       final tempDir = await getTemporaryDirectory();
       final urlHash = md5.convert(utf8.encode(url)).toString();
       final file = File('${tempDir.path}/cached_video_$urlHash.mp4');
 
-      // Check if already cached & valid size
       if (await file.exists() && (await file.length()) > 0) {
         return file;
       }
 
-      final response = await http.get(Uri.parse(url));
+      final request = http.Request('GET', Uri.parse(url));
+      final response = await client.send(request);
 
-      if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
-        await file.writeAsBytes(response.bodyBytes);
-        return file;
-      } else {
+      if (response.statusCode != 200) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Could not download video file.')),
@@ -114,14 +132,37 @@ abstract final class VideoShareHelper {
         }
         return null;
       }
+
+      final sink = file.openWrite();
+      try {
+        await response.stream.pipe(sink);
+      } finally {
+        await sink.close();
+      }
+
+      if (!await file.exists() || (await file.length()) <= 0) {
+        if (await file.exists()) {
+          await file.delete();
+        }
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Could not download video file.')),
+          );
+        }
+        return null;
+      }
+
+      return file;
     } catch (e) {
       debugPrint('Error downloading video for share: $e');
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error preparing video: ${e.toString()}')),
+          SnackBar(content: Text('Error preparing video: $e')),
         );
       }
       return null;
+    } finally {
+      client.close();
     }
   }
 }

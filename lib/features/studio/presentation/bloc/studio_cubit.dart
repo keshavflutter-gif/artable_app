@@ -7,6 +7,7 @@ import 'package:artable_app/data/datasources/music_api_service.dart';
 import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
 import 'package:artable_app/features/studio/data/models/studio_filters_response.dart';
 import 'package:artable_app/features/studio/data/repositories/studio_repository.dart';
+import 'package:artable_app/features/studio/data/services/studio_music_playback_service.dart';
 import 'package:artable_app/features/studio/data/services/video_thumbnail_generator.dart';
 import 'package:artable_app/core/utils/studio_video_player_utils.dart';
 import 'studio_state.dart';
@@ -675,10 +676,13 @@ class StudioCubit extends Cubit<StudioState> {
     double start = 0.0,
     double? duration,
   }) {
+    // Force music service to reload the new (or cleared) track.
+    StudioMusicPlaybackService.invalidateLoadedTrack();
     if (track != null) {
       final targetDuration = duration ?? effectiveVideoDuration;
       final validStart = start.clamp(0.0, track.duration);
-      final validDuration = targetDuration.clamp(1.0, track.duration - validStart);
+      final maxRemain = (track.duration - validStart).clamp(1.0, track.duration);
+      final validDuration = targetDuration.clamp(1.0, maxRemain);
       emit(state.copyWith(
         selectedTrack: track,
         selectedMusic: '${track.title} — ${track.artist}',
@@ -753,15 +757,20 @@ class StudioCubit extends Cubit<StudioState> {
       emit(state.copyWith(
         clearRecordedVideoPath: true,
         clearMergedClipPaths: true,
+        videoTrimStartSeconds: 0.0,
+        clearVideoTrimEndSeconds: true,
         recordingFilter: state.selectedFilter,
         recordingBeautyOn: state.beautyOn,
         recordingBeautyIntensity: state.beautyIntensity,
       ));
     } else {
+      // New recording — reset trim so Edit doesn't reuse a stale range.
       emit(state.copyWith(
         recordedVideoPath: path,
         mergedClipPaths: mergedClipPaths,
         clearMergedClipPaths: clearMergedClips && (mergedClipPaths == null || mergedClipPaths.isEmpty),
+        videoTrimStartSeconds: 0.0,
+        clearVideoTrimEndSeconds: true,
       ));
     }
   }

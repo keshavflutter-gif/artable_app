@@ -9,6 +9,7 @@ import 'package:artable_app/core/utils/reel_helpers.dart';
 import 'package:artable_app/core/widgets/app_screen_header.dart';
 import 'package:artable_app/core/widgets/secondary_outline_button.dart';
 
+import 'package:artable_app/core/utils/media_url_utils.dart';
 import 'package:artable_app/core/utils/video_share_helper.dart';
 
 const String _whatsappSvg = '''
@@ -42,13 +43,13 @@ class _ShareReportScreenState extends State<ShareReportScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final reel = ReelHelpers.reelById(widget.reelId ?? 'r1');
+    final reel = (widget.reelId != null && widget.reelId!.trim().isNotEmpty)
+        ? ReelHelpers.reelById(widget.reelId!)
+        : null;
     final rawUrl = (widget.videoUrl != null && widget.videoUrl!.trim().isNotEmpty)
         ? widget.videoUrl!.trim()
         : (reel?['videoUrl']?.toString() ?? reel?['video_url']?.toString() ?? '');
-    final resolvedUrl = (rawUrl.isNotEmpty && rawUrl != 'null')
-        ? rawUrl
-        : 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
+    final resolvedUrl = MediaUrlUtils.resolve(rawUrl);
     final resolvedTitle = widget.title ?? reel?['title']?.toString();
     final resolvedCaption = widget.caption ?? reel?['caption']?.toString();
 
@@ -88,6 +89,14 @@ class _ShareReportScreenState extends State<ShareReportScreen> {
                         final shared = _sharedOptionId == id;
                         return GestureDetector(
                           onTap: () async {
+                            if (id != 'copy' && resolvedUrl.isEmpty) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Video is not available to share.'),
+                                ),
+                              );
+                              return;
+                            }
                             setState(() => _sharedOptionId = id);
                             await VideoShareHelper.shareVideo(
                               context: context,

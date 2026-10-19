@@ -5,16 +5,32 @@ import 'package:just_audio/just_audio.dart';
 import 'package:artable_app/features/studio/presentation/bloc/studio_cubit.dart';
 import 'package:artable_app/data/datasources/music_api_service.dart';
 
-/// Plays the selected studio track during video recording and video editing with preloading.
+/// Plays the selected studio track during video recording and video editing.
+///
+/// All player ops are serialized to avoid native crashes when music is updated
+/// while video sync / play / dispose run at the same time.
 class StudioMusicPlaybackService {
   StudioMusicPlaybackService._();
 
   static AudioPlayer? _player;
   static String? _loadedTrackId;
-  static Future<void>? _preloadFuture;
+  static String? _loadedAudioUrl;
   static bool _sessionConfigured = false;
+  static bool _isLoading = false;
 
-  static AudioPlayer get _audioPlayer => _player ??= AudioPlayer();
+  /// Serial queue so stop/load/play/seek never overlap.
+  static Future<void> _chain = Future.value();
+
+  static Future<T?> _enqueue<T>(Future<T> Function() action) {
+    final result = _chain.then((_) => action()).catchError((Object e, StackTrace st) {
+      debugPrint('StudioMusicPlaybackService op error: $e');
+      return null;
+    });
+    _chain = result.then((_) {}, onError: (_, __) {});
+    return result;
+  }
+
+  static AudioPlayer _ensurePlayer() => _player ??= AudioPlayer();
 
   static Future<void> _configureSession() async {
     if (_sessionConfigured) return;
@@ -23,13 +39,15 @@ class StudioMusicPlaybackService {
       await session.configure(
         const AudioSessionConfiguration(
           avAudioSessionCategory: AVAudioSessionCategory.playback,
-          avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.mixWithOthers,
+          avAudioSessionCategoryOptions:
+              AVAudioSessionCategoryOptions.mixWithOthers,
           avAudioSessionMode: AVAudioSessionMode.defaultMode,
           androidAudioAttributes: AndroidAudioAttributes(
             contentType: AndroidAudioContentType.music,
             usage: AndroidAudioUsage.media,
           ),
-          androidAudioFocusGainType: AndroidAudioFocusGainType.gainTransientMayDuck,
+          androidAudioFocusGainType:
+              AndroidAudioFocusGainType.gainTransientMayDuck,
           androidWillPauseWhenDucked: false,
         ),
       );
@@ -46,7 +64,8 @@ class StudioMusicPlaybackService {
 
     final cached = MusicApiService.cachedTracks;
     final fallbacks = MusicApiService.fallbackTracks;
-    final allTracks = cached != null && cached.isNotEmpty ? cached : fallbacks;
+    final allTracks =
+        cached != null && cached.isNotEmpty ? cached : fallbacks;
 
     final targetLower = musicStr.trim().toLowerCase();
     for (final t in allTracks) {
@@ -57,57 +76,77 @@ class StudioMusicPlaybackService {
         return t;
       }
     }
-    return allTracks.first;
+    return null;
   }
 
-  /// Prepares audio session and player before camera recording starts.
+  /// Call when the user picks a different track so the next play reloads audio.
+  static void invalidateLoadedTrack() {
+    _loadedTrackId = null;
+    _loadedAudioUrl = null;
+  }
+
   static Future<void> prepareForRecordingStart() async {
-    try {
+    await _enqueue(() async {
       await _configureSession();
       final player = _player;
       if (player != null && player.playing) {
         await player.pause();
       }
-    } catch (e) {
-      debugPrint('StudioMusicPlaybackService prepareForRecordingStart error: $e');
-    }
+    });
   }
 
   static Future<void> preloadForStudio(StudioCubit studio) async {
+    await _enqueue(() => _preloadLocked(studio));
+  }
+
+  static Future<void> _preloadLocked(StudioCubit studio) async {
     final track = _resolveTrack(studio);
     if (track == null) {
       _loadedTrackId = null;
+      _loadedAudioUrl = null;
       return;
     }
 
-    if (_loadedTrackId == track.id && _player != null) return;
-
-    if (_preloadFuture != null) return;
-
-    _preloadFuture = _loadTrack(track);
-    try {
-      await _preloadFuture;
-    } catch (e) {
-      debugPrint('StudioMusicPlaybackService preload error: $e');
-    } finally {
-      _preloadFuture = null;
+    if (_loadedTrackId == track.id &&
+        _loadedAudioUrl == track.audioUrl &&
+        _player != null &&
+        !_isLoading) {
+      return;
     }
+
+    await _loadTrackLocked(track);
   }
 
-  static Future<void> _loadTrack(FreeToUseTrack track) async {
+  static Future<void> _loadTrackLocked(FreeToUseTrack track) async {
+    _isLoading = true;
     try {
       await _configureSession();
-      final player = _audioPlayer;
+      final player = _ensurePlayer();
+      try {
+        await player.pause();
+      } catch (_) {}
       try {
         await player.stop();
       } catch (_) {}
-      await player.setUrl(track.audioUrl).timeout(const Duration(seconds: 5));
+
+      final url = track.audioUrl.trim();
+      if (url.isEmpty) {
+        _loadedTrackId = null;
+        _loadedAudioUrl = null;
+        return;
+      }
+
+      await player.setUrl(url).timeout(const Duration(seconds: 8));
       await player.setVolume(1.0);
       await player.setLoopMode(LoopMode.one);
       _loadedTrackId = track.id;
+      _loadedAudioUrl = url;
     } catch (e) {
       debugPrint('StudioMusicPlaybackService _loadTrack error: $e');
       _loadedTrackId = null;
+      _loadedAudioUrl = null;
+    } finally {
+      _isLoading = false;
     }
   }
 
@@ -115,20 +154,31 @@ class StudioMusicPlaybackService {
     await playForEditor(studio, 0);
   }
 
-  /// Plays global background music for the multi-video editor starting at [globalPositionMs].
-  static Future<void> playForEditor(StudioCubit studio, int globalPositionMs) async {
-    final track = _resolveTrack(studio);
-    if (track == null) {
-      await pause();
-      return;
-    }
-
-    try {
-      await _configureSession();
-      if (_loadedTrackId != track.id || _player == null) {
-        await preloadForStudio(studio);
+  /// Plays background music for the editor starting at [globalPositionMs].
+  static Future<void> playForEditor(
+    StudioCubit studio,
+    int globalPositionMs,
+  ) async {
+    await _enqueue(() async {
+      final track = _resolveTrack(studio);
+      if (track == null) {
+        final player = _player;
+        if (player != null && player.playing) {
+          await player.pause();
+        }
+        return;
       }
-      final player = _audioPlayer;
+
+      await _configureSession();
+      if (_loadedTrackId != track.id ||
+          _loadedAudioUrl != track.audioUrl ||
+          _player == null) {
+        await _loadTrackLocked(track);
+      }
+
+      final player = _player;
+      if (player == null || _loadedTrackId != track.id) return;
+
       await player.setVolume(1.0);
       await player.setLoopMode(LoopMode.one);
 
@@ -138,58 +188,53 @@ class StudioMusicPlaybackService {
       final effectiveMs = (trackDurMs > 0 && targetMs >= trackDurMs)
           ? targetMs % trackDurMs
           : targetMs;
+      final seekMs = effectiveMs.clamp(0, 3600000);
 
       if (!player.playing) {
-        await player.seek(Duration(milliseconds: effectiveMs.clamp(0, 3600000)));
+        await player.seek(Duration(milliseconds: seekMs));
         await player.setSpeed(1.0);
         await player.play();
       } else {
         final currentAudioMs = player.position.inMilliseconds;
-        if ((currentAudioMs - effectiveMs).abs() > 250) {
-          await player.seek(Duration(milliseconds: effectiveMs.clamp(0, 3600000)));
+        if ((currentAudioMs - seekMs).abs() > 350) {
+          await player.seek(Duration(milliseconds: seekMs));
         }
       }
-    } catch (e) {
-      debugPrint('StudioMusicPlaybackService playForEditor error: $e');
-    }
+    });
   }
 
   static Future<void> pause() async {
-    try {
+    await _enqueue(() async {
       final player = _player;
       if (player != null && player.playing) {
         await player.pause();
       }
-    } catch (e) {
-      debugPrint('StudioMusicPlaybackService pause error: $e');
-    }
+    });
   }
 
   static Future<void> seekToMs(int ms) async {
-    try {
+    await _enqueue(() async {
       final player = _player;
-      if (player != null) {
-        final trackDurMs = player.duration?.inMilliseconds ?? 0;
-        final effectiveMs = (trackDurMs > 0 && ms >= trackDurMs) ? ms % trackDurMs : ms;
-        await player.seek(Duration(milliseconds: effectiveMs.clamp(0, 3600000)));
-      }
-    } catch (e) {
-      debugPrint('StudioMusicPlaybackService seek error: $e');
-    }
+      if (player == null || _isLoading) return;
+      final trackDurMs = player.duration?.inMilliseconds ?? 0;
+      final effectiveMs =
+          (trackDurMs > 0 && ms >= trackDurMs) ? ms % trackDurMs : ms;
+      await player.seek(Duration(milliseconds: effectiveMs.clamp(0, 3600000)));
+    });
   }
 
   static Future<void> checkAndSyncPosition(int expectedMs) async {
+    // Lightweight: skip if busy / not playing — never block the UI timer.
+    final player = _player;
+    if (player == null || _isLoading || !player.playing) return;
     try {
-      final player = _player;
-      if (player != null && player.playing) {
-        final currentAudioMs = player.position.inMilliseconds;
-        final trackDurMs = player.duration?.inMilliseconds ?? 0;
-        final effectiveMs = (trackDurMs > 0 && expectedMs >= trackDurMs)
-            ? expectedMs % trackDurMs
-            : expectedMs;
-        if ((currentAudioMs - effectiveMs).abs() > 250) {
-          await player.seek(Duration(milliseconds: effectiveMs.clamp(0, 3600000)));
-        }
+      final currentAudioMs = player.position.inMilliseconds;
+      final trackDurMs = player.duration?.inMilliseconds ?? 0;
+      final effectiveMs = (trackDurMs > 0 && expectedMs >= trackDurMs)
+          ? expectedMs % trackDurMs
+          : expectedMs;
+      if ((currentAudioMs - effectiveMs).abs() > 400) {
+        await seekToMs(effectiveMs);
       }
     } catch (e) {
       debugPrint('StudioMusicPlaybackService sync check error: $e');
@@ -197,36 +242,44 @@ class StudioMusicPlaybackService {
   }
 
   static Future<void> stop() async {
-    try {
+    await _enqueue(() async {
       final player = _player;
       _player = null;
-      if (player != null) {
-        await player.stop();
-        await player.dispose();
-      }
       _loadedTrackId = null;
-    } catch (e) {
-      debugPrint('StudioMusicPlaybackService stop error: $e');
-    }
+      _loadedAudioUrl = null;
+      _isLoading = false;
+      if (player != null) {
+        try {
+          await player.stop();
+        } catch (_) {}
+        try {
+          await player.dispose();
+        } catch (_) {}
+      }
+    });
   }
 
-  /// Releases music audio focus so [VideoPlayerController] can initialize immediately.
+  /// Releases music audio focus so [VideoPlayerController] can initialize.
   static Future<void> releaseForVideoPlayback() async {
-    try {
+    await _enqueue(() async {
       final player = _player;
       _player = null;
-      if (player != null) {
-        await player.stop();
-        await player.dispose();
-      }
-      final session = await AudioSession.instance;
-      await session.setActive(false);
-      _sessionConfigured = false;
       _loadedTrackId = null;
-    } catch (e) {
-      debugPrint('StudioMusicPlaybackService release error: $e');
-    }
+      _loadedAudioUrl = null;
+      _isLoading = false;
+      if (player != null) {
+        try {
+          await player.stop();
+        } catch (_) {}
+        try {
+          await player.dispose();
+        } catch (_) {}
+      }
+      try {
+        final session = await AudioSession.instance;
+        await session.setActive(false);
+      } catch (_) {}
+      _sessionConfigured = false;
+    });
   }
 }
-
-

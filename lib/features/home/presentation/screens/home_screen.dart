@@ -792,7 +792,7 @@ class _QuickStripCard extends StatelessWidget {
                 onTap: () {
                   final label = action['label'] as String;
                   if (label == 'Upload Video' || href.contains('submit-entry')) {
-                    context.push(AppRoutes.submitEntry);
+                    context.push(AppRoutes.studioStart);
                   } else if (label == 'Active Challenges' || href.contains('challenges')) {
                     context.push('${AppRoutes.challenges}?tab=active');
                   } else if (label == 'Winners') {

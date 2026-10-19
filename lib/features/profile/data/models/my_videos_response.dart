@@ -1,3 +1,4 @@
+import 'package:artable_app/core/utils/media_url_utils.dart';
 import 'package:artable_app/core/utils/reel_helpers.dart';
 
 class MyVideosResponse {
@@ -140,18 +141,10 @@ class MyVideoItem {
         challengeObj?['imageUrl']?.toString() ??
         '';
 
-    String rawThumb = json['thumbnailUrl']?.toString() ??
-        json['thumbnail']?.toString() ??
-        json['imageUrl']?.toString() ??
-        '';
-
-    String thumb = rawThumb;
-    if (thumb.isEmpty || thumb.contains('storage.example')) {
-      if (bannerUrl.isNotEmpty && !bannerUrl.contains('storage.example')) {
-        thumb = bannerUrl;
-      } else {
-        thumb = json['videoUrl']?.toString() ?? json['video_url']?.toString() ?? '';
-      }
+    // Never fall back to videoUrl — AppImage cannot render .mp4 as a thumbnail.
+    String thumb = MediaUrlUtils.extractThumbnail(json) ?? '';
+    if (thumb.isEmpty && bannerUrl.isNotEmpty && !bannerUrl.contains('storage.example')) {
+      thumb = MediaUrlUtils.resolve(bannerUrl);
     }
 
     String dateStr = json['dateLabel']?.toString() ?? json['date']?.toString() ?? '';

@@ -162,6 +162,7 @@ class StudioVideoPlayerUtils {
     String path, {
     bool autoPlay = true,
     bool loop = true,
+    bool copyToStableTemp = false,
   }) async {
     var cleanPath = path.trim();
     if (cleanPath.startsWith('file://')) {
@@ -173,7 +174,11 @@ class StudioVideoPlayerUtils {
         final controller = VideoPlayerController.networkUrl(Uri.parse(cleanPath));
         await controller.initialize();
         await controller.setLooping(loop);
-        if (autoPlay) await controller.play();
+        if (autoPlay) {
+          try {
+            await controller.play();
+          } catch (_) {}
+        }
         return controller;
       } catch (e) {
         debugPrint('Network video init failed for $cleanPath: $e');
@@ -183,7 +188,7 @@ class StudioVideoPlayerUtils {
 
     cleanPath = File(cleanPath).absolute.path;
 
-    final file = File(cleanPath);
+    var file = File(cleanPath);
     final exists = file.existsSync();
     final fileSize = exists ? file.lengthSync() : 0;
     debugPrint('=== VIDEO RECORDING ===');
@@ -196,20 +201,39 @@ class StudioVideoPlayerUtils {
       return null;
     }
 
+    // Camera cache files can stay locked briefly — copy to a stable temp path.
+    if (copyToStableTemp) {
+      final stable = await _copyToStableTemp(file);
+      if (stable != null) {
+        file = stable;
+        cleanPath = stable.path;
+        debugPrint('Recorded video copied to stable path: $cleanPath');
+      }
+    }
+
     VideoPlayerController? controller;
 
-    for (int attempt = 1; attempt <= 3; attempt++) {
+    for (int attempt = 1; attempt <= 5; attempt++) {
       try {
         final fileController = VideoPlayerController.file(file);
         await fileController.initialize().timeout(
-          const Duration(seconds: 8),
+          const Duration(seconds: 12),
           onTimeout: () => throw TimeoutException('Video initialization timed out'),
         );
+        if (!fileController.value.isInitialized ||
+            fileController.value.duration == Duration.zero) {
+          throw Exception('Controller initialized with empty duration');
+        }
         controller = fileController;
 
         await controller.setLooping(loop);
         if (autoPlay) {
-          await controller.play();
+          try {
+            await controller.play();
+          } catch (playErr) {
+            // Init succeeded — preview can still show even if autoplay fails.
+            debugPrint('initializeRecordedVideo play warning: $playErr');
+          }
         }
         debugPrint('Recorded video initialized at $cleanPath');
         return controller;
@@ -219,8 +243,8 @@ class StudioVideoPlayerUtils {
           await controller?.dispose();
         } catch (_) {}
         controller = null;
-        if (attempt < 3) {
-          await Future.delayed(Duration(milliseconds: 150 * attempt));
+        if (attempt < 5) {
+          await Future.delayed(Duration(milliseconds: 250 * attempt));
         }
       }
     }
@@ -228,24 +252,46 @@ class StudioVideoPlayerUtils {
     return null;
   }
 
+  static Future<File?> _copyToStableTemp(File source) async {
+    try {
+      final tempDir = await getTemporaryDirectory();
+      final dest = File(
+        '${tempDir.path}/preview_${DateTime.now().millisecondsSinceEpoch}.mp4',
+      );
+      await source.copy(dest.path);
+      if (await dest.exists() && await dest.length() > 0) {
+        return dest;
+      }
+    } catch (e) {
+      debugPrint('Stable temp copy failed: $e');
+    }
+    return null;
+  }
+
   static Future<bool> _waitForRecordedFile(File file) async {
     var lastSize = -1;
+    var stableCount = 0;
 
-    for (var attempt = 0; attempt < 20; attempt++) {
+    // Up to ~5s for MediaRecorder flush after stopVideoRecording.
+    for (var attempt = 0; attempt < 40; attempt++) {
       if (!file.existsSync()) {
-        await Future.delayed(const Duration(milliseconds: 100));
+        await Future.delayed(const Duration(milliseconds: 125));
         continue;
       }
 
       final size = file.lengthSync();
-      if (size > 0 && size == lastSize) {
-        return true;
+      // Ignore tiny incomplete files.
+      if (size > 1024 && size == lastSize) {
+        stableCount++;
+        if (stableCount >= 2) return true;
+      } else {
+        stableCount = 0;
       }
 
       lastSize = size;
-      await Future.delayed(const Duration(milliseconds: 100));
+      await Future.delayed(const Duration(milliseconds: 125));
     }
 
-    return file.existsSync() && file.lengthSync() > 0;
+    return file.existsSync() && file.lengthSync() > 1024;
   }
 }

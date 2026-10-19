@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_gradients.dart';
 import 'package:artable_app/app/theme/app_typography.dart';
@@ -604,7 +605,7 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                                   ),
                                 );
                                 if (response.success) {
-                                  context.go('/submit-entry?id=$targetId');
+                                  context.push('${AppRoutes.studioStart}?id=$targetId');
                                 }
                               },
                             ),

@@ -1,16 +1,16 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:video_player/video_player.dart';
+import 'package:video_thumbnail/video_thumbnail.dart';
 
-/// Helper service to generate a frame thumbnail from a local recorded video.
+/// Generates a real frame thumbnail from a local recorded video.
 class VideoThumbnailGenerator {
   VideoThumbnailGenerator._();
 
-  /// Generates a thumbnail image File from a video file.
+  /// Generates a JPEG thumbnail [File] from a local video path.
   static Future<File?> generateThumbnailFromVideo(String videoPath) async {
     try {
-      var cleanPath = videoPath;
+      var cleanPath = videoPath.trim();
       if (cleanPath.startsWith('file://')) {
         cleanPath = cleanPath.replaceFirst('file://', '');
       }
@@ -20,54 +20,35 @@ class VideoThumbnailGenerator {
         return null;
       }
 
-      VideoPlayerController? controller;
-      try {
-        controller = VideoPlayerController.file(videoFile);
-        await controller.initialize().timeout(
-          const Duration(seconds: 6),
-          onTimeout: () => throw Exception('VideoPlayerController init timeout'),
-        );
-
-        final duration = controller.value.duration;
-        final targetPosition = duration > const Duration(seconds: 1)
-            ? const Duration(seconds: 1)
-            : duration ~/ 2;
-
-        await controller.seekTo(targetPosition);
-      } catch (e) {
-        debugPrint('VideoThumbnailGenerator controller warning: $e');
-      } finally {
-        await controller?.dispose();
-      }
-
       final tempDir = await getTemporaryDirectory();
       final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final thumbnailFile = File('${tempDir.path}/thumb_$timestamp.jpg');
+      final outPath = '${tempDir.path}/thumb_$timestamp.jpg';
 
-      await thumbnailFile.writeAsBytes(_generateFrameBytes());
-      return thumbnailFile;
+      final generatedPath = await VideoThumbnail.thumbnailFile(
+        video: cleanPath,
+        thumbnailPath: outPath,
+        imageFormat: ImageFormat.JPEG,
+        maxWidth: 720,
+        quality: 75,
+        timeMs: 1000,
+      );
+
+      if (generatedPath == null || generatedPath.isEmpty) {
+        debugPrint('VideoThumbnailGenerator: thumbnailFile returned null');
+        return null;
+      }
+
+      final file = File(generatedPath);
+      if (!await file.exists() || await file.length() <= 0) {
+        debugPrint('VideoThumbnailGenerator: empty thumbnail file');
+        return null;
+      }
+
+      debugPrint('VideoThumbnailGenerator: created ${file.path}');
+      return file;
     } catch (e) {
       debugPrint('VideoThumbnailGenerator error: $e');
       return null;
     }
-  }
-
-  /// Minimal JPEG frame binary header data
-  static List<int> _generateFrameBytes() {
-    return <int>[
-      0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01,
-      0x01, 0x01, 0x00, 0x60, 0x00, 0x60, 0x00, 0x00, 0xFF, 0xDB, 0x00, 0x43,
-      0x00, 0x08, 0x06, 0x06, 0x07, 0x06, 0x05, 0x08, 0x07, 0x07, 0x07, 0x09,
-      0x09, 0x08, 0x0A, 0x0C, 0x14, 0x0D, 0x0C, 0x0B, 0x0B, 0x0C, 0x19, 0x12,
-      0x13, 0x0F, 0x14, 0x1D, 0x1A, 0x1F, 0x1E, 0x1D, 0x1A, 0x1C, 0x1C, 0x20,
-      0x24, 0x2E, 0x27, 0x20, 0x22, 0x2C, 0x23, 0x1C, 0x1C, 0x28, 0x37, 0x29,
-      0x2C, 0x30, 0x31, 0x34, 0x34, 0x34, 0x1F, 0x27, 0x39, 0x3D, 0x38, 0x32,
-      0x3C, 0x2E, 0x33, 0x34, 0x32, 0xFF, 0xC0, 0x00, 0x0B, 0x08, 0x00, 0x10,
-      0x00, 0x10, 0x01, 0x01, 0x11, 0x00, 0xFF, 0xC4, 0x00, 0x1F, 0x00, 0x00,
-      0x01, 0x05, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-      0x09, 0x0A, 0x0B, 0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F,
-      0x00, 0x7F, 0x00, 0x32, 0x8A, 0x28, 0xA0, 0x03, 0xFF, 0xD9
-    ];
   }
 }
