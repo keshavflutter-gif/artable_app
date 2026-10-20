@@ -29,6 +29,8 @@ class SongTrimmerSheet extends StatefulWidget {
     required FreeToUseTrack track,
     double initialStart = 0.0,
     double initialDuration = 30.0,
+    bool popParentOnApply = false,
+    VoidCallback? onApplied,
   }) {
     showModalBottomSheet(
       context: context,
@@ -44,11 +46,11 @@ class SongTrimmerSheet extends StatefulWidget {
                 start: start,
                 duration: duration,
               );
-          // Pop trimmer first; music screen will dispose its preview player.
           Navigator.pop(ctx);
-          if (context.mounted && Navigator.canPop(context)) {
+          if (popParentOnApply && context.mounted && Navigator.canPop(context)) {
             Navigator.pop(context);
           }
+          onApplied?.call();
         },
       ),
     );
@@ -73,9 +75,13 @@ class _SongTrimmerSheetState extends State<SongTrimmerSheet> {
     super.initState();
     final videoDuration = context.read<StudioCubit>().effectiveVideoDuration;
     _startSeconds = widget.initialStartSeconds.clamp(0.0, widget.track.duration - 1.0);
-    _cropDuration = (widget.initialCropDuration > 0 && widget.initialCropDuration != 30.0)
-        ? widget.initialCropDuration.clamp(1.0, widget.track.duration)
-        : videoDuration.clamp(1.0, widget.track.duration);
+    if (videoDuration > 0) {
+      _cropDuration = videoDuration.clamp(1.0, widget.track.duration);
+    } else if (widget.initialCropDuration > 0 && widget.initialCropDuration != 30.0) {
+      _cropDuration = widget.initialCropDuration.clamp(1.0, widget.track.duration);
+    } else {
+      _cropDuration = 30.0.clamp(1.0, widget.track.duration);
+    }
     _initAudioPlayer();
   }
 
@@ -248,7 +254,7 @@ class _SongTrimmerSheetState extends State<SongTrimmerSheet> {
           Builder(
             builder: (context) {
               final videoDuration = context.read<StudioCubit>().effectiveVideoDuration;
-              final presetDurations = [videoDuration, 15.0, 30.0].toSet().toList();
+              final presetDurations = {videoDuration, 15.0, 30.0}.toList();
 
               return Row(
                 mainAxisAlignment: MainAxisAlignment.center,

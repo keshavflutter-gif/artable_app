@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -9,7 +10,6 @@ import 'package:artable_app/features/studio/data/models/studio_filters_response.
 import 'package:artable_app/features/studio/data/repositories/studio_repository.dart';
 import 'package:artable_app/features/studio/data/services/studio_music_playback_service.dart';
 import 'package:artable_app/features/studio/data/services/video_thumbnail_generator.dart';
-import 'package:artable_app/core/utils/studio_video_player_utils.dart';
 import 'studio_state.dart';
 
 class StudioCubit extends Cubit<StudioState> {
@@ -109,7 +109,37 @@ class StudioCubit extends Cubit<StudioState> {
         currentRecPath.isNotEmpty &&
         (currentRecPath.startsWith('http') || File(currentRecPath.replaceFirst('file://', '')).existsSync());
 
-    final minRequired = hasCurrentRec ? 1 : 2;
+    final selectedDrafts = <Map<String, dynamic>>[];
+    for (final id in draftIds) {
+      for (final d in state.drafts) {
+        if (d['id'] == id) {
+          selectedDrafts.add(d);
+          break;
+        }
+      }
+    }
+
+    final isCurrentRecSelected = hasCurrentRec &&
+        selectedDrafts.any((d) {
+          final p = (d['videoPath']?.toString() ?? d['videoUrl']?.toString() ?? '').trim();
+          return p.isNotEmpty &&
+              (p == currentRecPath ||
+                  p.replaceFirst('file://', '') == currentRecPath.replaceFirst('file://', ''));
+        });
+
+    final isCurrentRecInDrafts = hasCurrentRec &&
+        state.drafts.any((d) {
+          final p = (d['videoPath']?.toString() ?? d['videoUrl']?.toString() ?? '').trim();
+          return p.isNotEmpty &&
+              (p == currentRecPath ||
+                  p.replaceFirst('file://', '') == currentRecPath.replaceFirst('file://', ''));
+        });
+
+    final bool shouldPrependCurrentRec = hasCurrentRec &&
+        !isCurrentRecSelected &&
+        !isCurrentRecInDrafts;
+
+    final minRequired = shouldPrependCurrentRec ? 1 : 2;
     if (draftIds.length < minRequired) return null;
 
     if (draftIds.length > maxMergeClipsLimit) {
@@ -128,24 +158,15 @@ class StudioCubit extends Cubit<StudioState> {
       return null;
     }
 
-    final selectedDrafts = <Map<String, dynamic>>[];
-    for (final id in draftIds) {
-      for (final d in state.drafts) {
-        if (d['id'] == id) {
-          selectedDrafts.add(d);
-          break;
-        }
-      }
-    }
-    if (selectedDrafts.isEmpty && !hasCurrentRec) return null;
+    if (selectedDrafts.isEmpty && !shouldPrependCurrentRec) return null;
 
     final mergedClipPaths = <String>[];
     final mergedClipDurations = <double>[];
     double totalSecs = 0.0;
 
-    // 1st Clip: Current active video recording if present
+    // 1st Clip: Current active video recording ONLY IF it's an unsaved recording not in drafts
     final recPath = currentRecPath;
-    if (hasCurrentRec && recPath != null) {
+    if (shouldPrependCurrentRec && recPath != null) {
       mergedClipPaths.add(recPath);
       double recDur = 0.0;
       final parts = state.recordedDuration.split(':');
@@ -161,7 +182,7 @@ class StudioCubit extends Cubit<StudioState> {
       totalSecs += recDur;
     }
 
-    // 2nd, 3rd, ... Clips: Selected draft videos
+    // Selected draft videos
     for (final d in selectedDrafts) {
       double draftDur = 0.0;
       if (d['durationSeconds'] != null && (d['durationSeconds'] as num) > 0) {
@@ -186,7 +207,7 @@ class StudioCubit extends Cubit<StudioState> {
             : <double>[];
         for (int i = 0; i < subPaths.length; i++) {
           final p = subPaths[i].trim();
-          if (p.isNotEmpty && !mergedClipPaths.contains(p)) {
+          if (p.isNotEmpty) {
             mergedClipPaths.add(p);
             final dur = (i < subDurs.length && subDurs[i] > 0) ? subDurs[i] : (draftDur / subPaths.length);
             mergedClipDurations.add(dur);
@@ -195,7 +216,7 @@ class StudioCubit extends Cubit<StudioState> {
         }
       } else {
         final p = (d['videoPath']?.toString() ?? d['videoUrl']?.toString() ?? '').trim();
-        if (p.isNotEmpty && !mergedClipPaths.contains(p)) {
+        if (p.isNotEmpty) {
           mergedClipPaths.add(p);
           mergedClipDurations.add(draftDur);
           totalSecs += draftDur;
@@ -219,10 +240,9 @@ class StudioCubit extends Cubit<StudioState> {
     final secs = totalSecsInt % 60;
     final formattedDur = '$mins:${secs.toString().padLeft(2, '0')}';
 
-    final combinedFile = await StudioVideoPlayerUtils.combineVideoFiles(mergedClipPaths);
-    final finalVideoPath = (combinedFile != null && await combinedFile.exists())
-        ? combinedFile.path
-        : (mergedClipPaths.isNotEmpty ? mergedClipPaths.first : '');
+    // Fast instant multi-clip merge: Preview, Edit and Details screens play multi-clips
+    // seamlessly as a playlist using mergedClipPaths. Actual file merge is deferred to upload.
+    final finalVideoPath = (mergedClipPaths.isNotEmpty ? mergedClipPaths.first : '');
 
     emit(state.copyWith(
       recordedDuration: formattedDur,
@@ -233,27 +253,59 @@ class StudioCubit extends Cubit<StudioState> {
       mergedClipDurations: mergedClipDurations,
     ));
 
-    final res = await saveDraftFromPreview(
-      challenge: {'id': first['challengeId'] ?? 'c1', 'title': mergedTitle},
-      title: mergedTitle,
-      description: 'Merged video from ${selectedDrafts.length} drafts',
-      videoUrl: finalVideoPath.isNotEmpty ? finalVideoPath : null,
-      thumbnailUrl: resolvedThumb.isNotEmpty ? resolvedThumb : null,
-      durationSeconds: totalSecsInt,
-    );
+    final mergedDraftId = 'merged_${DateTime.now().millisecondsSinceEpoch}';
+    final cleanChallengeId = first['challengeId']?.toString() ?? 'c1';
 
-    if (res != null) {
-      res['duration'] = formattedDur;
-      res['durationSeconds'] = totalSecsInt;
-      res['videoTrimStartSeconds'] = 0.0;
-      res['videoTrimEndSeconds'] = totalSecs;
-      res['videoPath'] = finalVideoPath;
-      res['videoUrl'] = finalVideoPath;
-      res['mergedClipPaths'] = mergedClipPaths;
-      res['mergedClipDurations'] = mergedClipDurations;
-    }
+    final mergedDraft = <String, dynamic>{
+      'id': mergedDraftId,
+      'challengeId': cleanChallengeId,
+      'challengeTitle': mergedTitle,
+      'title': mergedTitle,
+      'description': 'Merged video from ${selectedDrafts.length} drafts',
+      'duration': formattedDur,
+      'durationSeconds': totalSecsInt,
+      'recordedAt': DateTime.now().toIso8601String(),
+      'thumbnailUrl': resolvedThumb.isNotEmpty
+          ? resolvedThumb
+          : 'https://loremflickr.com/700/440/talent,stage?lock=501',
+      'videoPath': finalVideoPath,
+      'videoUrl': finalVideoPath,
+      'mergedClipPaths': mergedClipPaths,
+      'mergedClipDurations': mergedClipDurations,
+      'videoTrimStartSeconds': 0.0,
+      'videoTrimEndSeconds': totalSecs,
+      ...state.recordingEffectsPayload,
+    };
 
-    return res;
+    addDraft(mergedDraft);
+    setActiveDraftId(mergedDraftId);
+    emit(state.copyWith(isSavingDraft: false, clearSaveDraftError: true));
+
+    // Optional background sync to backend so the UI never hangs on network upload
+    unawaited(() async {
+      try {
+        final token = _authCubit?.sessionToken;
+        if (token != null && token.isNotEmpty && token != 'design_preview') {
+          await _repository.saveDraft(
+            body: {
+              'challengeId': cleanChallengeId,
+              'title': mergedTitle,
+              'description': 'Merged video from ${selectedDrafts.length} drafts',
+              'videoUrl': finalVideoPath,
+              'thumbnailUrl': resolvedThumb,
+              'hashtags': ['dance', 'talent', 'artable'],
+              'durationSeconds': totalSecsInt,
+            },
+            sessionToken: token,
+            refreshToken: _authCubit?.refreshToken,
+          );
+        }
+      } catch (e) {
+        debugPrint('Background draft sync warning: $e');
+      }
+    }());
+
+    return mergedDraft;
   }
 
   Future<Map<String, dynamic>?> saveDraftFromPreview({
@@ -663,17 +715,23 @@ class StudioCubit extends Cubit<StudioState> {
   bool get beautyOn => state.beautyOn;
 
   double get effectiveVideoDuration {
-    final start = state.videoTrimStartSeconds;
-    final end = state.videoTrimEndSeconds;
-    if (end != null && end > start) {
-      return end - start;
+    // 1. If multiple clips exist, total duration is the sum of all clips' durations!
+    if (state.mergedClipDurations != null && state.mergedClipDurations!.isNotEmpty) {
+      final sum = state.mergedClipDurations!.fold(0.0, (acc, d) => acc + d);
+      if (sum > 0) return sum;
     }
+    // 2. Parse recordedDuration formatted string (e.g. "0:22")
     final parts = state.recordedDuration.split(':');
     if (parts.length == 2) {
       final m = int.tryParse(parts[0]) ?? 0;
       final s = int.tryParse(parts[1]) ?? 0;
       final total = m * 60 + s;
       if (total > 0) return total.toDouble();
+    }
+    final start = state.videoTrimStartSeconds;
+    final end = state.videoTrimEndSeconds;
+    if (end != null && end > start) {
+      return end - start;
     }
     return 15.0;
   }
@@ -799,11 +857,17 @@ class StudioCubit extends Cubit<StudioState> {
     }
   }
 
-  void setMergedClipPaths(List<String> paths, [List<double>? durations]) {
-    emit(state.copyWith(
-      mergedClipPaths: paths,
-      mergedClipDurations: durations,
-    ));
+  void setMergedClipPaths(List<String>? paths, [List<double>? durations]) {
+    if (paths == null || paths.isEmpty) {
+      emit(state.copyWith(
+        clearMergedClipPaths: true,
+      ));
+    } else {
+      emit(state.copyWith(
+        mergedClipPaths: paths,
+        mergedClipDurations: durations,
+      ));
+    }
   }
 
   Future<VideoPlayerController?> prepareVideoPreview(String path) async {

@@ -31,13 +31,14 @@ class EditorClip {
   bool get isValid => trimEnd > trimStart;
 
   EditorClip copyWith({
+    Duration? originalDuration,
     Duration? trimStart,
     Duration? trimEnd,
   }) {
     return EditorClip(
       id: id,
       filePath: filePath,
-      originalDuration: originalDuration,
+      originalDuration: originalDuration ?? this.originalDuration,
       trimStart: trimStart ?? this.trimStart,
       trimEnd: trimEnd ?? this.trimEnd,
     );
@@ -69,6 +70,24 @@ class EditorClipListNotifier extends ChangeNotifier {
       ..clear()
       ..addAll(clips);
     _selectedIndex = selectedIndex.clamp(0, _clips.isEmpty ? 0 : _clips.length - 1);
+    notifyListeners();
+  }
+
+  void updateClipDuration(String clipId, Duration realDur) {
+    final idx = _clips.indexWhere((c) => c.id == clipId);
+    if (idx < 0) return;
+    final c = _clips[idx];
+    if (c.originalDuration == realDur) return;
+    final trimEnd = (c.trimEnd == c.originalDuration || c.trimEnd > realDur)
+        ? realDur
+        : c.trimEnd;
+    _clips[idx] = EditorClip(
+      id: c.id,
+      filePath: c.filePath,
+      originalDuration: realDur,
+      trimStart: c.trimStart > realDur ? Duration.zero : c.trimStart,
+      trimEnd: trimEnd,
+    );
     notifyListeners();
   }
 

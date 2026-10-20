@@ -110,11 +110,43 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
   }
 
   Future<void> _initVideoPlayer() async {
+    _playbackTimer?.cancel();
+
+    // 1. Synchronously detach old controllers from the UI FIRST
+    final oldController = _videoController;
+    final oldClips = List<VideoPlayerController>.from(_clipControllers);
+
+    _videoController = null;
+    _clipControllers.clear();
+
+    if (mounted) {
+      setState(() {
+        _isVideoInitialized = false;
+        _videoError = false;
+        _playing = false;
+      });
+    }
+
+    // 2. Safely dispose old controllers in the background now that UI is detached
+    for (final c in oldClips) {
+      try {
+        c.removeListener(_onVideoControllerUpdate);
+        c.pause();
+        c.dispose();
+      } catch (_) {}
+    }
+
+    if (oldController != null) {
+      try {
+        oldController.removeListener(_onVideoControllerUpdate);
+        oldController.pause();
+        oldController.dispose();
+      } catch (_) {}
+    }
+
     final studio = context.read<StudioCubit>();
     await StudioMusicPlaybackService.preloadForStudio(studio);
     if (!mounted) return;
-
-    _playbackTimer?.cancel();
 
     final draft = _draft;
     if (draft != null && draft['mergedClipPaths'] is List && (draft['mergedClipPaths'] as List).isNotEmpty) {
@@ -124,32 +156,6 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
     } else {
       _mergedClipPaths = [];
     }
-
-    for (final c in _clipControllers) {
-      try {
-        c.removeListener(_onVideoControllerUpdate);
-        await c.pause();
-        await c.dispose();
-      } catch (_) {}
-    }
-    _clipControllers.clear();
-
-    if (_videoController != null) {
-      try {
-        _videoController!.removeListener(_onVideoControllerUpdate);
-        await _videoController!.pause();
-        await _videoController!.dispose();
-      } catch (_) {}
-      _videoController = null;
-    }
-
-    setState(() {
-      _isVideoInitialized = false;
-      _videoError = false;
-      _playing = false;
-    });
-
-    if (!mounted) return;
 
     String? path = studio.recordedVideoPath ??
         widget.videoPath ??
@@ -310,10 +316,15 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
     final hasBgm = studio.selectedMusic != null || studio.selectedTrack != null;
 
     if (_clipControllers.isNotEmpty) {
+      int accumulatedMs = 0;
+      for (int i = 0; i < _currentClipIndex && i < _clipControllers.length; i++) {
+        accumulatedMs += _clipControllers[i].value.duration.inMilliseconds;
+      }
       final posMs = controller.value.position.inMilliseconds;
       final durMs = controller.value.duration.inMilliseconds;
+      final globalMs = accumulatedMs + posMs;
       if (isPlaying && hasBgm) {
-        unawaited(StudioMusicPlaybackService.checkAndSyncVideoPosition(studio, posMs));
+        unawaited(StudioMusicPlaybackService.checkAndSyncVideoPosition(studio, globalMs));
       }
       if (durMs > 0 && (posMs >= durMs - 200 || (!isPlaying && posMs >= durMs - 350 && posMs > 0))) {
         _advanceToNextMergedClip();
@@ -367,6 +378,10 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
 
       _currentClipIndex = (_currentClipIndex + 1) % _clipControllers.length;
       final nextController = _clipControllers[_currentClipIndex];
+      if (!nextController.value.isInitialized || nextController.value.hasError) {
+        _isSwitchingClip = false;
+        return;
+      }
       final hasBgm = studio.selectedMusic != null || studio.selectedTrack != null;
       try {
         await nextController.setVolume((studio.isMuted || hasBgm) ? 0.0 : 1.0);
@@ -397,21 +412,28 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
   @override
   void dispose() {
     _playbackTimer?.cancel();
-    for (final c in _clipControllers) {
+    final oldController = _videoController;
+    final oldClips = List<VideoPlayerController>.from(_clipControllers);
+
+    _videoController = null;
+    _clipControllers.clear();
+    _isVideoInitialized = false;
+
+    for (final c in oldClips) {
       try {
         c.removeListener(_onVideoControllerUpdate);
         c.pause();
         c.dispose();
       } catch (_) {}
     }
-    _clipControllers.clear();
 
-    try {
-      _videoController?.removeListener(_onVideoControllerUpdate);
-      _videoController?.pause();
-      _videoController?.dispose();
-    } catch (_) {}
-    _videoController = null;
+    if (oldController != null) {
+      try {
+        oldController.removeListener(_onVideoControllerUpdate);
+        oldController.pause();
+        oldController.dispose();
+      } catch (_) {}
+    }
 
     StudioMusicPlaybackService.directPause();
     unawaited(StudioMusicPlaybackService.stop());
@@ -783,7 +805,29 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
                             if (selectedTrack != null)
                               TextButton(
                                 onPressed: () {
-                                  SongTrimmerSheet.show(context, track: selectedTrack);
+                                  _videoController?.pause();
+                                  StudioMusicPlaybackService.directPause();
+                                  if (mounted) setState(() => _playing = false);
+                                  SongTrimmerSheet.show(
+                                    context,
+                                    track: selectedTrack,
+                                    initialStart: studio.musicStartSeconds,
+                                    initialDuration: studio.musicCropDuration,
+                                    popParentOnApply: false,
+                                    onApplied: () {
+                                      if (!mounted) return;
+                                      final curStudio = context.read<StudioCubit>();
+                                      StudioMusicPlaybackService.invalidateLoadedTrack();
+                                      unawaited(StudioMusicPlaybackService.preloadForStudio(curStudio));
+                                      final vc = _videoController;
+                                      if (vc != null && vc.value.isInitialized) {
+                                        final posMs = vc.value.position.inMilliseconds;
+                                        unawaited(StudioMusicPlaybackService.playForEditor(curStudio, posMs));
+                                        vc.play();
+                                        if (mounted) setState(() => _playing = true);
+                                      }
+                                    },
+                                  );
                                 },
                                 child: const Text(
                                   'Edit Crop',

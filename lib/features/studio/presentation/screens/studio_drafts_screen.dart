@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -50,10 +51,62 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
     });
   }
 
+  bool _isDraftInCurrentTimeline(Map<String, dynamic> draft, StudioCubit studio) {
+    if (!widget.selectForMerge) return false;
+    final currentRec = studio.state.recordedVideoPath?.trim();
+    if (currentRec == null || currentRec.isEmpty) return false;
+    final cleanRec = currentRec.replaceFirst('file://', '');
+
+    final vPath = (draft['videoPath']?.toString() ?? draft['videoUrl']?.toString() ?? '').trim();
+    if (vPath.isEmpty) return false;
+    final cleanVPath = vPath.replaceFirst('file://', '');
+
+    if (cleanVPath == cleanRec) return true;
+
+    if (studio.state.mergedClipPaths != null && studio.state.mergedClipPaths!.isNotEmpty) {
+      for (final p in studio.state.mergedClipPaths!) {
+        final cleanP = p.trim().replaceFirst('file://', '');
+        if (cleanP.isNotEmpty && cleanP == cleanVPath) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  bool _computeHasExtraCurrentRec(StudioCubit studio, List<Map<String, dynamic>> selected) {
+    final currentRecPath = studio.state.recordedVideoPath?.trim();
+    final hasCurrentRecFile = currentRecPath != null &&
+        currentRecPath.isNotEmpty &&
+        (currentRecPath.startsWith('http') || File(currentRecPath.replaceFirst('file://', '')).existsSync());
+
+    if (!hasCurrentRecFile) return false;
+
+    if (widget.selectForMerge) return true;
+
+    final isCurrentRecSelected = selected.any((d) {
+      final p = (d['videoPath']?.toString() ?? d['videoUrl']?.toString() ?? '').trim();
+      return p.isNotEmpty &&
+          (p == currentRecPath ||
+              p.replaceFirst('file://', '') == currentRecPath.replaceFirst('file://', ''));
+    });
+    if (isCurrentRecSelected) return false;
+
+    final isCurrentRecInDrafts = studio.state.drafts.any((d) {
+      final p = (d['videoPath']?.toString() ?? d['videoUrl']?.toString() ?? '').trim();
+      return p.isNotEmpty &&
+          (p == currentRecPath ||
+              p.replaceFirst('file://', '') == currentRecPath.replaceFirst('file://', ''));
+    });
+
+    return !isCurrentRecInDrafts;
+  }
+
   Future<void> _handleMergeSelected() async {
     final studio = context.read<StudioCubit>();
-    final hasCurrentRec = studio.state.recordedVideoPath != null && studio.state.recordedVideoPath!.isNotEmpty;
-    final minRequired = hasCurrentRec ? 1 : 2;
+    final selected = studio.state.drafts.where((d) => _selectedDraftIds.contains(d['id'])).toList();
+    final hasExtraCurrentRec = _computeHasExtraCurrentRec(studio, selected);
+    final minRequired = (widget.selectForMerge || hasExtraCurrentRec) ? 1 : 2;
 
     if (_selectedDraftIds.length < minRequired) return;
     if (_selectedDraftIds.length > StudioCubit.maxMergeClipsLimit) {
@@ -148,12 +201,12 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
                           Builder(
                             builder: (context) {
                               final studio = context.read<StudioCubit>();
-                              final hasCurrentRec = studio.state.recordedVideoPath != null &&
-                                  studio.state.recordedVideoPath!.isNotEmpty;
-                              final minRequired = hasCurrentRec ? 1 : 2;
+                              final selected = drafts.where((d) => _selectedDraftIds.contains(d['id'])).toList();
+                              final hasExtraCurrentRec = _computeHasExtraCurrentRec(studio, selected);
+                              final minRequired = (widget.selectForMerge || hasExtraCurrentRec) ? 1 : 2;
 
                               int totalSecs = 0;
-                              if (hasCurrentRec) {
+                              if (hasExtraCurrentRec) {
                                 final parts = studio.state.recordedDuration.split(':');
                                 if (parts.length == 2) {
                                   final m = int.tryParse(parts[0]) ?? 0;
@@ -164,7 +217,6 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
                                 }
                               }
 
-                              final selected = drafts.where((d) => _selectedDraftIds.contains(d['id'])).toList();
                               for (final d in selected) {
                                 final dur = d['duration']?.toString() ?? '0:00';
                                 final parts = dur.split(':');
@@ -177,11 +229,13 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
                               final mins = totalSecs ~/ 60;
                               final secs = totalSecs % 60;
                               final durStr = '$mins:${secs.toString().padLeft(2, '0')}';
-                              final totalClips = hasCurrentRec ? selected.length + 1 : selected.length;
+                              final totalClips = hasExtraCurrentRec ? selected.length + 1 : selected.length;
 
                               return Text(
                                 _selectedDraftIds.length < minRequired
-                                    ? 'Select $minRequired to 10 drafts to combine'
+                                    ? (widget.selectForMerge
+                                        ? 'Select 1 to 10 drafts to add'
+                                        : 'Select $minRequired to 10 drafts to combine')
                                     : 'Total Duration: $durStr ($totalClips clips)',
                                 style: const TextStyle(
                                   fontFamily: 'Poppins',
@@ -197,14 +251,18 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
                     Builder(
                       builder: (context) {
                         final studio = context.read<StudioCubit>();
-                        final hasCurrentRec = studio.state.recordedVideoPath != null &&
-                            studio.state.recordedVideoPath!.isNotEmpty;
-                        final minRequired = hasCurrentRec ? 1 : 2;
+                        final selected = drafts.where((d) => _selectedDraftIds.contains(d['id'])).toList();
+                        final hasExtraCurrentRec = _computeHasExtraCurrentRec(studio, selected);
+                        final minRequired = (widget.selectForMerge || hasExtraCurrentRec) ? 1 : 2;
+
+                        final btnLabel = _isMerging
+                            ? 'Merging...'
+                            : (widget.selectForMerge
+                                ? 'Add Selected (${_selectedDraftIds.length}/${StudioCubit.maxMergeClipsLimit})'
+                                : 'Merge Selected (${_selectedDraftIds.length}/${StudioCubit.maxMergeClipsLimit})');
 
                         return GradientButton(
-                          label: _isMerging
-                              ? 'Merging...'
-                              : 'Merge Selected (${_selectedDraftIds.length}/${StudioCubit.maxMergeClipsLimit})',
+                          label: btnLabel,
                           fullWidth: false,
                           height: 40,
                           padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -339,13 +397,26 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
                             itemBuilder: (context, i) {
                               final draft = drafts[i];
                               final draftId = draft['id'] as String;
+                              final isAlreadyInTimeline = _isDraftInCurrentTimeline(draft, context.read<StudioCubit>());
                               return Padding(
                                 padding: EdgeInsets.only(top: i == 0 ? 0 : 10),
                                 child: _DraftCard(
                                   draft: draft,
                                   isSelectionMode: _isSelectionMode,
                                   isSelected: _selectedDraftIds.contains(draftId),
+                                  isAlreadyInTimeline: isAlreadyInTimeline,
                                   onToggleSelect: () {
+                                    if (isAlreadyInTimeline) {
+                                      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                          content: Text('This video is already in your editor timeline.'),
+                                          backgroundColor: Color(0xFF2E7D32),
+                                          duration: Duration(seconds: 2),
+                                        ),
+                                      );
+                                      return;
+                                    }
                                     setState(() {
                                       if (_selectedDraftIds.contains(draftId)) {
                                         _selectedDraftIds.remove(draftId);
@@ -515,6 +586,7 @@ class _DraftCard extends StatelessWidget {
     required this.onContinue,
     this.isSelectionMode = false,
     this.isSelected = false,
+    this.isAlreadyInTimeline = false,
     this.onToggleSelect,
   });
 
@@ -523,6 +595,7 @@ class _DraftCard extends StatelessWidget {
   final VoidCallback onContinue;
   final bool isSelectionMode;
   final bool isSelected;
+  final bool isAlreadyInTimeline;
   final VoidCallback? onToggleSelect;
 
   @override
@@ -547,14 +620,14 @@ class _DraftCard extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: isSelected
+          colors: (isSelected || isAlreadyInTimeline)
               ? [const Color(0xFFF3EBFF), const Color(0xFFEADBFF)]
               : [const Color(0xFFFFFFFF), const Color(0xFFFBF6FF)],
         ),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
-          color: isSelected ? AppColors.purple : AppColors.purple.withValues(alpha: 0.1),
-          width: isSelected ? 1.8 : 1.0,
+          color: (isSelected || isAlreadyInTimeline) ? AppColors.purple : AppColors.purple.withValues(alpha: 0.1),
+          width: (isSelected || isAlreadyInTimeline) ? 1.8 : 1.0,
         ),
         boxShadow: [
           BoxShadow(
@@ -573,16 +646,22 @@ class _DraftCard extends StatelessWidget {
                 width: 22,
                 height: 22,
                 decoration: BoxDecoration(
-                  color: isSelected ? AppColors.purple : Colors.white,
+                  color: isAlreadyInTimeline
+                      ? const Color(0xFFE2DCEF)
+                      : (isSelected ? AppColors.purple : Colors.white),
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color: isSelected ? AppColors.purple : const Color(0xFFC7C0D8),
+                    color: isAlreadyInTimeline
+                        ? const Color(0xFFB5A9D3)
+                        : (isSelected ? AppColors.purple : const Color(0xFFC7C0D8)),
                     width: 2,
                   ),
                 ),
-                child: isSelected
-                    ? const Icon(Icons.check, size: 14, color: Colors.white)
-                    : null,
+                child: isAlreadyInTimeline
+                    ? const Icon(Icons.check, size: 14, color: AppColors.purple)
+                    : (isSelected
+                        ? const Icon(Icons.check, size: 14, color: Colors.white)
+                        : null),
               ),
             ),
           ClipRRect(
@@ -615,15 +694,17 @@ class _DraftCard extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 2),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF5F2FC),
+                    color: isAlreadyInTimeline
+                        ? const Color(0xFFE8F5E9)
+                        : const Color(0xFFF5F2FC),
                     borderRadius: BorderRadius.circular(999),
                   ),
-                  child: const Text(
-                    'DRAFT',
+                  child: Text(
+                    isAlreadyInTimeline ? 'CURRENT VIDEO (IN EDITOR)' : 'DRAFT',
                     style: TextStyle(
                       fontSize: 9.5,
                       fontWeight: FontWeight.w800,
-                      color: AppColors.purple,
+                      color: isAlreadyInTimeline ? const Color(0xFF2E7D32) : AppColors.purple,
                     ),
                   ),
                 ),

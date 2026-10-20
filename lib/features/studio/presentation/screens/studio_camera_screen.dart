@@ -111,7 +111,12 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
     try {
       cam?.dispose();
     } catch (_) {}
-    _recordedVideoController?.dispose();
+    final oldRec = _recordedVideoController;
+    _recordedVideoController = null;
+    _recordedVideoReady = false;
+    try {
+      oldRec?.dispose();
+    } catch (_) {}
     super.dispose();
   }
 
@@ -528,7 +533,7 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
     }
 
     final durationSecs = _seconds > 0 ? _seconds.toDouble() : 10.0;
-    context.read<StudioCubit>().setRecordedVideoPath(savedPath);
+    context.read<StudioCubit>().setRecordedVideoPath(savedPath, clearMergedClips: true);
     setRecordedDuration(_timerText);
 
     final studio = context.read<StudioCubit>();
@@ -563,9 +568,7 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
   }
 
   Future<void> _initRecordedVideoPreview(String path) async {
-    try {
-      await _recordedVideoController?.dispose();
-    } catch (_) {}
+    final oldController = _recordedVideoController;
     _recordedVideoController = null;
 
     if (mounted) {
@@ -574,6 +577,12 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
         _recordedVideoPlaying = false;
         _recordedVideoError = false;
       });
+    }
+
+    if (oldController != null) {
+      try {
+        await oldController.dispose();
+      } catch (_) {}
     }
 
     VideoPlayerController? controller;
@@ -660,9 +669,16 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
 
   void _retake() async {
     _timer?.cancel();
-    await StudioMusicPlaybackService.stop();
-    await _recordedVideoController?.dispose();
+    final oldController = _recordedVideoController;
     _recordedVideoController = null;
+    _recordedVideoReady = false;
+    _recordedVideoPlaying = false;
+    if (mounted) setState(() {});
+
+    await StudioMusicPlaybackService.stop();
+    try {
+      await oldController?.dispose();
+    } catch (_) {}
     if (mounted) {
       final studio = context.read<StudioCubit>();
       studio.setRecordedVideoPath(null);
@@ -1603,7 +1619,19 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
                       return GestureDetector(
                         onTap: () {
                           if (selectedTrack != null) {
-                            SongTrimmerSheet.show(context, track: selectedTrack);
+                            final studio = context.read<StudioCubit>();
+                            SongTrimmerSheet.show(
+                              context,
+                              track: selectedTrack,
+                              initialStart: studio.musicStartSeconds,
+                              initialDuration: studio.musicCropDuration,
+                              popParentOnApply: false,
+                              onApplied: () {
+                                final s = context.read<StudioCubit>();
+                                StudioMusicPlaybackService.invalidateLoadedTrack();
+                                unawaited(StudioMusicPlaybackService.preloadForStudio(s));
+                              },
+                            );
                           } else {
                             context.push('${AppRoutes.studioMusic}?id=${challenge['id']}');
                           }
@@ -1866,9 +1894,15 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
                           icon: Icons.check,
                           gradient: true,
                           onTap: () async {
-                            await StudioMusicPlaybackService.releaseForVideoPlayback();
-                            await _recordedVideoController?.dispose();
+                            final oldRec = _recordedVideoController;
                             _recordedVideoController = null;
+                            _recordedVideoReady = false;
+                            if (mounted) setState(() {});
+
+                            await StudioMusicPlaybackService.releaseForVideoPlayback();
+                            try {
+                              await oldRec?.dispose();
+                            } catch (_) {}
 
                             if (!context.mounted) return;
                             final studio = context.read<StudioCubit>();

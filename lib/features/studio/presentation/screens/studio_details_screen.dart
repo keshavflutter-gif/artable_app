@@ -143,12 +143,37 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
     final draft = _draft;
 
     _playbackTimer?.cancel();
+
+    // 1. Synchronously detach old controllers from the UI FIRST
+    final oldController = _videoController;
+    final oldClips = List<VideoPlayerController>.from(_clipControllers);
+
+    _videoController = null;
+    _clipControllers.clear();
+
     if (mounted) {
       setState(() {
         _isVideoInitialized = false;
         _videoError = false;
         _playing = false;
       });
+    }
+
+    // 2. Safely dispose old controllers now that UI is detached
+    for (final c in oldClips) {
+      try {
+        c.removeListener(_onVideoControllerUpdate);
+        c.pause();
+        c.dispose();
+      } catch (_) {}
+    }
+
+    if (oldController != null) {
+      try {
+        oldController.removeListener(_onVideoControllerUpdate);
+        oldController.pause();
+        oldController.dispose();
+      } catch (_) {}
     }
 
     if (draft != null && draft['mergedClipPaths'] is List && (draft['mergedClipPaths'] as List).isNotEmpty) {
@@ -158,20 +183,6 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
     } else {
       _mergedClipPaths = [];
     }
-
-    if (_videoController != null) {
-      _videoController!.removeListener(_onVideoControllerUpdate);
-      try {
-        await _videoController!.dispose();
-      } catch (_) {}
-      _videoController = null;
-    }
-
-    for (final c in _clipControllers) {
-      c.removeListener(_onVideoControllerUpdate);
-      c.dispose();
-    }
-    _clipControllers.clear();
 
     String? path = studio.recordedVideoPath ?? draft?['videoPath']?.toString();
     debugPrint('VIDEO DETAILS PATH: $path');
@@ -307,8 +318,14 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
       final durMs = controller.value.duration.inMilliseconds;
 
       final studio = context.read<StudioCubit>();
-      if (studio.selectedMusic != null) {
-        unawaited(StudioMusicPlaybackService.checkAndSyncPosition(posMs));
+      final hasBgm = studio.selectedMusic != null || studio.selectedTrack != null;
+      if (hasBgm) {
+        int accumulatedMs = 0;
+        for (int i = 0; i < _currentClipIndex && i < _clipControllers.length; i++) {
+          accumulatedMs += _clipControllers[i].value.duration.inMilliseconds;
+        }
+        final globalMs = accumulatedMs + posMs;
+        unawaited(StudioMusicPlaybackService.checkAndSyncVideoPosition(studio, globalMs));
       }
 
       final isPlaying = controller.value.isPlaying;
@@ -407,14 +424,29 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
   @override
   void dispose() {
     _playbackTimer?.cancel();
-    for (final c in _clipControllers) {
-      c.removeListener(_onVideoControllerUpdate);
-      c.pause();
-      c.dispose();
+    final oldController = _videoController;
+    final oldClips = List<VideoPlayerController>.from(_clipControllers);
+
+    _videoController = null;
+    _clipControllers.clear();
+    _isVideoInitialized = false;
+
+    for (final c in oldClips) {
+      try {
+        c.removeListener(_onVideoControllerUpdate);
+        c.pause();
+        c.dispose();
+      } catch (_) {}
     }
-    _videoController?.removeListener(_onVideoControllerUpdate);
-    _videoController?.pause();
-    _videoController?.dispose();
+
+    if (oldController != null) {
+      try {
+        oldController.removeListener(_onVideoControllerUpdate);
+        oldController.pause();
+        oldController.dispose();
+      } catch (_) {}
+    }
+
     _titleController.dispose();
     _descriptionController.dispose();
     _hashtagsController.dispose();

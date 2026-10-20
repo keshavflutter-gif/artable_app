@@ -269,29 +269,39 @@ class StudioVideoPlayerUtils {
   }
 
   static Future<bool> _waitForRecordedFile(File file) async {
+    if (!file.existsSync()) {
+      for (var attempt = 0; attempt < 20; attempt++) {
+        await Future.delayed(const Duration(milliseconds: 50));
+        if (file.existsSync() && file.lengthSync() > 1024) break;
+      }
+    }
+    if (!file.existsSync()) return false;
+
+    final initialSize = file.lengthSync();
+    if (initialSize > 1024) {
+      await Future.delayed(const Duration(milliseconds: 50));
+      if (file.existsSync() && file.lengthSync() >= initialSize) {
+        return true;
+      }
+    }
+
     var lastSize = -1;
     var stableCount = 0;
-
-    // Up to ~5s for MediaRecorder flush after stopVideoRecording.
-    for (var attempt = 0; attempt < 40; attempt++) {
+    for (var attempt = 0; attempt < 15; attempt++) {
       if (!file.existsSync()) {
-        await Future.delayed(const Duration(milliseconds: 125));
+        await Future.delayed(const Duration(milliseconds: 80));
         continue;
       }
-
       final size = file.lengthSync();
-      // Ignore tiny incomplete files.
       if (size > 1024 && size == lastSize) {
         stableCount++;
         if (stableCount >= 2) return true;
       } else {
         stableCount = 0;
       }
-
       lastSize = size;
-      await Future.delayed(const Duration(milliseconds: 125));
+      await Future.delayed(const Duration(milliseconds: 80));
     }
-
     return file.existsSync() && file.lengthSync() > 1024;
   }
 }

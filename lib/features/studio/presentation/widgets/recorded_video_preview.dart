@@ -52,14 +52,19 @@ class RecordedVideoPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final vc = videoController;
+    final isReady = isVideoInitialized &&
+        !hasError &&
+        vc != null &&
+        vc.value.isInitialized &&
+        !vc.value.hasError;
+
     return AspectRatio(
       aspectRatio: _targetContainerRatio,
       child: Stack(
         fit: StackFit.expand,
         children: [
-          if (isVideoInitialized &&
-              videoController != null &&
-              videoController!.value.isInitialized)
+          if (isReady)
             ClipRRect(
               borderRadius: BorderRadius.circular(20),
               child: Container(
@@ -72,16 +77,16 @@ class RecordedVideoPreview extends StatelessWidget {
                             ? 4 / 5
                             : cropAspectRatio == '16:9'
                                 ? 16 / 9
-                                : (videoController!.value.aspectRatio > 0
-                                    ? videoController!.value.aspectRatio
+                                : (vc.value.aspectRatio > 0
+                                    ? vc.value.aspectRatio
                                     : 9 / 16),
                     child: AppFilterUtils.buildFilteredView(
                       filterId: filterId,
                       beautyOn: beautyOn,
                       beautyIntensity: beautyIntensity,
                       child: VideoPlayer(
-                        key: ValueKey(videoController),
-                        videoController!,
+                        key: ValueKey(vc),
+                        vc,
                       ),
                     ),
                   ),

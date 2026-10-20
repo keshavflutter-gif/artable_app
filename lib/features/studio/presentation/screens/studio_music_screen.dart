@@ -129,7 +129,15 @@ class _StudioMusicScreenState extends State<StudioMusicScreen> {
     } catch (_) {}
     if (mounted) {
       setState(() => _playingTrackId = null);
-      SongTrimmerSheet.show(context, track: track);
+      final studio = context.read<StudioCubit>();
+      final isCurrentTrack = studio.selectedTrack?.id == track.id;
+      SongTrimmerSheet.show(
+        context,
+        track: track,
+        initialStart: isCurrentTrack ? studio.musicStartSeconds : 0.0,
+        initialDuration: isCurrentTrack ? studio.musicCropDuration : 30.0,
+        popParentOnApply: true,
+      );
     }
   }
 

@@ -14,6 +14,26 @@ void main() async {
   final binding = WidgetsFlutterBinding.ensureInitialized();
   await LocalStorage.init();
 
+  // Prevent any transient native video player platform / texture ID teardown race from crashing UI
+  final originalErrorBuilder = ErrorWidget.builder;
+  ErrorWidget.builder = (FlutterErrorDetails details) {
+    final str = details.exceptionAsString();
+    if (str.contains('No active player with ID') ||
+        str.contains('VideoPlayerController')) {
+      debugPrint('Suppressed VideoPlayer platform race: $str');
+      return Container(
+        color: const Color(0xFF150C2B),
+        child: const Center(
+          child: CircularProgressIndicator(
+            color: Color(0xFF7A33EB),
+            strokeWidth: 3,
+          ),
+        ),
+      );
+    }
+    return originalErrorBuilder(details);
+  };
+
   // 2. Safe Firebase & NotificationService Initialization
   try {
     await Firebase.initializeApp(

@@ -7,7 +7,6 @@ import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_text_styles.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/core/utils/reel_helpers.dart';
-import 'package:artable_app/core/utils/studio_video_player_utils.dart';
 import 'package:artable_app/core/widgets/app_screen_header.dart';
 import 'package:artable_app/features/studio/presentation/bloc/studio_cubit.dart';
 import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
@@ -84,27 +83,15 @@ class _StudioUploadScreenState extends State<StudioUploadScreen> {
 
       String? videoPath = studioCubit.recordedVideoPath;
 
-      // If we have multiple clips, ensure they are combined into a single merged video file
+      // If we have multiple clips, use the first clip as the primary video and upload all clips in mergedClipPaths
       if (mergedClips.length > 1) {
-        debugPrint('StudioUploadScreen: Combining ${mergedClips.length} clips before upload...');
-        final combined = await StudioVideoPlayerUtils.combineVideoFiles(mergedClips);
-        if (combined != null && await combined.exists() && (await combined.length()) > 0) {
-          videoPath = combined.path;
-          studioCubit.setRecordedVideoPath(
-            videoPath,
-            mergedClipPaths: mergedClips,
-            clearMergedClips: false,
-          );
-          debugPrint('StudioUploadScreen: Successfully created merged video: $videoPath');
-        } else {
-          videoPath = mergedClips.first;
-          studioCubit.setRecordedVideoPath(
-            videoPath,
-            mergedClipPaths: mergedClips,
-            clearMergedClips: false,
-          );
-          debugPrint('StudioUploadScreen: Using first clip for base videoPath: $videoPath');
-        }
+        videoPath = mergedClips.first;
+        studioCubit.setRecordedVideoPath(
+          videoPath,
+          mergedClipPaths: mergedClips,
+          clearMergedClips: false,
+        );
+        debugPrint('StudioUploadScreen: Multi-clip upload prepared instantly: $videoPath (${mergedClips.length} clips)');
       }
 
       if (videoPath == null || videoPath.trim().isEmpty) {
