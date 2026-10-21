@@ -6,14 +6,19 @@ import 'package:video_player/video_player.dart';
 
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
+import 'package:artable_app/data/datasources/music_api_service.dart';
 import 'package:artable_app/core/utils/reel_helpers.dart';
 import 'package:artable_app/core/utils/studio_video_player_utils.dart';
 import 'package:artable_app/features/studio/presentation/bloc/studio_cubit.dart';
 import 'package:artable_app/features/studio/data/services/studio_music_playback_service.dart';
 import 'package:artable_app/features/studio/presentation/widgets/video_crop_sheet.dart';
+import 'package:artable_app/features/studio/presentation/widgets/video_speed_sheet.dart';
+import 'package:artable_app/features/studio/presentation/widgets/video_trimmer_sheet.dart';
 import 'package:artable_app/features/studio/presentation/widgets/editor_clip.dart';
 import 'package:artable_app/features/studio/presentation/widgets/multi_video_timeline.dart';
 import 'package:artable_app/features/studio/presentation/screens/studio_drafts_screen.dart';
+import 'package:artable_app/core/widgets/app_image.dart';
+import 'package:artable_app/features/studio/data/services/video_thumbnail_generator.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -74,7 +79,14 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
   double _initialVideoTrimStart = 0.0;
   double? _initialVideoTrimEnd;
   String? _initialRecordedVideoPath;
+  FreeToUseTrack? _initialSelectedTrack;
+  String? _initialSelectedMusic;
+  double _initialMusicStartSeconds = 0.0;
+  double _initialMusicCropDuration = 30.0;
+  bool _initialIsMuted = false;
+  String _initialSelectedSpeed = '1x';
   bool _confirmedChanges = false;
+  bool _alreadyReverted = false;
 
   @override
   void initState() {
@@ -91,12 +103,20 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
     _initialVideoTrimStart = _studio.state.videoTrimStartSeconds;
     _initialVideoTrimEnd = _studio.state.videoTrimEndSeconds;
     _initialRecordedVideoPath = _studio.state.recordedVideoPath;
+    _initialSelectedTrack = _studio.state.selectedTrack;
+    _initialSelectedMusic = _studio.state.selectedMusic;
+    _initialMusicStartSeconds = _studio.state.musicStartSeconds;
+    _initialMusicCropDuration = _studio.state.musicCropDuration;
+    _initialIsMuted = _studio.state.isMuted;
+    _initialSelectedSpeed = _studio.state.selectedSpeed;
     _confirmedChanges = false;
+    _alreadyReverted = false;
     _initAllClips();
   }
 
   void _revertChangesIfNotConfirmed() {
-    if (_confirmedChanges) return;
+    if (_confirmedChanges || _alreadyReverted) return;
+    _alreadyReverted = true;
     _studio.setMergedClipPaths(_initialMergedClipPaths, _initialMergedClipDurations);
     _studio.setRecordedDuration(_initialRecordedDuration);
     if (_initialVideoTrimEnd != null) {
@@ -112,6 +132,29 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
         mergedClipPaths: _initialMergedClipPaths,
         clearMergedClips: _initialMergedClipPaths == null || _initialMergedClipPaths!.isEmpty,
       );
+    }
+    // Revert unconfirmed music changes
+    if (_initialSelectedTrack != null) {
+      _studio.setSelectedTrack(
+        _initialSelectedTrack,
+        start: _initialMusicStartSeconds,
+        duration: _initialMusicCropDuration,
+      );
+    } else if (_initialSelectedMusic != null && _initialSelectedMusic!.isNotEmpty) {
+      _studio.setSelectedMusic(_initialSelectedMusic);
+      _studio.updateMusicCrop(_initialMusicStartSeconds, _initialMusicCropDuration);
+    } else {
+      _studio.setSelectedTrack(null);
+    }
+    _studio.setMuted(_initialIsMuted);
+    _studio.setSpeed(_initialSelectedSpeed);
+    final revertSpeedMultiplier = _studio.speedMultiplier;
+    for (final c in _controllers.values) {
+      if (c.value.isInitialized) {
+        try {
+          c.setPlaybackSpeed(revertSpeedMultiplier);
+        } catch (_) {}
+      }
     }
   }
 
@@ -200,6 +243,7 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
     // Immediately populate timeline & UI so the screen layout appears with 0 delay!
     _clipNotifier.setClips(clips, selectedIndex: 0);
     _activePlayingIndex = 0;
+    _prewarmThumbnails(clips);
 
     // ── 1. Fast path: Initialize first clip for immediate video preview ────────
     final firstClip = clips.first;
@@ -312,13 +356,37 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
     }
   }
 
+  void _prewarmThumbnails(List<EditorClip> clips) {
+    for (final clip in clips) {
+      final p = clip.filePath.trim().replaceFirst('file://', '');
+      if (p.isNotEmpty) {
+        VideoThumbnailGenerator.generateThumbnailFromVideo(p).then((file) {
+          if (file != null && file.existsSync()) {
+            file.readAsBytes().then((bytes) {
+              if (bytes.isNotEmpty) {
+                AppImage.cacheThumbnail(clip.filePath, bytes);
+                AppImage.cacheThumbnail(p, bytes);
+                AppImage.cacheThumbnail(file.path, bytes);
+              }
+            }).catchError((_) {});
+          }
+        }).catchError((_) {});
+      }
+    }
+  }
+
   EditorClip _makeEditorClip(String path, Duration hintDuration) {
+    final studio = context.read<StudioCubit>();
+    String? thumbPath = (path == studio.recordedVideoPath || path == studio.state.recordedVideoPath)
+        ? studio.state.selectedThumbnailPath
+        : null;
     return EditorClip(
       id: '${path.hashCode}_${DateTime.now().microsecondsSinceEpoch}',
       filePath: path,
       originalDuration: hintDuration,
       trimStart: Duration.zero,
       trimEnd: hintDuration,
+      thumbnailPath: thumbPath,
     );
   }
 
@@ -341,6 +409,9 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
         await controller.setLooping(false);
         if (!mounted) return controller;
         final studio = context.read<StudioCubit>();
+        try {
+          await controller.setPlaybackSpeed(studio.speedMultiplier);
+        } catch (_) {}
         final hasBgm = studio.selectedMusic != null || studio.selectedTrack != null;
         if (studio.isMuted || hasBgm) {
           await controller.setVolume(0.0);
@@ -358,7 +429,7 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
   // ─────────────────────────────────────────────────────────────────────────
   void _startPlaybackTimer() {
     _playbackTimer?.cancel();
-    _playbackTimer = Timer.periodic(const Duration(milliseconds: 40), (_) {
+    _playbackTimer = Timer.periodic(const Duration(milliseconds: 20), (_) {
       if (!mounted) return;
       _tickPlayback();
     });
@@ -390,16 +461,19 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
         setState(() => _globalPositionMs = newGlobal);
       }
 
-      // Auto-advance only after we have actually played into the clip.
-      // Prevents immediate stop when position is still at the previous end.
+      // Auto-advance scaled by playback speed so high speeds (0.4x - 4.0x) never stutter or freeze
+      final studio = context.read<StudioCubit>();
+      final speed = studio.speedMultiplier.clamp(0.4, 4.0);
       final ignoreAdvance = _ignoreAdvanceUntil != null &&
           DateTime.now().isBefore(_ignoreAdvanceUntil!);
-      final progressed = posMs > trimStartMs + 250;
-      final isNearEnd = progressed && posMs >= trimEndMs - 200;
+      final progressThreshold = (60 * speed).clamp(30, 160).round();
+      final progressed = posMs > trimStartMs + progressThreshold;
+      final leadMargin = (55 * speed).clamp(40, 220).round();
+      final isNearEnd = progressed && posMs >= trimEndMs - leadMargin;
       final isCompleted = controller.value.isCompleted;
       final naturalEos = progressed &&
           !controller.value.isPlaying &&
-          posMs >= trimEndMs - 350;
+          posMs >= trimEndMs - (leadMargin + 60);
       if (_playing &&
           !_isSwitchingClip &&
           !ignoreAdvance &&
@@ -445,7 +519,7 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
 
     if (oldController != null) {
       oldController.removeListener(_onVideoUpdate);
-      await oldController.pause();
+      unawaited(oldController.pause());
     }
 
     final nextIndex = oldIndex + 1;
@@ -460,7 +534,6 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
       _activePlayingIndex = 0;
       _clipNotifier.selectClip(0);
       _globalPositionMs = 0;
-      await _seekClipToTrimStart(0);
       final firstClip = clips[0];
       var firstController = _controllers[firstClip.id];
       if (firstController == null || !firstController.value.isInitialized) {
@@ -470,19 +543,33 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
         }
       }
       if (firstController != null && firstController.value.isInitialized) {
+        final currentPos = firstController.value.position;
+        final diff = (currentPos - firstClip.trimStart).inMilliseconds.abs();
+        if (diff > 80) {
+          await firstController.seekTo(firstClip.trimStart);
+        }
+        firstController.removeListener(_onVideoUpdate);
         firstController.addListener(_onVideoUpdate);
+        final ignoreMs = (180 / studio.speedMultiplier).clamp(40, 200).round();
         _ignoreAdvanceUntil =
-            DateTime.now().add(const Duration(milliseconds: 500));
+            DateTime.now().add(Duration(milliseconds: ignoreMs));
         final hasBgm = studio.selectedMusic != null || studio.selectedTrack != null;
         if (hasBgm || studio.isMuted) {
           await firstController.setVolume(0.0);
         }
-        await firstController.play();
+        try {
+          await firstController.setPlaybackSpeed(studio.speedMultiplier.clamp(0.4, 4.0));
+        } catch (_) {}
+        unawaited(firstController.play());
         if (hasBgm) {
           await StudioMusicPlaybackService.playForEditor(studio, 0);
         }
       }
       if (mounted) setState(() {});
+      // Pre-seek upcoming clip in background
+      if (clips.length > 1) {
+        unawaited(_seekClipToTrimStart(1));
+      }
     } else {
       if (!mounted) {
         _isSwitchingClip = false;
@@ -510,16 +597,25 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
         _isSwitchingClip = false;
         return;
       }
-      await _seekClipToTrimStart(nextIndex);
+      final currentPos = nextController.value.position;
+      final diff = (currentPos - nextClip.trimStart).inMilliseconds.abs();
+      if (diff > 80) {
+        await nextController.seekTo(nextClip.trimStart);
+      }
+      nextController.removeListener(_onVideoUpdate);
       nextController.addListener(_onVideoUpdate);
+      final ignoreMs = (180 / studio.speedMultiplier).clamp(40, 200).round();
       _ignoreAdvanceUntil =
-          DateTime.now().add(const Duration(milliseconds: 600));
+          DateTime.now().add(Duration(milliseconds: ignoreMs));
 
       final hasBgm = studio.selectedMusic != null || studio.selectedTrack != null;
       if (hasBgm || studio.isMuted) {
         await nextController.setVolume(0.0);
       }
-      await nextController.play();
+      try {
+        await nextController.setPlaybackSpeed(studio.speedMultiplier.clamp(0.4, 4.0));
+      } catch (_) {}
+      unawaited(nextController.play());
       if (hasBgm) {
         // If music stopped for any reason, resume it; otherwise let it play smoothly without interruption
         if (!StudioMusicPlaybackService.isPlaying) {
@@ -534,6 +630,14 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
       // Pre-seek upcoming clip in background for instant transition
       final upcoming = (nextIndex + 1) % clips.length;
       unawaited(_seekClipToTrimStart(upcoming));
+      final upCtrl = _controllers[clips[upcoming].id];
+      if (upCtrl != null && upCtrl.value.isInitialized) {
+        try {
+          unawaited(upCtrl.setPlaybackSpeed(studio.speedMultiplier.clamp(0.4, 4.0)));
+        } catch (_) {}
+      }
+      // Also reset old clip position for future loop in background
+      unawaited(_seekClipToTrimStart(oldIndex));
     }
 
     _isSwitchingClip = false;
@@ -551,6 +655,11 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
       }
     }
     if (controller != null && controller.value.isInitialized) {
+      if (!mounted) return;
+      final studio = _studio;
+      try {
+        unawaited(controller.setPlaybackSpeed(studio.speedMultiplier.clamp(0.4, 4.0)));
+      } catch (_) {}
       await controller.seekTo(clip.trimStart);
     }
   }
@@ -585,17 +694,24 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
       final activeController = _controllers[activeClip.id];
       final hasBgm = studio.selectedMusic != null || studio.selectedTrack != null;
       if (activeController != null) {
+        final speed = studio.speedMultiplier.clamp(0.4, 4.0);
         final posMs = activeController.value.position.inMilliseconds;
         final trimEndMs = activeClip.trimEnd.inMilliseconds;
         final trimStartMs = activeClip.trimStart.inMilliseconds;
+        final restartMargin = (100 * speed).clamp(80, 300).round();
         // Restart this clip if finished; don't auto-jump to next on play tap.
-        if (posMs >= trimEndMs - 200 || posMs < trimStartMs) {
+        if (posMs >= trimEndMs - restartMargin || posMs < trimStartMs) {
           await _seekClipToTrimStart(_activePlayingIndex);
         }
+        activeController.removeListener(_onVideoUpdate);
         activeController.addListener(_onVideoUpdate);
+        final ignoreMs = (180 / speed).clamp(40, 200).round();
         _ignoreAdvanceUntil =
-            DateTime.now().add(const Duration(milliseconds: 500));
-        await activeController.play();
+            DateTime.now().add(Duration(milliseconds: ignoreMs));
+        try {
+          await activeController.setPlaybackSpeed(speed);
+        } catch (_) {}
+        unawaited(activeController.play());
         // Re-apply after play — keep muted under BGM so it does not echo.
         await _applyOriginalAudioMute(studio.isMuted || hasBgm);
       }
@@ -794,6 +910,7 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
 
     if (mounted) {
       _syncClipsToStudioCubit();
+      _prewarmThumbnails(_clipNotifier.clips);
       final studio = context.read<StudioCubit>();
       final hasBgm = studio.selectedMusic != null || studio.selectedTrack != null;
       if (hasBgm || studio.isMuted) {
@@ -891,6 +1008,53 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
         VideoCropSheet.show(context);
         break;
 
+      case 'trim':
+        if (!mounted) return;
+        final activeCtrl = _activeController;
+        await VideoTrimmerSheet.show(
+          context,
+          videoController: activeCtrl,
+        );
+        if (mounted && _clipNotifier.clips.isNotEmpty) {
+          final studioCubit = context.read<StudioCubit>();
+          final trimStartSec = studioCubit.state.videoTrimStartSeconds;
+          final trimEndSec = studioCubit.state.videoTrimEndSeconds;
+          if (trimEndSec != null && trimEndSec > trimStartSec) {
+            final activeIndex = _activePlayingIndex.clamp(0, _clipNotifier.clips.length - 1);
+            _clipNotifier.updateTrim(
+              activeIndex,
+              Duration(milliseconds: (trimStartSec * 1000).round()),
+              Duration(milliseconds: (trimEndSec * 1000).round()),
+            );
+            _syncClipsToStudioCubit();
+            await _seekClipToTrimStart(activeIndex);
+            setState(() {});
+          }
+        }
+        break;
+
+      case 'speed':
+        if (!mounted) return;
+        VideoSpeedSheet.show(
+          context,
+          onSpeedChanged: (speedStr, multiplier) async {
+            if (!mounted) return;
+            final speed = multiplier.clamp(0.4, 4.0);
+            for (final c in _controllers.values) {
+              if (c.value.isInitialized) {
+                try {
+                  await c.setPlaybackSpeed(speed);
+                } catch (_) {}
+              }
+            }
+            try {
+              await StudioMusicPlaybackService.setPlaybackSpeed(speed);
+            } catch (_) {}
+            if (mounted) setState(() {});
+          },
+        );
+        break;
+
       case 'mute':
         await _toggleOriginalAudioMute(showSnack: true);
         break;
@@ -957,6 +1121,38 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
         }
         if (mounted) setState(() {});
         break;
+
+      case 'retake':
+        for (final c in _controllers.values) {
+          await c.pause();
+        }
+        await StudioMusicPlaybackService.stop();
+        _revertChangesIfNotConfirmed();
+        if (!mounted) return;
+        final cid = _challenge['id'] ?? widget.challengeId ?? 'c1';
+        if (context.canPop()) {
+          context.pop();
+        } else {
+          context.pushReplacement('${AppRoutes.studioCamera}?id=$cid');
+        }
+        break;
+    }
+  }
+
+  Future<void> _removeSelectedMusic() async {
+    await StudioMusicPlaybackService.stop();
+    _studio.setSelectedTrack(null);
+    await _applyOriginalAudioMute(false);
+    if (mounted) {
+      setState(() {});
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Music removed'),
+          duration: Duration(seconds: 1),
+          backgroundColor: Color(0xFF2C2C2E),
+        ),
+      );
     }
   }
 
@@ -1165,6 +1361,20 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
         updatedDraft['mergedClipDurations'] = mergedDurations;
         updatedDraft['duration'] = formattedDur;
         studio.updateDraftMap(updatedDraft);
+      }
+
+      // Generate real frame thumbnail from edited video
+      try {
+        final thumbFile =
+            await VideoThumbnailGenerator.generateThumbnailFromVideo(finalEditedVideoPath);
+        if (thumbFile != null && await thumbFile.exists()) {
+          studio.setSelectedThumbnailPath(thumbFile.path);
+          final bytes = await thumbFile.readAsBytes();
+          AppImage.cacheThumbnail(finalEditedVideoPath, bytes);
+          AppImage.cacheThumbnail(thumbFile.path, bytes);
+        }
+      } catch (e) {
+        debugPrint('Thumbnail generation warning on edit video next: $e');
       }
 
       if (!mounted) return;
@@ -1432,7 +1642,10 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
         // Music track row (unchanged)
         GestureDetector(
           onTap: () => _onToolbarAction('music'),
-          child: _MusicTrackStrip(music: music),
+          child: _MusicTrackStrip(
+            music: music,
+            onRemove: _removeSelectedMusic,
+          ),
         ),
       ],
     );
@@ -1442,55 +1655,89 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
   Widget _buildBottomBar() {
     final studio = context.watch<StudioCubit>();
     final isMuted = studio.isMuted;
+    final currentSpeed = studio.state.selectedSpeed;
+    final isCustomSpeed = currentSpeed != '1x' && currentSpeed != '1.0x';
 
     final items = [
       const _BarItem(id: 'crop', icon: Icons.crop_rounded, label: 'Crop'),
+      const _BarItem(id: 'trim', icon: Icons.content_cut_rounded, label: 'Trim'),
+      _BarItem(
+        id: 'speed',
+        icon: Icons.speed_rounded,
+        label: isCustomSpeed ? currentSpeed : 'Speed',
+        isActive: isCustomSpeed,
+      ),
       _BarItem(
         id: 'mute',
         icon: isMuted ? Icons.volume_off_rounded : Icons.volume_up_rounded,
         label: isMuted ? 'Muted' : 'Mute',
+        isActive: isMuted,
       ),
       const _BarItem(id: 'music', icon: Icons.music_note_rounded, label: 'Music'),
+      const _BarItem(id: 'retake', icon: Icons.refresh_rounded, label: 'Retake'),
     ];
 
     return Container(
       color: const Color(0xFF000000),
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: items.map((item) {
-          return GestureDetector(
-            onTap: () => _onToolbarAction(item.id),
-            child: SizedBox(
-              width: 80,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 54,
-                    height: 54,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF1C1C1E),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: AppColors.purple, width: 1.2),
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minWidth: MediaQuery.sizeOf(context).width),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: items.map((item) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: GestureDetector(
+                  onTap: () => _onToolbarAction(item.id),
+                  child: SizedBox(
+                    width: 58,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            color: item.isActive
+                                ? AppColors.purple.withValues(alpha: 0.25)
+                                : const Color(0xFF1C1C1E),
+                            borderRadius: BorderRadius.circular(15),
+                            border: Border.all(
+                              color: item.isActive
+                                  ? AppColors.purple
+                                  : AppColors.purple.withValues(alpha: 0.7),
+                              width: item.isActive ? 1.8 : 1.2,
+                            ),
+                          ),
+                          child: Icon(
+                            item.icon,
+                            color: item.isActive ? Colors.white : Colors.white70,
+                            size: 22,
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                        Text(
+                          item.label,
+                          style: TextStyle(
+                            color: item.isActive ? AppColors.purple : Colors.white70,
+                            fontSize: 11.5,
+                            fontFamily: 'Inter',
+                            fontWeight: item.isActive ? FontWeight.w600 : FontWeight.w500,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
                     ),
-                    child: Icon(item.icon, color: Colors.white, size: 24),
                   ),
-                  const SizedBox(height: 6),
-                  Text(
-                    item.label,
-                    style: const TextStyle(
-                      color: Colors.white70,
-                      fontSize: 12,
-                      fontFamily: 'Inter',
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        }).toList(),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
       ),
     );
   }
@@ -1500,18 +1747,28 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
 // Private data class for bottom bar
 // ─────────────────────────────────────────────────────────────────────────────
 class _BarItem {
-  const _BarItem({required this.id, required this.icon, required this.label});
+  const _BarItem({
+    required this.id,
+    required this.icon,
+    required this.label,
+    this.isActive = false,
+  });
   final String id;
   final IconData icon;
   final String label;
+  final bool isActive;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Music Track Strip
 // ─────────────────────────────────────────────────────────────────────────────
 class _MusicTrackStrip extends StatelessWidget {
-  const _MusicTrackStrip({required this.music});
+  const _MusicTrackStrip({
+    required this.music,
+    this.onRemove,
+  });
   final String? music;
+  final VoidCallback? onRemove;
 
   @override
   Widget build(BuildContext context) {
@@ -1545,14 +1802,14 @@ class _MusicTrackStrip extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
           ),
-          if (hasMusic)
+          if (hasMusic) ...[
             Row(
               mainAxisSize: MainAxisSize.min,
               children: List.generate(
-                10,
+                6,
                 (i) => Container(
                   width: 2,
-                  height: (i % 3 == 0 ? 18 : (i % 2 == 0 ? 10 : 20)).toDouble(),
+                  height: (i % 3 == 0 ? 16 : (i % 2 == 0 ? 9 : 18)).toDouble(),
                   margin: const EdgeInsets.symmetric(horizontal: 1.5),
                   decoration: BoxDecoration(
                     color: AppColors.purple.withValues(alpha: 0.8),
@@ -1561,6 +1818,24 @@ class _MusicTrackStrip extends StatelessWidget {
                 ),
               ),
             ),
+            const SizedBox(width: 8),
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: onRemove,
+              child: Container(
+                padding: const EdgeInsets.all(4),
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white12,
+                ),
+                child: const Icon(
+                  Icons.close_rounded,
+                  color: Colors.white70,
+                  size: 15,
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );

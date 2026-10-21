@@ -1,5 +1,6 @@
 import 'package:artable_app/core/utils/media_url_utils.dart';
 import 'package:artable_app/core/utils/reel_helpers.dart';
+import 'package:artable_app/data/datasources/mock_data.dart';
 
 class MyVideosResponse {
   const MyVideosResponse({
@@ -21,14 +22,17 @@ class MyVideosResponse {
   final MyVideoPagination? pagination;
 
   factory MyVideosResponse.fromJson(Map<String, dynamic> json) {
+    final userRaw = json['user'] is Map
+        ? Map<String, dynamic>.from(json['user'] as Map)
+        : null;
     final listRaw = json['data'];
     final dataList = <MyVideoItem>[];
     if (listRaw is List) {
       for (final item in listRaw) {
         if (item is Map<String, dynamic>) {
-          dataList.add(MyVideoItem.fromJson(item));
+          dataList.add(MyVideoItem.fromJson(item, fallbackUser: userRaw));
         } else if (item is Map) {
-          dataList.add(MyVideoItem.fromJson(Map<String, dynamic>.from(item)));
+          dataList.add(MyVideoItem.fromJson(Map<String, dynamic>.from(item), fallbackUser: userRaw));
         }
       }
     }
@@ -85,6 +89,12 @@ class MyVideoItem {
     this.challenge,
     this.category,
     this.mergedClipPaths,
+    this.userId,
+    this.username,
+    this.handle,
+    this.creator,
+    this.avatarUrl,
+    this.user,
   });
 
   final String id;
@@ -109,8 +119,14 @@ class MyVideoItem {
   final Map<String, dynamic>? challenge;
   final Map<String, dynamic>? category;
   final List<String>? mergedClipPaths;
+  final String? userId;
+  final String? username;
+  final String? handle;
+  final String? creator;
+  final String? avatarUrl;
+  final Map<String, dynamic>? user;
 
-  factory MyVideoItem.fromJson(Map<String, dynamic> json) {
+  factory MyVideoItem.fromJson(Map<String, dynamic> json, {Map<String, dynamic>? fallbackUser}) {
     final actionsRaw = json['actions'];
     final actionsList = <MyVideoAction>[];
     if (actionsRaw is List) {
@@ -122,6 +138,33 @@ class MyVideoItem {
         }
       }
     }
+
+    final userRaw = json['user'] ?? json['creator'] ?? fallbackUser;
+    final userObj = userRaw is Map ? Map<String, dynamic>.from(userRaw) : null;
+    final userIdStr = json['userId']?.toString() ??
+        json['user_id']?.toString() ??
+        json['creatorId']?.toString() ??
+        userObj?['id']?.toString() ??
+        userObj?['_id']?.toString();
+    final usernameStr = (json['username']?.toString() ??
+        json['handle']?.toString() ??
+        json['user_name']?.toString() ??
+        userObj?['username']?.toString() ??
+        userObj?['handle']?.toString() ??
+        userObj?['user_name']?.toString() ??
+        '').trim();
+    final creatorStr = (json['creator'] is String && json['creator'] != 'You' ? json['creator'].toString() : null) ??
+        json['fullName']?.toString() ??
+        json['name']?.toString() ??
+        userObj?['fullName']?.toString() ??
+        userObj?['name']?.toString() ??
+        usernameStr;
+    final avatarStr = (json['avatarUrl']?.toString() ??
+        json['profilePhotoUrl']?.toString() ??
+        json['profile_photo_url']?.toString() ??
+        userObj?['profilePhotoUrl']?.toString() ??
+        userObj?['avatarUrl']?.toString() ??
+        '').trim();
 
     final challengeObj = json['challenge'] is Map
         ? Map<String, dynamic>.from(json['challenge'] as Map)
@@ -137,10 +180,6 @@ class MyVideoItem {
             ? challengeObj!['title'].toString().trim()
             : 'Draft Video';
 
-    final bannerUrl = challengeObj?['bannerUrl']?.toString() ??
-        challengeObj?['imageUrl']?.toString() ??
-        '';
-
     final videoUrlStr = MediaUrlUtils.extractVideoUrl(json) ??
         json['videoUrl']?.toString() ??
         json['video_url']?.toString();
@@ -151,11 +190,9 @@ class MyVideoItem {
       resolvedVideoUrl = MediaUrlUtils.resolve(videoUrlStr);
     }
 
-    // 1. Try static image thumbnail first
+    // 1. Extract genuine video thumbnail
     String thumb = MediaUrlUtils.extractThumbnail(json) ?? '';
-    if (thumb.isEmpty && bannerUrl.isNotEmpty && !bannerUrl.contains('storage.example')) {
-      thumb = MediaUrlUtils.resolve(bannerUrl);
-    }
+
     // 2. If no image thumbnail or if thumb is a dummy placeholder, check raw thumbnail fields
     if (thumb.isEmpty || MediaUrlUtils.isDummyThumbnail(thumb)) {
       final rawThumb = json['thumbnailUrl']?.toString() ??
@@ -169,7 +206,8 @@ class MyVideoItem {
         }
       }
     }
-    // 3. Fall back to videoUrl if available (AppImage will render the video thumbnail)
+
+    // 3. If thumbnail is missing or a dummy image, take directly from the video
     if ((thumb.isEmpty || MediaUrlUtils.isDummyThumbnail(thumb)) &&
         resolvedVideoUrl != null &&
         resolvedVideoUrl.trim().isNotEmpty) {
@@ -219,11 +257,18 @@ class MyVideoItem {
       }
     }
 
-    final finalVideoUrl = (resolvedVideoUrl != null && resolvedVideoUrl.isNotEmpty)
+    var finalVideoUrl = (resolvedVideoUrl != null && resolvedVideoUrl.isNotEmpty)
         ? resolvedVideoUrl
         : (effectiveMergedClips != null && effectiveMergedClips.isNotEmpty
             ? MediaUrlUtils.resolve(effectiveMergedClips.first)
             : videoUrlStr);
+
+    if ((finalVideoUrl == null || finalVideoUrl.isEmpty) && idStr.isNotEmpty) {
+      final mockMatch = MockData.REELS.where((r) => r['id'] == idStr).firstOrNull;
+      if (mockMatch != null) {
+        finalVideoUrl = mockMatch['videoUrl']?.toString();
+      }
+    }
 
     if ((thumb.isEmpty || MediaUrlUtils.isDummyThumbnail(thumb)) &&
         finalVideoUrl != null &&
@@ -256,6 +301,12 @@ class MyVideoItem {
       challenge: challengeObj,
       category: categoryObj,
       mergedClipPaths: effectiveMergedClips,
+      userId: userIdStr,
+      username: usernameStr.isNotEmpty ? usernameStr : null,
+      handle: usernameStr.isNotEmpty ? (usernameStr.startsWith('@') ? usernameStr : '@$usernameStr') : null,
+      creator: creatorStr.isNotEmpty ? creatorStr : null,
+      avatarUrl: avatarStr.isNotEmpty ? avatarStr : null,
+      user: userObj,
     );
   }
 
@@ -297,6 +348,14 @@ class MyVideoItem {
       'canShare': canShare,
       'canContinueDraft': canContinueDraft,
       'actions': actions.map((a) => {'key': a.key, 'label': a.label}).toList(),
+      if (userId != null && userId!.isNotEmpty) 'userId': userId,
+      if (userId != null && userId!.isNotEmpty) 'user_id': userId,
+      if (userId != null && userId!.isNotEmpty) 'creatorId': userId,
+      if (username != null && username!.isNotEmpty) 'username': username,
+      if (handle != null && handle!.isNotEmpty) 'handle': handle,
+      if (creator != null && creator!.isNotEmpty) 'creator': creator,
+      if (avatarUrl != null && avatarUrl!.isNotEmpty) 'avatarUrl': avatarUrl,
+      if (user != null) 'user': user,
     };
   }
 }

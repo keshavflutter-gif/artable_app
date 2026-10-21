@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
+import 'package:artable_app/features/profile/presentation/bloc/profile_cubit.dart';
 
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_gradients.dart';
@@ -29,20 +30,90 @@ class CreatorInfoRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final avatarUrl = (reel['avatarUrl'] as String?)?.trim() ??
+    final authCubit = context.watch<AuthCubit>();
+    final authState = authCubit.state;
+    final profileCubit = context.watch<ProfileCubit>();
+    final profileUser = profileCubit.state.data?.user;
+
+    final currentUserId = (authState.userId ?? authCubit.userId ?? authState.currentUser['id']?.toString() ?? profileUser?.id)?.trim();
+    final currentUsername = authCubit.username.isNotEmpty
+        ? authCubit.username.trim().replaceAll('@', '')
+        : (profileUser?.username?.isNotEmpty == true
+            ? profileUser!.username!.trim().replaceAll('@', '')
+            : (authState.currentUser['username']?.toString() ?? '').trim().replaceAll('@', ''));
+    final currentFullName = (authCubit.fullName.isNotEmpty
+            ? authCubit.fullName
+            : (profileUser?.fullName ?? authState.currentUser['fullName']?.toString() ?? authState.currentUser['name']?.toString() ?? ''))
+        .trim();
+    final currentAvatar = (authCubit.avatarUrl.isNotEmpty
+            ? authCubit.avatarUrl
+            : (profileUser?.profilePhotoUrl ?? authState.currentUser['profilePhotoUrl']?.toString() ?? authState.currentUser['avatarUrl']?.toString() ?? ''))
+        .trim();
+
+    final userMap = reel['user'] is Map
+        ? Map<String, dynamic>.from(reel['user'] as Map)
+        : (reel['creator'] is Map
+            ? Map<String, dynamic>.from(reel['creator'] as Map)
+            : (reel['author'] is Map ? Map<String, dynamic>.from(reel['author'] as Map) : null));
+
+    final reelUserId = (reel['userId']?.toString() ??
+        reel['user_id']?.toString() ??
+        reel['creatorId']?.toString() ??
+        userMap?['id']?.toString() ??
+        userMap?['_id']?.toString())?.trim();
+
+    final bool isSelf = (currentUserId != null && currentUserId.isNotEmpty && reelUserId != null && reelUserId.isNotEmpty && currentUserId == reelUserId) ||
+        reel['isMyVideo'] == true ||
+        reel['status'] != null ||
+        reel['canContinueDraft'] != null ||
+        (reel['creator'] == 'You') ||
+        (currentUsername.isNotEmpty && (reel['username'] == currentUsername || reel['handle'] == '@$currentUsername' || reel['handle'] == currentUsername));
+
+    // Resolve username from reel fields / API response
+    String rawUsername = (reel['handle']?.toString() ??
+        reel['username']?.toString() ??
+        reel['user_name']?.toString() ??
+        userMap?['username']?.toString() ??
+        userMap?['handle']?.toString() ??
+        userMap?['name']?.toString() ??
+        userMap?['fullName']?.toString() ??
+        (reel['creator'] is String && reel['creator'] != 'You' ? reel['creator'] : null) ??
+        reel['fullName']?.toString() ??
+        reel['name']?.toString() ??
+        '').trim();
+
+    bool isDummyHandle(String s) {
+      final clean = s.trim().toLowerCase().replaceAll('@', '');
+      return clean.isEmpty || clean == 'user' || clean == 'you' || clean == 'null';
+    }
+
+    if (isDummyHandle(rawUsername)) {
+      if (currentUsername.isNotEmpty) {
+        rawUsername = currentUsername;
+      } else if (currentFullName.isNotEmpty) {
+        rawUsername = currentFullName;
+      }
+    }
+
+    final displayHandle = !isDummyHandle(rawUsername)
+        ? (rawUsername.startsWith('@') ? rawUsername : '@$rawUsername')
+        : (currentUsername.isNotEmpty
+            ? '@$currentUsername'
+            : (currentFullName.isNotEmpty ? '@$currentFullName' : '@creator'));
+
+    var avatarUrl = (reel['avatarUrl'] as String?)?.trim() ??
         (reel['profilePhotoUrl'] as String?)?.trim() ??
         (reel['profile_photo_url'] as String?)?.trim() ??
-        (reel['user'] is Map ? (reel['user']['profilePhotoUrl']?.toString() ?? reel['user']['avatarUrl']?.toString()) : null) ??
+        userMap?['profilePhotoUrl']?.toString().trim() ??
+        userMap?['avatarUrl']?.toString().trim() ??
+        userMap?['avatar']?.toString().trim() ??
         '';
 
-    final handle = (reel['handle'] as String?)?.trim() ??
-        (reel['username'] as String?)?.trim() ??
-        (reel['user'] is Map ? reel['user']['username']?.toString() : null) ??
-        '';
-
-    final displayHandle = handle.isNotEmpty
-        ? (handle.startsWith('@') ? handle : '@$handle')
-        : ((reel['creator'] as String?)?.trim() ?? '@user');
+    if ((avatarUrl.isEmpty || avatarUrl.contains('pravatar.cc') || avatarUrl == 'null') && isSelf) {
+      if (currentAvatar.isNotEmpty && !currentAvatar.contains('pravatar.cc')) {
+        avatarUrl = currentAvatar;
+      }
+    }
 
     final isVerified = reel['verified'] == true ||
         reel['isBlueTick'] == true ||
@@ -51,24 +122,21 @@ class CreatorInfoRow extends StatelessWidget {
         reel['is_verified'] == true ||
         reel['isBlueTick']?.toString() == 'true' ||
         reel['isVerified']?.toString() == 'true' ||
-        (reel['user'] is Map &&
-            ((reel['user'] as Map)['isBlueTick'] == true ||
-             (reel['user'] as Map)['is_blue_tick'] == true ||
-             (reel['user'] as Map)['isVerified'] == true ||
-             (reel['user'] as Map)['is_verified'] == true ||
-             (reel['user'] as Map)['isBlueTick']?.toString() == 'true' ||
-             (reel['user'] as Map)['isVerified']?.toString() == 'true'));
+        (userMap != null &&
+            (userMap['isBlueTick'] == true ||
+             userMap['is_blue_tick'] == true ||
+             userMap['isVerified'] == true ||
+             userMap['is_verified'] == true ||
+             userMap['isBlueTick']?.toString() == 'true' ||
+             userMap['isVerified']?.toString() == 'true')) ||
+        (isSelf && (profileUser?.isBlueTick == true || profileUser?.isVerified == true));
 
     void navigateToProfile() {
       if (onTapProfile != null) {
         onTapProfile!();
         return;
       }
-      String? targetUserId = reel['userId']?.toString() ??
-          reel['user_id']?.toString() ??
-          reel['creatorId']?.toString() ??
-          (reel['creator'] is Map ? (reel['creator'] as Map)['id']?.toString() : null) ??
-          (reel['user'] is Map ? (reel['user'] as Map)['id']?.toString() : null);
+      String? targetUserId = reelUserId ?? (isSelf ? currentUserId : null);
 
       if ((targetUserId == null || targetUserId.isEmpty) && displayHandle.isNotEmpty) {
         final mockCreator = MockHelpers.creatorByHandle(displayHandle);
@@ -81,25 +149,6 @@ class CreatorInfoRow extends StatelessWidget {
         context.push('${AppRoutes.publicProfile}?id=$targetUserId');
       }
     }
-
-    final authCubit = context.watch<AuthCubit>();
-    final authState = authCubit.state;
-    final currentUserId = (authState.userId ?? authCubit.userId ?? authState.currentUser['id']?.toString())?.trim();
-    final currentUsername = authCubit.username.isNotEmpty
-        ? authCubit.username.trim().replaceAll('@', '')
-        : (authState.currentUser['username']?.toString() ?? '').trim().replaceAll('@', '');
-
-    final reelUserId = (reel['userId']?.toString() ??
-        reel['user_id']?.toString() ??
-        reel['creatorId']?.toString() ??
-        (reel['user'] is Map ? (reel['user'] as Map)['id']?.toString() : null))?.trim();
-
-    final reelUsername = ((reel['handle'] as String?)?.trim() ??
-        (reel['username'] as String?)?.trim() ??
-        (reel['user'] is Map ? (reel['user'] as Map)['username']?.toString() : null))?.trim().replaceAll('@', '');
-
-    final bool isSelf = (currentUserId != null && currentUserId.isNotEmpty && reelUserId != null && reelUserId.isNotEmpty && currentUserId == reelUserId) ||
-        (currentUsername.isNotEmpty && reelUsername != null && reelUsername.isNotEmpty && currentUsername.toLowerCase() == reelUsername.toLowerCase());
 
     return Row(
       children: [

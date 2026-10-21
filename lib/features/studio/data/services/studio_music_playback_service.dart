@@ -202,21 +202,42 @@ class StudioMusicPlaybackService {
           : targetMs;
       final seekMs = effectiveMs.clamp(0, 3600000);
 
+      final speedMultiplier = studio.speedMultiplier.clamp(0.4, 4.0);
+
       if (!player.playing) {
         try {
           await player.seek(Duration(milliseconds: seekMs));
-          await player.setSpeed(1.0);
+          await player.setSpeed(speedMultiplier);
         } catch (_) {}
         // Do NOT await player.play()! In just_audio, play() returns a Future that
         // only completes when playback finishes or is paused/stopped.
         // Awaiting it inside the serial queue causes a permanent deadlock.
         unawaited(player.play());
       } else {
+        try {
+          if ((player.speed - speedMultiplier).abs() > 0.05) {
+            await player.setSpeed(speedMultiplier);
+          }
+        } catch (_) {}
         final currentAudioMs = player.position.inMilliseconds;
         if ((currentAudioMs - seekMs).abs() > 1200) {
           try {
             await player.seek(Duration(milliseconds: seekMs));
           } catch (_) {}
+        }
+      }
+    });
+  }
+
+  /// Update playback speed for background audio.
+  static Future<void> setPlaybackSpeed(double speed) async {
+    await _enqueue(() async {
+      final player = _player;
+      if (player != null) {
+        try {
+          await player.setSpeed(speed.clamp(0.4, 4.0));
+        } catch (e) {
+          debugPrint('StudioMusicPlaybackService setPlaybackSpeed error: $e');
         }
       }
     });
@@ -285,6 +306,13 @@ class StudioMusicPlaybackService {
     // Throttle to at most once every 350ms to ensure butter-smooth playback without micro-stutters
     if (now - _lastSyncCheckMs < 350) return;
     _lastSyncCheckMs = now;
+
+    final speedMultiplier = studio.speedMultiplier.clamp(0.4, 4.0);
+    try {
+      if ((player.speed - speedMultiplier).abs() > 0.05) {
+        await player.setSpeed(speedMultiplier);
+      }
+    } catch (_) {}
 
     try {
       final musicStartMs = (studio.musicStartSeconds * 1000).round();

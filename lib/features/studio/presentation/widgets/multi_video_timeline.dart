@@ -1,5 +1,10 @@
+import 'dart:io';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:video_thumbnail/video_thumbnail.dart';
+import 'package:artable_app/core/widgets/app_image.dart';
+import 'package:artable_app/features/studio/data/services/video_thumbnail_generator.dart';
 import 'editor_clip.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -448,46 +453,13 @@ class _ClipTile extends StatelessWidget {
                     child: _Handle(isLeft: true, isSelected: isSelected, color: borderColor),
                   ),
 
-                  // Thumbnail strip
+                  // Thumbnail strip with real video frames
                   Expanded(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF1E1E2C),
-                        border: Border(
-                          top: BorderSide(color: borderColor, width: borderWidth),
-                          bottom: BorderSide(color: borderColor, width: borderWidth),
-                        ),
-                      ),
-                      child: ClipRect(
-                        child: Row(
-                          children: List.generate(thumbnailCount, (i) {
-                            final hue = clip.thumbnailColors[i % clip.thumbnailColors.length].toDouble();
-                            return Expanded(
-                              child: Container(
-                                margin: const EdgeInsets.all(1.5),
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(2),
-                                  gradient: LinearGradient(
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                    colors: [
-                                      HSLColor.fromAHSL(1.0, hue, 0.55, 0.28).toColor(),
-                                      HSLColor.fromAHSL(1.0, (hue + 30) % 360, 0.55, 0.20).toColor(),
-                                    ],
-                                  ),
-                                ),
-                                child: Center(
-                                  child: Icon(
-                                    Icons.play_circle_outline_rounded,
-                                    color: Colors.white.withValues(alpha: 0.18),
-                                    size: 12,
-                                  ),
-                                ),
-                              ),
-                            );
-                          }),
-                        ),
-                      ),
+                    child: _ClipFilmstripStrip(
+                      clip: clip,
+                      frameCount: thumbnailCount,
+                      borderColor: borderColor,
+                      borderWidth: borderWidth,
                     ),
                   ),
 
@@ -502,6 +474,209 @@ class _ClipTile extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Real Video Filmstrip Strip
+// ─────────────────────────────────────────────────────────────────────────────
+class _ClipFilmstripStrip extends StatefulWidget {
+  const _ClipFilmstripStrip({
+    required this.clip,
+    required this.frameCount,
+    required this.borderColor,
+    required this.borderWidth,
+  });
+
+  final EditorClip clip;
+  final int frameCount;
+  final Color borderColor;
+  final double borderWidth;
+
+  @override
+  State<_ClipFilmstripStrip> createState() => _ClipFilmstripStripState();
+}
+
+class _ClipFilmstripStripState extends State<_ClipFilmstripStrip> {
+  static final Map<String, List<Uint8List>> _framesCache = {};
+  static final Map<String, Uint8List> _singleThumbCache = {};
+  static final Set<String> _inFlight = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadThumbnails();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ClipFilmstripStrip oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.clip.filePath != widget.clip.filePath ||
+        oldWidget.frameCount != widget.frameCount) {
+      _loadThumbnails();
+    }
+  }
+
+  Future<void> _loadThumbnails() async {
+    var rawPath = widget.clip.filePath.trim();
+    if (rawPath.startsWith('file://')) {
+      rawPath = rawPath.replaceFirst('file://', '');
+    }
+    if (rawPath.isEmpty) return;
+
+    final frameCount = widget.frameCount.clamp(1, 15);
+    final cacheKey = '${rawPath}_$frameCount';
+
+    if (_framesCache.containsKey(cacheKey) && _framesCache[cacheKey]!.isNotEmpty) {
+      return;
+    }
+
+    if (!_singleThumbCache.containsKey(rawPath)) {
+      if (widget.clip.thumbnailBytes != null && widget.clip.thumbnailBytes!.isNotEmpty) {
+        _singleThumbCache[rawPath] = widget.clip.thumbnailBytes!;
+      } else if (widget.clip.thumbnailPath != null && widget.clip.thumbnailPath!.isNotEmpty) {
+        try {
+          final f = File(widget.clip.thumbnailPath!);
+          if (await f.exists()) {
+            final b = await f.readAsBytes();
+            if (b.isNotEmpty) {
+              _singleThumbCache[rawPath] = b;
+              if (mounted) setState(() {});
+            }
+          }
+        } catch (_) {}
+      }
+    }
+
+    if (_inFlight.contains(cacheKey)) return;
+    _inFlight.add(cacheKey);
+
+    try {
+      if (!_singleThumbCache.containsKey(rawPath)) {
+        try {
+          final singleFrame = await VideoThumbnail.thumbnailData(
+            video: rawPath,
+            imageFormat: ImageFormat.JPEG,
+            maxWidth: 160,
+            quality: 65,
+            timeMs: 200,
+          );
+          if (singleFrame != null && singleFrame.isNotEmpty) {
+            _singleThumbCache[rawPath] = singleFrame;
+            if (mounted) setState(() {});
+          } else {
+            final genFile = await VideoThumbnailGenerator.generateThumbnailFromVideo(rawPath);
+            if (genFile != null && await genFile.exists()) {
+              final b = await genFile.readAsBytes();
+              if (b.isNotEmpty) {
+                _singleThumbCache[rawPath] = b;
+                if (mounted) setState(() {});
+              }
+            }
+          }
+        } catch (_) {}
+      }
+
+      final durationMs = widget.clip.originalDuration.inMilliseconds;
+      final stepMs = durationMs > 0 ? (durationMs / frameCount) : 1000.0;
+      final List<Uint8List> frames = [];
+
+      for (int i = 0; i < frameCount; i++) {
+        final timeMs = (i * stepMs + stepMs / 2).round().clamp(0, durationMs > 100 ? durationMs - 100 : 0);
+        try {
+          final frame = await VideoThumbnail.thumbnailData(
+            video: rawPath,
+            imageFormat: ImageFormat.JPEG,
+            maxWidth: 140,
+            quality: 60,
+            timeMs: timeMs,
+          );
+          if (frame != null && frame.isNotEmpty) {
+            frames.add(frame);
+          } else if (_singleThumbCache.containsKey(rawPath)) {
+            frames.add(_singleThumbCache[rawPath]!);
+          }
+        } catch (_) {
+          if (_singleThumbCache.containsKey(rawPath)) {
+            frames.add(_singleThumbCache[rawPath]!);
+          }
+        }
+      }
+
+      if (frames.isNotEmpty) {
+        _framesCache[cacheKey] = frames;
+        if (mounted) setState(() {});
+      }
+    } catch (_) {
+    } finally {
+      _inFlight.remove(cacheKey);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    var rawPath = widget.clip.filePath.trim();
+    if (rawPath.startsWith('file://')) {
+      rawPath = rawPath.replaceFirst('file://', '');
+    }
+    final frameCount = widget.frameCount.clamp(1, 15);
+    final cacheKey = '${rawPath}_$frameCount';
+    final frames = _framesCache[cacheKey];
+    final singleBytes = _singleThumbCache[rawPath] ?? widget.clip.thumbnailBytes;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF140D24),
+        border: Border(
+          top: BorderSide(color: widget.borderColor, width: widget.borderWidth),
+          bottom: BorderSide(color: widget.borderColor, width: widget.borderWidth),
+        ),
+      ),
+      child: ClipRect(
+        child: Row(
+          children: List.generate(frameCount, (i) {
+            Uint8List? cellBytes;
+            if (frames != null && i < frames.length) {
+              cellBytes = frames[i];
+            } else if (singleBytes != null) {
+              cellBytes = singleBytes;
+            }
+
+            Widget content;
+            if (cellBytes != null) {
+              content = Image.memory(
+                cellBytes,
+                fit: BoxFit.cover,
+                width: double.infinity,
+                height: double.infinity,
+                gaplessPlayback: true,
+              );
+            } else {
+              content = AppImage(
+                url: widget.clip.thumbnailPath ?? '',
+                videoUrl: widget.clip.filePath,
+                isVideo: true,
+                fit: BoxFit.cover,
+                width: double.infinity,
+                height: double.infinity,
+              );
+            }
+
+            return Expanded(
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 0.75, vertical: 1.0),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E1435),
+                  borderRadius: BorderRadius.circular(1.5),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: content,
+              ),
+            );
+          }),
         ),
       ),
     );

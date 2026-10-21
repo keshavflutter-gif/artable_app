@@ -10,6 +10,7 @@ import 'package:artable_app/features/auth/presentation/screens/splash_screen.dar
 import 'package:artable_app/features/bonus/presentation/screens/daily_bonus_screen.dart';
 import 'package:artable_app/features/challenges/presentation/screens/categories_screen.dart';
 import 'package:artable_app/features/challenges/presentation/screens/challenge_detail_screen.dart';
+import 'package:artable_app/features/challenges/presentation/screens/submit_entry_screen.dart';
 import 'package:artable_app/features/membership/presentation/screens/membership_plan_screen.dart';
 import 'package:artable_app/features/music/presentation/screens/music_library_screen.dart';
 import 'package:artable_app/features/music/presentation/screens/music_preview_screen.dart';
@@ -46,7 +47,6 @@ import 'package:artable_app/features/studio/presentation/screens/studio_details_
 import 'package:artable_app/features/studio/presentation/screens/studio_drafts_screen.dart';
 import 'package:artable_app/features/studio/presentation/screens/studio_filters_screen.dart';
 import 'package:artable_app/features/studio/presentation/screens/studio_music_screen.dart';
-import 'package:artable_app/features/studio/presentation/screens/studio_preview_screen.dart';
 import 'package:artable_app/features/studio/presentation/screens/studio_start_screen.dart';
 import 'package:artable_app/features/studio/presentation/screens/studio_success_screen.dart';
 import 'package:artable_app/features/studio/presentation/screens/studio_edit_video_screen.dart';
@@ -166,12 +166,9 @@ abstract final class AppRouter {
         ),
         GoRoute(
           path: AppRoutes.submitEntry,
-          redirect: (context, state) {
+          builder: (context, state) {
             final id = state.uri.queryParameters['id'];
-            if (id != null && id.isNotEmpty) {
-              return '${AppRoutes.studioStart}?id=$id';
-            }
-            return AppRoutes.studioStart;
+            return SubmitEntryScreen(challengeId: id);
           },
         ),
         GoRoute(
@@ -214,10 +211,9 @@ abstract final class AppRouter {
         ),
         GoRoute(
           path: AppRoutes.studioPreview,
-          builder: (context, state) => StudioPreviewScreen(
+          builder: (context, state) => StudioEditVideoScreen(
             challengeId: state.uri.queryParameters['id'],
             draftId: state.uri.queryParameters['draft'],
-            videoPath: state.uri.queryParameters['videoPath'],
           ),
         ),
         GoRoute(

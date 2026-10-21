@@ -9,6 +9,7 @@ import 'package:artable_app/data/datasources/mock_data.dart';
 import 'package:artable_app/core/utils/validators.dart';
 import 'package:artable_app/core/utils/reel_helpers.dart';
 import 'package:artable_app/core/widgets/app_image.dart';
+import 'package:artable_app/core/utils/media_url_utils.dart';
 import '../models/trending_videos_response.dart';
 
 class VideosRepository {
@@ -211,6 +212,11 @@ class VideosRepository {
     double? videoTrimStartSeconds,
     double? videoTrimEndSeconds,
     List<String>? mergedClipPaths,
+    String? creator,
+    String? handle,
+    String? username,
+    String? avatarUrl,
+    String? userId,
   }) async {
     // 1. Ensure video URL is ready
     String finalVideoUrl = videoPathOrUrl;
@@ -259,12 +265,15 @@ class VideosRepository {
       }
     }
 
-    // 2. Resolve Thumbnail (Priority: Manual selected thumbnail > Video-generated thumbnail)
+    // 2. Resolve Thumbnail (Priority: Non-dummy manual thumbnail > Video-generated frame)
     String finalThumbnailUrl = '';
     Uint8List? localThumbBytes;
-    if (manualSelectedThumbnailPath != null &&
+    final isManualValid = manualSelectedThumbnailPath != null &&
         manualSelectedThumbnailPath.trim().isNotEmpty &&
-        manualSelectedThumbnailPath.trim() != 'null') {
+        manualSelectedThumbnailPath.trim() != 'null' &&
+        !MediaUrlUtils.isDummyThumbnail(manualSelectedThumbnailPath);
+
+    if (isManualValid) {
       final path = manualSelectedThumbnailPath.trim();
       if (path.startsWith('http://') || path.startsWith('https://')) {
         finalThumbnailUrl = path;
@@ -281,13 +290,27 @@ class VideosRepository {
             refreshToken: refreshToken,
           );
         } catch (e) {
-          debugPrint('Thumbnail upload error fallback to default: $e');
+          debugPrint('Thumbnail upload error fallback to video frame: $e');
         }
       }
-    } else {
+    }
+
+    // If manual thumbnail is missing, dummy, or failed to upload, generate frame directly from video
+    if (finalThumbnailUrl.isEmpty) {
       try {
-        final generatedFile =
+        var generatedFile =
             await VideoThumbnailGenerator.generateThumbnailFromVideo(videoPathOrUrl);
+
+        if ((generatedFile == null || !await generatedFile.exists()) &&
+            mergedClipPaths != null &&
+            mergedClipPaths.isNotEmpty) {
+          for (final clip in mergedClipPaths) {
+            generatedFile =
+                await VideoThumbnailGenerator.generateThumbnailFromVideo(clip);
+            if (generatedFile != null && await generatedFile.exists()) break;
+          }
+        }
+
         if (generatedFile != null && await generatedFile.exists()) {
           localThumbBytes = await generatedFile.readAsBytes();
           finalThumbnailUrl = await _uploadFile(
@@ -298,7 +321,7 @@ class VideosRepository {
           );
         }
       } catch (e) {
-        debugPrint('Generated thumbnail upload error fallback to default: $e');
+        debugPrint('Generated thumbnail upload error: $e');
       }
     }
 
@@ -368,20 +391,98 @@ class VideosRepository {
     final createdData = response['data'] is Map ? Map<String, dynamic>.from(response['data'] as Map) : null;
     final createdId = createdData?['id']?.toString() ?? 'N/A';
 
-    final newReelItem = <String, Object>{
+    final profileDetails = await _storageService.getProfileDetails();
+    final storedDisplayName = await _storageService.getUserDisplayName();
+    final storedUserId = await _storageService.getUserId();
+
+    final userObj = createdData?['user'] is Map
+        ? Map<String, dynamic>.from(createdData!['user'] as Map)
+        : null;
+
+    final resolvedUserId = userId?.trim().isNotEmpty == true
+        ? userId!.trim()
+        : (createdData?['userId']?.toString().trim().isNotEmpty == true
+            ? createdData!['userId'].toString().trim()
+            : (userObj?['id']?.toString().trim().isNotEmpty == true
+                ? userObj!['id'].toString().trim()
+                : (storedUserId ?? '')));
+
+    final resolvedUsername = (username?.trim().isNotEmpty == true
+            ? username!.trim()
+            : null) ??
+        (createdData?['username']?.toString().trim().isNotEmpty == true
+            ? createdData!['username'].toString().trim()
+            : null) ??
+        (userObj?['username']?.toString().trim().isNotEmpty == true
+            ? userObj!['username'].toString().trim()
+            : null) ??
+        (profileDetails?.username?.trim().isNotEmpty == true
+            ? profileDetails!.username!.trim()
+            : null) ??
+        '';
+
+    final resolvedCreator = (creator != null && creator.trim().isNotEmpty && creator.trim().toLowerCase() != 'you'
+            ? creator.trim()
+            : null) ??
+        (createdData?['creator']?.toString().trim().isNotEmpty == true &&
+                createdData!['creator'].toString().trim().toLowerCase() != 'you'
+            ? createdData['creator'].toString().trim()
+            : null) ??
+        ((userObj?['fullName'] ?? userObj?['name'] ?? userObj?['displayName'])?.toString().trim().isNotEmpty == true
+            ? (userObj?['fullName'] ?? userObj?['name'] ?? userObj?['displayName']).toString().trim()
+            : null) ??
+        (profileDetails != null && profileDetails.fullName.isNotEmpty
+            ? profileDetails.fullName
+            : (storedDisplayName?.isNotEmpty == true
+                ? storedDisplayName
+                : (resolvedUsername.isNotEmpty ? resolvedUsername : 'You')));
+
+    final resolvedHandle = (handle != null && handle.trim().isNotEmpty && handle.trim() != '@user'
+            ? (handle.startsWith('@') ? handle : '@$handle')
+            : null) ??
+        (resolvedUsername.isNotEmpty
+            ? (resolvedUsername.startsWith('@') ? resolvedUsername : '@$resolvedUsername')
+            : (createdData?['handle']?.toString().trim().isNotEmpty == true && createdData!['handle'] != '@user'
+                ? createdData['handle'].toString().trim()
+                : (resolvedCreator != null && resolvedCreator != 'You'
+                    ? '@${resolvedCreator.toLowerCase().replaceAll(' ', '_')}'
+                    : '@user')));
+
+    final resolvedAvatar = (avatarUrl != null && avatarUrl.trim().isNotEmpty && !avatarUrl.contains('pravatar.cc')
+            ? avatarUrl.trim()
+            : null) ??
+        ((createdData?['avatarUrl'] ?? createdData?['avatar'] ?? userObj?['avatarUrl'] ?? userObj?['avatar'] ?? userObj?['profilePhotoUrl'])?.toString().trim().isNotEmpty == true
+            ? (createdData?['avatarUrl'] ?? createdData?['avatar'] ?? userObj?['avatarUrl'] ?? userObj?['avatar'] ?? userObj?['profilePhotoUrl']).toString().trim()
+            : '');
+
+    final newReelItem = <String, dynamic>{
       'id': createdId != 'N/A' && createdId.isNotEmpty
           ? createdId
           : 'r_${DateTime.now().millisecondsSinceEpoch}',
       'title': title,
-      'creator': 'You',
-      'handle': '@user',
+      'creator': resolvedCreator ?? 'User',
+      'handle': resolvedHandle,
+      'username': resolvedUsername,
+      'userId': resolvedUserId,
+      'user_id': resolvedUserId,
+      'isMyVideo': true,
+      'user': {
+        'id': resolvedUserId,
+        'username': resolvedUsername,
+        'handle': resolvedHandle,
+        'name': resolvedCreator,
+        'fullName': resolvedCreator,
+        'avatar': resolvedAvatar,
+        'profilePhotoUrl': resolvedAvatar,
+      },
       'category': 'Dance',
       'verified': true,
       'imageUrl': finalThumbnailUrl,
+      'thumbnailUrl': finalThumbnailUrl,
       'videoUrl': finalVideoUrl,
       if (finalMergedClipUrls.isNotEmpty)
         'mergedClipPaths': finalMergedClipUrls,
-      'avatarUrl': 'https://i.pravatar.cc/100?u=user',
+      'avatarUrl': resolvedAvatar,
       'views': '1',
       'challengeId': challengeId ?? 'c1',
       'musicName': 'Original Sound',
@@ -402,7 +503,7 @@ class VideosRepository {
       ReelHelpers.cacheMergedClips(finalVideoUrl, finalMergedClipUrls);
       newReelItem['mergedClipPaths'] = finalMergedClipUrls;
     }
-    MockData.REELS.insert(0, newReelItem);
+    MockData.REELS.insert(0, Map<String, Object>.from(newReelItem));
 
     debugPrint('=== CREATE VIDEO === Create Video API status: ${response['status'] ?? 200}');
     debugPrint('=== CREATE VIDEO === Create Video success: $isSuccess');

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:artable_app/app/routes/app_routes.dart';
@@ -29,6 +30,7 @@ class MainTabShell extends StatefulWidget {
 
 class _MainTabShellState extends State<MainTabShell> {
   late int _currentIndex;
+  DateTime? _lastBackPressTime;
 
   @override
   void initState() {
@@ -63,28 +65,71 @@ class _MainTabShellState extends State<MainTabShell> {
     });
   }
 
+  void _handleBackPress() {
+    if (_currentIndex != 0) {
+      setState(() {
+        _currentIndex = 0;
+      });
+      return;
+    }
+
+    final now = DateTime.now();
+    if (_lastBackPressTime == null ||
+        now.difference(_lastBackPressTime!) > const Duration(seconds: 2)) {
+      _lastBackPressTime = now;
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+            'Tap again to exit',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+            ),
+          ),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: const Color(0xFF2C2C2E),
+          duration: const Duration(seconds: 2),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+        ),
+      );
+      return;
+    }
+
+    SystemNavigator.pop();
+  }
+
   @override
   Widget build(BuildContext context) {
-    return MainTabShellScope(
-      isInsideMainTabShell: true,
-      child: Scaffold(
-        backgroundColor: Colors.white,
-        body: IndexedStack(
-          index: _currentIndex > 2 ? _currentIndex - 1 : _currentIndex,
-          children: [
-            const HomeScreen(),
-            ChallengesScreen(
-              categoryFilter: widget.categoryFilter,
-              initialTab: widget.initialChallengesTab,
-            ),
-            const ActivityCenterScreen(showBackButton: false),
-            const MyProfileScreen(),
-          ],
-        ),
-        bottomNavigationBar: ArtableBottomNav(
-          currentIndex: _currentIndex,
-          onTabSelected: _onTabSelected,
-          variant: BottomNavVariant.standard,
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        _handleBackPress();
+      },
+      child: MainTabShellScope(
+        isInsideMainTabShell: true,
+        child: Scaffold(
+          backgroundColor: Colors.white,
+          body: IndexedStack(
+            index: _currentIndex > 2 ? _currentIndex - 1 : _currentIndex,
+            children: [
+              const HomeScreen(),
+              ChallengesScreen(
+                categoryFilter: widget.categoryFilter,
+                initialTab: widget.initialChallengesTab,
+              ),
+              const ActivityCenterScreen(showBackButton: false),
+              const MyProfileScreen(),
+            ],
+          ),
+          bottomNavigationBar: ArtableBottomNav(
+            currentIndex: _currentIndex,
+            onTabSelected: _onTabSelected,
+            variant: BottomNavVariant.standard,
+          ),
         ),
       ),
     );

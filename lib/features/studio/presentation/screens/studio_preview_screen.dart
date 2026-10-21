@@ -18,6 +18,8 @@ import 'package:artable_app/features/studio/presentation/widgets/recorded_video_
 import 'package:artable_app/features/studio/presentation/widgets/song_trimmer_sheet.dart';
 import 'package:artable_app/features/studio/presentation/widgets/video_crop_sheet.dart';
 import 'package:artable_app/features/studio/presentation/widgets/video_trimmer_sheet.dart';
+import 'package:artable_app/core/widgets/app_image.dart';
+import 'package:artable_app/features/studio/data/services/video_thumbnail_generator.dart';
 
 class StudioPreviewScreen extends StatefulWidget {
   const StudioPreviewScreen({
@@ -862,11 +864,25 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
                           child: GradientButton(
                             label: 'Next',
                             icon: const Icon(Icons.arrow_forward, color: Colors.white, size: 18),
-                            onPressed: () {
+                            onPressed: () async {
                               _videoController?.pause();
-                              context.push(
-                                '${AppRoutes.studioDetails}?id=${challenge['id']}$draftParam',
-                              );
+                              final recPath = studio.recordedVideoPath;
+                              if (recPath != null && recPath.isNotEmpty) {
+                                try {
+                                  final thumbFile = await VideoThumbnailGenerator.generateThumbnailFromVideo(recPath);
+                                  if (thumbFile != null && await thumbFile.exists()) {
+                                    studio.setSelectedThumbnailPath(thumbFile.path);
+                                    final bytes = await thumbFile.readAsBytes();
+                                    AppImage.cacheThumbnail(recPath, bytes);
+                                    AppImage.cacheThumbnail(thumbFile.path, bytes);
+                                  }
+                                } catch (_) {}
+                              }
+                              if (context.mounted) {
+                                context.push(
+                                  '${AppRoutes.studioDetails}?id=${challenge['id']}$draftParam',
+                                );
+                              }
                             },
                           ),
                         ),

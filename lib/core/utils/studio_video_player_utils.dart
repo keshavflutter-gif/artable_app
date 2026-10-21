@@ -39,7 +39,7 @@ class StudioVideoPlayerUtils {
         if (clean.startsWith('http://') || clean.startsWith('https://')) {
           try {
             debugPrint('Downloading remote draft clip for merging ($i/${inputPaths.length}): $clean');
-            final response = await http.get(Uri.parse(clean));
+            final response = await http.get(Uri.parse(clean)).timeout(const Duration(seconds: 15));
             if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
               final tempClipFile = File('${tempDir.path}/remote_clip_${timestamp}_$i.mp4');
               await tempClipFile.writeAsBytes(response.bodyBytes);

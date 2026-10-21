@@ -457,7 +457,7 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
                                     }
                                   },
                                   onContinue: () => context.push(
-                                    '${AppRoutes.studioPreview}?draft=${draft['id']}&id=${draft['challengeId']}',
+                                    '${AppRoutes.studioEditVideo}?draft=${draft['id']}&id=${draft['challengeId']}',
                                   ),
                                 ),
                               );

@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/app/theme/app_colors.dart';
+import 'package:artable_app/core/utils/media_url_utils.dart';
 import 'package:artable_app/core/widgets/app_back_header.dart';
 import 'package:artable_app/core/widgets/app_image.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
@@ -12,6 +13,8 @@ import 'package:artable_app/features/profile/data/models/my_videos_response.dart
 import 'package:artable_app/features/reels/presentation/bloc/reels_cubit.dart';
 import 'package:artable_app/features/profile/presentation/bloc/my_videos_cubit.dart';
 import 'package:artable_app/features/profile/presentation/bloc/my_videos_state.dart';
+import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
+import 'package:artable_app/features/profile/presentation/bloc/profile_cubit.dart';
 
 class MyVideosScreen extends StatefulWidget {
   const MyVideosScreen({super.key});
@@ -171,11 +174,55 @@ class _FigmaMyVideoCard extends StatelessWidget {
 
   final MyVideoItem item;
 
+  Map<String, dynamic> _enrichUiMap(BuildContext context, MyVideoItem item) {
+    final uiMap = item.toUiMap();
+    final profileUser = context.read<ProfileCubit>().user;
+    final authCubit = context.read<AuthCubit>();
+    final realUsername = (profileUser?.username?.trim().isNotEmpty == true
+            ? profileUser!.username!.trim()
+            : authCubit.username.trim())
+        .replaceAll('@', '');
+    final realFullName = (profileUser?.fullName?.trim().isNotEmpty == true
+            ? profileUser!.fullName!.trim()
+            : authCubit.fullName.trim());
+    final realAvatar = (profileUser?.profilePhotoUrl?.trim().isNotEmpty == true
+            ? profileUser!.profilePhotoUrl!.trim()
+            : authCubit.avatarUrl.trim());
+    final realUserId = profileUser?.id ?? authCubit.userId;
+
+    if (uiMap['username'] == null || (uiMap['username'] as String).isEmpty) {
+      uiMap['username'] = realUsername;
+    }
+    if (uiMap['handle'] == null || uiMap['handle'] == '@user' || (uiMap['handle'] as String).isEmpty) {
+      uiMap['handle'] = realUsername.isNotEmpty ? '@$realUsername' : '@user';
+    }
+    if (uiMap['creator'] == null || uiMap['creator'] == 'You' || (uiMap['creator'] as String).isEmpty) {
+      uiMap['creator'] = realFullName.isNotEmpty ? realFullName : realUsername;
+    }
+    if (uiMap['avatarUrl'] == null || (uiMap['avatarUrl'] as String).isEmpty || (uiMap['avatarUrl'] as String).contains('pravatar.cc')) {
+      if (realAvatar.isNotEmpty && !realAvatar.contains('pravatar.cc')) {
+        uiMap['avatarUrl'] = realAvatar;
+      }
+    }
+    if (uiMap['userId'] == null || (uiMap['userId'] as String).isEmpty) {
+      uiMap['userId'] = realUserId ?? '';
+      uiMap['user_id'] = realUserId ?? '';
+    }
+    uiMap['isMyVideo'] = true;
+    return uiMap;
+  }
+
   @override
   Widget build(BuildContext context) {
     final statusRaw = item.status.toLowerCase();
     final title = item.title.isNotEmpty ? item.title : 'Challenge Video';
-    final thumbnailUrl = item.thumbnailUrl;
+    final rawThumb = item.thumbnailUrl.trim();
+    final rawVideo = (item.videoUrl ?? '').trim();
+    final isThumbValid = rawThumb.isNotEmpty && !MediaUrlUtils.isDummyThumbnail(rawThumb);
+    final effectiveThumb = isThumbValid ? rawThumb : rawVideo;
+    final effectiveVideo = rawVideo.isNotEmpty
+        ? rawVideo
+        : (MediaUrlUtils.looksLikeVideoUrl(effectiveThumb) ? effectiveThumb : null);
     final views = item.viewsLabel;
     final likes = item.likesLabel;
     final date = item.dateLabel;
@@ -240,13 +287,13 @@ class _FigmaMyVideoCard extends StatelessWidget {
                       final challengeObj = item.challenge;
                       final challengeId = challengeObj?['id']?.toString() ?? '';
                       final routeId = item.id.isNotEmpty ? item.id : challengeId;
-                      final uiMap = item.toUiMap();
+                      final uiMap = _enrichUiMap(context, item);
                       context.read<ReelsCubit>().syncVideos([uiMap]);
                       context.push('/video-detail?id=$routeId', extra: uiMap);
                     },
                     child: AppImage(
-                      url: thumbnailUrl,
-                      videoUrl: item.videoUrl,
+                      url: effectiveThumb,
+                      videoUrl: effectiveVideo,
                       fit: BoxFit.cover,
                       isVideo: true,
                     ),
@@ -473,7 +520,7 @@ class _FigmaMyVideoCard extends StatelessWidget {
                               final challengeObj = item.challenge;
                               final challengeId = challengeObj?['id']?.toString() ?? '';
                               final routeId = item.id.isNotEmpty ? item.id : challengeId;
-                              final uiMap = item.toUiMap();
+                              final uiMap = _enrichUiMap(context, item);
                               context.read<ReelsCubit>().syncVideos([uiMap]);
                               context.push('/video-detail?id=$routeId', extra: uiMap);
                             },

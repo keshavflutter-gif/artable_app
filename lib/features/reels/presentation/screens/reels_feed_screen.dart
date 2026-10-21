@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:video_player/video_player.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'package:artable_app/app/theme/app_gradients.dart';
 import 'package:artable_app/features/reels/presentation/bloc/reels_cubit.dart';
@@ -238,6 +239,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
   }
 
   void _openSpeedBottomSheet() {
+    double modalSpeed = _playbackSpeed;
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -303,7 +305,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Text(
-                          '${_playbackSpeed.toStringAsFixed(1)}x',
+                          '${modalSpeed.toStringAsFixed(1)}x',
                           style: const TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w800,
@@ -318,7 +320,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
                     spacing: 10,
                     runSpacing: 10,
                     children: speedOptions.map((speed) {
-                      final isSelected = (_playbackSpeed - speed).abs() < 0.01;
+                      final isSelected = (modalSpeed - speed).abs() < 0.01;
                       final label = speed == 1.0 ? '1.0x Normal' : '${speed}x';
                       return ChoiceChip(
                         label: Text(label),
@@ -337,6 +339,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
                         ),
                         onSelected: (bool selected) {
                           if (selected) {
+                            modalSpeed = speed;
                             setState(() {
                               _playbackSpeed = speed;
                             });
@@ -377,13 +380,20 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
                       ),
                     ),
                     child: Slider(
-                      value: _playbackSpeed.clamp(0.4, 4.0),
+                      value: modalSpeed.clamp(0.4, 4.0),
                       min: 0.4,
                       max: 4.0,
                       divisions: 36,
-                      label: '${_playbackSpeed.toStringAsFixed(1)}x',
+                      label: '${modalSpeed.toStringAsFixed(1)}x',
                       onChanged: (val) {
                         final rounded = double.parse(val.toStringAsFixed(1));
+                        setModalState(() {
+                          modalSpeed = rounded;
+                        });
+                      },
+                      onChangeEnd: (val) {
+                        final rounded = double.parse(val.toStringAsFixed(1));
+                        modalSpeed = rounded;
                         setState(() {
                           _playbackSpeed = rounded;
                         });
@@ -413,6 +423,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
         children: [
           PageView.builder(
             controller: _pageController,
+            allowImplicitScrolling: true,
             onPageChanged: (page) {
               setState(() {
                 _currentPage = page;
@@ -661,8 +672,12 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
                           icon: Icons.share_outlined,
                           count: sharesText,
                           onTap: () {
-                            final vUrl = (reel['videoUrl'] as String?)?.isNotEmpty == true && reel['videoUrl'] != 'null'
-                                ? reel['videoUrl'] as String
+                            final rawUrl = reel['videoUrl'] ??
+                                reel['video_url'] ??
+                                reel['video'] ??
+                                reel['mediaUrl'];
+                            final vUrl = (rawUrl is String && rawUrl.isNotEmpty && rawUrl != 'null')
+                                ? rawUrl
                                 : '';
                             context.push(
                               '${AppRoutes.shareReport}?id=$reelId',
@@ -883,13 +898,23 @@ class _ReelVideoPlayer extends StatefulWidget {
   State<_ReelVideoPlayer> createState() => _ReelVideoPlayerState();
 }
 
-class _ReelVideoPlayerState extends State<_ReelVideoPlayer> {
+class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   VideoPlayerController? _controller;
+  final Map<int, VideoPlayerController> _clipControllers = {};
   bool _isInitializing = false;
   bool _isInitialized = false;
   int _currentClipIndex = 0;
   bool _isSwitchingClip = false;
   Timer? _playbackTimer;
+  bool _userPaused = false;
+  bool _isSeekingToStart = false;
+
+  VideoPlayerController? get _activeController =>
+      _hasMultiClips ? _clipControllers[_currentClipIndex] : _controller;
 
   List<String> get _effectiveMergedClips {
     if (widget.mergedClipPaths != null && widget.mergedClipPaths!.length > 1) {
@@ -920,9 +945,8 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer> {
   void initState() {
     super.initState();
     _logDebugInfo();
-    if (widget.isActive) {
-      _initVideo();
-    }
+    // Pre-initialize video immediately so current and upcoming reels are ready instantly
+    _initVideo();
   }
 
   void _logDebugInfo() {
@@ -969,49 +993,148 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer> {
         widget.mergedClipPaths != oldWidget.mergedClipPaths) {
       _logDebugInfo();
       _currentClipIndex = 0;
-      _disposeController();
-      if (widget.isActive) {
-        _initVideo();
-      }
+      _disposeControllers();
+      _initVideo();
     } else if (widget.isActive != oldWidget.isActive) {
+      final active = _activeController;
       if (widget.isActive) {
-        if (_controller == null) {
+        _userPaused = false;
+        if (active == null) {
           _initVideo();
         } else if (_isInitialized) {
-          _controller!.play();
+          active.play();
           if (widget.playbackSpeed != 1.0) {
-            _controller!.setPlaybackSpeed(widget.playbackSpeed);
+            try {
+              active.setPlaybackSpeed(widget.playbackSpeed);
+            } catch (_) {}
           }
         }
       } else {
-        if (_controller != null && _isInitialized) {
-          _controller!.pause();
+        if (active != null && _isInitialized) {
+          active.pause();
         }
       }
     } else if (widget.playbackSpeed != oldWidget.playbackSpeed) {
-      if (_controller != null && _isInitialized) {
-        _controller!.setPlaybackSpeed(widget.playbackSpeed);
+      final active = _activeController;
+      if (active != null && _isInitialized) {
+        try {
+          active.setPlaybackSpeed(widget.playbackSpeed);
+        } catch (_) {}
+      }
+      for (final c in _clipControllers.values) {
+        if (c.value.isInitialized) {
+          try {
+            c.setPlaybackSpeed(widget.playbackSpeed);
+          } catch (_) {}
+        }
       }
     }
   }
 
-  Future<void> _initVideo() async {
-    await StudioMusicPlaybackService.releaseForVideoPlayback();
+  Future<VideoPlayerController?> _createAndInitController(String resolvedUrl) async {
+    VideoPlayerController controller;
+    var cleanFilePath = resolvedUrl.startsWith('file://')
+        ? resolvedUrl.replaceFirst('file://', '')
+        : resolvedUrl;
+    final localFile = File(cleanFilePath);
 
-    final String targetUrl;
-    if (_hasMultiClips) {
-      final clips = _effectiveMergedClips;
-      if (_currentClipIndex >= clips.length) {
-        _currentClipIndex = 0;
-      }
-      targetUrl = clips[_currentClipIndex];
+    if (resolvedUrl.startsWith('file://') ||
+        localFile.existsSync() ||
+        resolvedUrl.startsWith('/data/') ||
+        resolvedUrl.startsWith('/storage/')) {
+      controller = VideoPlayerController.file(localFile);
     } else {
-      targetUrl = widget.videoUrl;
+      File? localCandidate;
+      try {
+        final uri = Uri.parse(resolvedUrl);
+        final fileName = uri.pathSegments.isNotEmpty ? uri.pathSegments.last : '';
+        if (fileName.isNotEmpty) {
+          final tempDir = await getTemporaryDirectory();
+          final candidate = File('${tempDir.path}/$fileName');
+          if (candidate.existsSync() && candidate.lengthSync() > 1024) {
+            localCandidate = candidate;
+          }
+        }
+      } catch (_) {}
+
+      if (localCandidate != null) {
+        controller = VideoPlayerController.file(localCandidate);
+      } else {
+        final uri = Uri.parse(resolvedUrl);
+        controller = VideoPlayerController.networkUrl(
+          uri,
+          videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
+        );
+      }
     }
+    await controller.initialize().timeout(const Duration(seconds: 15));
+    return controller;
+  }
 
-    final resolvedUrl = _resolvePlayableUrl(targetUrl);
+  Future<void> _initVideo() async {
+    unawaited(StudioMusicPlaybackService.releaseForVideoPlayback());
 
-    if (resolvedUrl == null || resolvedUrl.isEmpty) {
+    if (!_hasMultiClips) {
+      final targetUrl = widget.videoUrl;
+      final resolvedUrl = _resolvePlayableUrl(targetUrl);
+
+      if (resolvedUrl == null || resolvedUrl.isEmpty) {
+        if (mounted) {
+          setState(() {
+            _isInitializing = false;
+            _isInitialized = false;
+          });
+        }
+        return;
+      }
+
+      debugPrint('=== VIDEO PLAYBACK === Playback videoUrl: $resolvedUrl');
+      if (mounted) {
+        setState(() {
+          _isInitializing = true;
+        });
+      }
+
+      try {
+        final controller = await _createAndInitController(resolvedUrl);
+        if (!mounted) {
+          controller?.dispose();
+          return;
+        }
+
+        if (controller != null && controller.value.isInitialized) {
+          _controller = controller;
+          controller.addListener(_onVideoControllerUpdate);
+          controller.setLooping(true);
+          controller.setVolume(1.0);
+
+          // Mount VideoPlayer immediately on screen without sequential await delays!
+          if (mounted) {
+            setState(() {
+              _isInitialized = true;
+              _isInitializing = false;
+            });
+          }
+
+          final trimStart = widget.trimStart ?? 0.0;
+          if (trimStart > 0) {
+            unawaited(controller.seekTo(Duration(milliseconds: (trimStart * 1000).round())));
+          }
+          if (widget.playbackSpeed != 1.0) {
+            unawaited(controller.setPlaybackSpeed(widget.playbackSpeed));
+          }
+          if (widget.isActive) {
+            unawaited(controller.play());
+          } else {
+            unawaited(controller.pause());
+          }
+          debugPrint('=== VIDEO PLAYBACK === Single player initialized: true');
+          return;
+        }
+      } catch (e) {
+        debugPrint('=== VIDEO PLAYBACK === Single player error: $e');
+      }
+
       if (mounted) {
         setState(() {
           _isInitializing = false;
@@ -1021,76 +1144,98 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer> {
       return;
     }
 
-    debugPrint('=== VIDEO PLAYBACK === Playback videoUrl: $resolvedUrl');
+    // MULTI-CLIP (MERGED) PLAYLIST PATH:
+    final clips = _effectiveMergedClips;
+    _currentClipIndex = 0;
     if (mounted) {
       setState(() {
         _isInitializing = true;
       });
     }
 
-    try {
-      VideoPlayerController controller;
-      var cleanFilePath = resolvedUrl.startsWith('file://') ? resolvedUrl.replaceFirst('file://', '') : resolvedUrl;
-      final localFile = File(cleanFilePath);
+    // 1. Initialize Clip 0 immediately so playback starts instantly
+    final firstUrl = _resolvePlayableUrl(clips[0]);
+    if (firstUrl != null && firstUrl.isNotEmpty) {
+      try {
+        final c0 = await _createAndInitController(firstUrl);
+        if (c0 != null && c0.value.isInitialized && mounted) {
+          _clipControllers[0] = c0;
+          c0.addListener(_onVideoControllerUpdate);
+          c0.setLooping(false);
+          c0.setVolume(1.0);
 
-      if (resolvedUrl.startsWith('file://') || localFile.existsSync() || resolvedUrl.startsWith('/data/') || resolvedUrl.startsWith('/storage/')) {
-        controller = VideoPlayerController.file(localFile);
-      } else {
-        final uri = Uri.parse(resolvedUrl);
-        controller = VideoPlayerController.networkUrl(
-          uri,
-          videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
-        );
-      }
+          // Mount VideoPlayer immediately on screen!
+          if (mounted) {
+            setState(() {
+              _isInitialized = true;
+              _isInitializing = false;
+            });
+          }
 
-      _controller = controller;
-      await controller.initialize().timeout(const Duration(seconds: 25));
-      if (!mounted) return;
-      controller.addListener(_onVideoControllerUpdate);
-      final trimStart = widget.trimStart ?? 0.0;
-      if (trimStart > 0 && !_hasMultiClips) {
-        await controller.seekTo(Duration(milliseconds: (trimStart * 1000).round()));
+          if (widget.playbackSpeed != 1.0) {
+            unawaited(c0.setPlaybackSpeed(widget.playbackSpeed));
+          }
+          if (widget.isActive) {
+            unawaited(c0.play());
+          } else {
+            unawaited(c0.pause());
+          }
+          _startPlaybackTimer();
+        }
+      } catch (e) {
+        debugPrint('Error initializing first clip: $e');
       }
-      controller.setLooping(!_hasMultiClips);
-      controller.setVolume(1.0);
-      if (widget.playbackSpeed != 1.0) {
-        await controller.setPlaybackSpeed(widget.playbackSpeed);
-      }
-      if (widget.isActive) {
-        await controller.play();
-      }
-      debugPrint('=== VIDEO PLAYBACK === Network player initialized: true');
-      if (mounted) {
-        setState(() {
-          _isInitialized = true;
-          _isInitializing = false;
-        });
-      }
-      _startPlaybackTimer();
-      return;
-    } catch (e) {
-      debugPrint('=== VIDEO PLAYBACK === Primary player error: $e');
     }
 
-    if (mounted) {
-      setState(() {
-        _isInitializing = false;
-        _isInitialized = false;
-      });
+    // 2. Concurrently in background, PRELOAD ALL remaining clips!
+    for (int i = 1; i < clips.length; i++) {
+      final index = i;
+      final clipUrl = _resolvePlayableUrl(clips[index]);
+      if (clipUrl != null && clipUrl.isNotEmpty) {
+        unawaited(_preloadClip(index, clipUrl));
+      }
+    }
+  }
+
+  Future<void> _preloadClip(int index, String url) async {
+    try {
+      final c = await _createAndInitController(url);
+      if (c != null && c.value.isInitialized && mounted) {
+        c.setLooping(false);
+        c.setVolume(1.0);
+        if (widget.playbackSpeed != 1.0) {
+          try {
+            await c.setPlaybackSpeed(widget.playbackSpeed);
+          } catch (_) {}
+        }
+        await c.pause();
+        await c.seekTo(Duration.zero);
+        if (mounted) {
+          _clipControllers[index] = c;
+          debugPrint('Preloaded clip #$index successfully: $url');
+        } else {
+          c.dispose();
+        }
+      }
+    } catch (e) {
+      debugPrint('Error preloading clip #$index ($url): $e');
     }
   }
 
   void _startPlaybackTimer() {
     _playbackTimer?.cancel();
     if (!_hasMultiClips) return;
-    _playbackTimer = Timer.periodic(const Duration(milliseconds: 60), (_) {
+    _playbackTimer = Timer.periodic(const Duration(milliseconds: 20), (_) {
       if (!mounted || _isSwitchingClip || !_hasMultiClips) return;
-      final controller = _controller;
+      final controller = _activeController;
       if (controller != null && controller.value.isInitialized) {
         final posMs = controller.value.position.inMilliseconds;
         final durMs = controller.value.duration.inMilliseconds;
         final isPlaying = controller.value.isPlaying;
-        if (durMs > 0 && (posMs >= durMs - 200 || (!isPlaying && posMs >= durMs - 350 && posMs > 0))) {
+        final isCompleted = controller.value.isCompleted;
+        final leadMargin = (55 * widget.playbackSpeed).clamp(40, 200).round();
+
+        if (durMs > 0 && (isCompleted || posMs >= durMs - leadMargin || (!isPlaying && posMs >= durMs - (leadMargin + 80) && posMs > 0))) {
           _advanceToNextClip();
         }
       }
@@ -1098,7 +1243,7 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer> {
   }
 
   void _onVideoControllerUpdate() {
-    final controller = _controller;
+    final controller = _activeController;
     if (controller == null || !mounted || _isSwitchingClip) return;
 
     final trimStart = widget.trimStart ?? 0.0;
@@ -1109,11 +1254,18 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer> {
       final endMs = (trimEnd * 1000).round();
       final posMs = controller.value.position.inMilliseconds;
 
-      if (posMs >= endMs || posMs < startMs) {
-        controller.seekTo(Duration(milliseconds: startMs));
-        if (controller.value.isPlaying) {
-          controller.play();
-        }
+      if (!_isSeekingToStart && (posMs >= endMs || posMs < startMs)) {
+        _isSeekingToStart = true;
+        controller.seekTo(Duration(milliseconds: startMs)).then((_) {
+          if (mounted) {
+            _isSeekingToStart = false;
+            if (controller.value.isPlaying) {
+              controller.play();
+            }
+          }
+        }).catchError((_) {
+          if (mounted) _isSeekingToStart = false;
+        });
       }
     }
 
@@ -1121,7 +1273,9 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer> {
       final durMs = controller.value.duration.inMilliseconds;
       final posMs = controller.value.position.inMilliseconds;
       final isPlaying = controller.value.isPlaying;
-      if (durMs > 0 && (posMs >= durMs - 200 || (!isPlaying && posMs >= durMs - 350 && posMs > 0))) {
+      final isCompleted = controller.value.isCompleted;
+      final leadMargin = (55 * widget.playbackSpeed).clamp(40, 200).round();
+      if (durMs > 0 && (isCompleted || posMs >= durMs - leadMargin || (!isPlaying && posMs >= durMs - (leadMargin + 80) && posMs > 0))) {
         _advanceToNextClip();
       }
     }
@@ -1129,80 +1283,95 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer> {
 
   Future<void> _advanceToNextClip() async {
     final clips = _effectiveMergedClips;
-    if (_isSwitchingClip || clips.isEmpty) return;
+    if (_isSwitchingClip || clips.isEmpty || !_hasMultiClips) return;
     _isSwitchingClip = true;
+
+    final oldIndex = _currentClipIndex;
+    final nextIndex = (_currentClipIndex + 1) % clips.length;
+    final oldController = _clipControllers[oldIndex];
+    var nextController = _clipControllers[nextIndex];
+
     try {
-      final nextIndex = (_currentClipIndex + 1) % clips.length;
-      _currentClipIndex = nextIndex;
-      final nextUrl = clips[nextIndex];
-      await _switchClipController(nextUrl);
+      if (nextController == null || !nextController.value.isInitialized) {
+        final nextUrl = _resolvePlayableUrl(clips[nextIndex]);
+        if (nextUrl != null && nextUrl.isNotEmpty) {
+          nextController = await _createAndInitController(nextUrl);
+          if (nextController != null && mounted) {
+            _clipControllers[nextIndex] = nextController;
+          }
+        }
+      }
+
+      if (nextController != null && nextController.value.isInitialized && mounted) {
+        oldController?.removeListener(_onVideoControllerUpdate);
+
+        nextController.removeListener(_onVideoControllerUpdate);
+        nextController.addListener(_onVideoControllerUpdate);
+        nextController.setLooping(false);
+        nextController.setVolume(1.0);
+        if (widget.playbackSpeed != 1.0) {
+          try {
+            unawaited(nextController.setPlaybackSpeed(widget.playbackSpeed));
+          } catch (_) {}
+        }
+
+        // Start playing immediately before awaiting background seeks!
+        if (widget.isActive) {
+          unawaited(nextController.play());
+        }
+
+        _currentClipIndex = nextIndex;
+        if (mounted) {
+          setState(() {
+            _isInitialized = true;
+          });
+        }
+
+        // Background maintenance on old controller
+        unawaited(oldController?.pause());
+        unawaited(oldController?.seekTo(Duration.zero));
+
+        // Background maintenance: ensure upcoming clip is primed at 0
+        final upcomingIndex = (nextIndex + 1) % clips.length;
+        final upcomingController = _clipControllers[upcomingIndex];
+        if (upcomingController != null && upcomingController.value.isInitialized) {
+          if (widget.playbackSpeed != 1.0) {
+            try {
+              unawaited(upcomingController.setPlaybackSpeed(widget.playbackSpeed));
+            } catch (_) {}
+          }
+          unawaited(upcomingController.seekTo(Duration.zero));
+        } else {
+          final upcomingUrl = _resolvePlayableUrl(clips[upcomingIndex]);
+          if (upcomingUrl != null && upcomingUrl.isNotEmpty) {
+            unawaited(_preloadClip(upcomingIndex, upcomingUrl));
+          }
+        }
+      }
     } catch (e) {
       debugPrint('Error advancing reel clip: $e');
     } finally {
-      _isSwitchingClip = false;
+      final cooldownMs = (60 / widget.playbackSpeed).clamp(25, 70).round();
+      Future.delayed(Duration(milliseconds: cooldownMs), () {
+        if (mounted) _isSwitchingClip = false;
+      });
     }
   }
 
-  Future<void> _switchClipController(String nextUrl) async {
-    final resolvedUrl = _resolvePlayableUrl(nextUrl);
-    if (resolvedUrl == null || resolvedUrl.isEmpty) return;
-
-    final oldController = _controller;
-    try {
-      VideoPlayerController controller;
-      var cleanFilePath = resolvedUrl.startsWith('file://') ? resolvedUrl.replaceFirst('file://', '') : resolvedUrl;
-      final localFile = File(cleanFilePath);
-
-      if (resolvedUrl.startsWith('file://') || localFile.existsSync() || resolvedUrl.startsWith('/data/') || resolvedUrl.startsWith('/storage/')) {
-        controller = VideoPlayerController.file(localFile);
-      } else {
-        final uri = Uri.parse(resolvedUrl);
-        controller = VideoPlayerController.networkUrl(
-          uri,
-          videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
-        );
-      }
-
-      await controller.initialize().timeout(const Duration(seconds: 15));
-      if (!mounted) {
-        controller.dispose();
-        return;
-      }
-
-      oldController?.removeListener(_onVideoControllerUpdate);
-      await oldController?.pause();
-      oldController?.dispose();
-
-      controller.addListener(_onVideoControllerUpdate);
-      controller.setLooping(false);
-      controller.setVolume(1.0);
-      if (widget.playbackSpeed != 1.0) {
-        await controller.setPlaybackSpeed(widget.playbackSpeed);
-      }
-
-      _controller = controller;
-      if (widget.isActive) {
-        await controller.play();
-      }
-
-      if (mounted) {
-        setState(() {
-          _isInitialized = true;
-          _isInitializing = false;
-        });
-      }
-      _startPlaybackTimer();
-    } catch (e) {
-      debugPrint('Error switching to next clip in reel: $e');
-    }
-  }
-
-  void _disposeController() {
+  void _disposeControllers() {
     _playbackTimer?.cancel();
+    _playbackTimer = null;
     _controller?.removeListener(_onVideoControllerUpdate);
     _controller?.pause();
     _controller?.dispose();
     _controller = null;
+
+    for (final c in _clipControllers.values) {
+      c.removeListener(_onVideoControllerUpdate);
+      c.pause();
+      c.dispose();
+    }
+    _clipControllers.clear();
     _isInitialized = false;
     _isInitializing = false;
   }
@@ -1210,17 +1379,20 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer> {
   @override
   void dispose() {
     _playbackTimer?.cancel();
-    _disposeController();
+    _disposeControllers();
     super.dispose();
   }
 
   void _togglePlayPause() {
-    if (_controller != null && _isInitialized) {
+    final active = _activeController;
+    if (active != null && _isInitialized) {
       setState(() {
-        if (_controller!.value.isPlaying) {
-          _controller!.pause();
+        if (active.value.isPlaying) {
+          active.pause();
+          _userPaused = true;
         } else {
-          _controller!.play();
+          active.play();
+          _userPaused = false;
         }
       });
     }
@@ -1228,6 +1400,7 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: _togglePlayPause,
@@ -1270,29 +1443,30 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer> {
 
           // 3. Actual Video Player View
           if (_isInitialized &&
-              _controller != null &&
-              _controller!.value.isInitialized)
+              _activeController != null &&
+              _activeController!.value.isInitialized)
             FittedBox(
               fit: BoxFit.cover,
               clipBehavior: Clip.hardEdge,
               child: SizedBox(
-                width: _controller!.value.size.width > 0
-                    ? _controller!.value.size.width
+                width: _activeController!.value.size.width > 0
+                    ? _activeController!.value.size.width
                     : 360,
-                height: _controller!.value.size.height > 0
-                    ? _controller!.value.size.height
+                height: _activeController!.value.size.height > 0
+                    ? _activeController!.value.size.height
                     : 640,
                 child: VideoPlayer(
-                  key: ValueKey(_controller),
-                  _controller!,
+                  key: ValueKey(_activeController),
+                  _activeController!,
                 ),
               ),
             ),
 
-          // 4. Play / Pause Overlay Icon
+          // 4. Play / Pause Overlay Icon (Only when user explicitly paused)
           if (_isInitialized &&
-              _controller != null &&
-              !_controller!.value.isPlaying)
+              _activeController != null &&
+              _userPaused &&
+              !_activeController!.value.isPlaying)
             Center(
               child: Container(
                 width: 64,

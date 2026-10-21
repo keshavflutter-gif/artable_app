@@ -92,6 +92,26 @@ class ReelsCubit extends Cubit<ReelsState> {
           }
           changed = true;
         }
+        if (nv['handle'] != null && nv['handle'] != '@user' && (existing['handle'] == null || existing['handle'] == '@user')) {
+          existing['handle'] = nv['handle'];
+          changed = true;
+        }
+        if (nv['username'] != null && (nv['username'] as String).isNotEmpty && (existing['username'] == null || (existing['username'] as String).isEmpty)) {
+          existing['username'] = nv['username'];
+          changed = true;
+        }
+        if (nv['creator'] != null && nv['creator'] != 'You' && (existing['creator'] == null || existing['creator'] == 'You')) {
+          existing['creator'] = nv['creator'];
+          changed = true;
+        }
+        if (nv['user'] != null && existing['user'] == null) {
+          existing['user'] = nv['user'];
+          changed = true;
+        }
+        if (nv['avatarUrl'] != null && (nv['avatarUrl'] as String).isNotEmpty && (existing['avatarUrl'] == null || (existing['avatarUrl'] as String).isEmpty)) {
+          existing['avatarUrl'] = nv['avatarUrl'];
+          changed = true;
+        }
       }
     }
 

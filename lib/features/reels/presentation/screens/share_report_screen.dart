@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import 'package:artable_app/app/theme/app_colors.dart';
@@ -8,6 +9,7 @@ import 'package:artable_app/data/datasources/mock_data.dart';
 import 'package:artable_app/core/utils/reel_helpers.dart';
 import 'package:artable_app/core/widgets/app_screen_header.dart';
 import 'package:artable_app/core/widgets/secondary_outline_button.dart';
+import 'package:artable_app/features/reels/presentation/bloc/reels_cubit.dart';
 
 import 'package:artable_app/core/utils/media_url_utils.dart';
 import 'package:artable_app/core/utils/video_share_helper.dart';
@@ -43,13 +45,28 @@ class _ShareReportScreenState extends State<ShareReportScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final reel = (widget.reelId != null && widget.reelId!.trim().isNotEmpty)
+    Map<String, dynamic>? reel = (widget.reelId != null && widget.reelId!.trim().isNotEmpty)
         ? ReelHelpers.reelById(widget.reelId!)
         : null;
+    if (reel == null && widget.reelId != null && widget.reelId!.trim().isNotEmpty) {
+      try {
+        reel = context.read<ReelsCubit>().getVideo(widget.reelId!);
+      } catch (_) {}
+    }
+
     final rawUrl = (widget.videoUrl != null && widget.videoUrl!.trim().isNotEmpty)
         ? widget.videoUrl!.trim()
-        : (reel?['videoUrl']?.toString() ?? reel?['video_url']?.toString() ?? '');
+        : (reel?['videoUrl']?.toString() ??
+           reel?['video_url']?.toString() ??
+           reel?['video']?.toString() ??
+           reel?['mediaUrl']?.toString() ??
+           '');
     final resolvedUrl = MediaUrlUtils.resolve(rawUrl);
+    final effectiveUrl = resolvedUrl.isNotEmpty
+        ? resolvedUrl
+        : (widget.reelId != null && widget.reelId!.trim().isNotEmpty
+            ? 'https://artable.app/video/${widget.reelId}'
+            : '');
     final resolvedTitle = widget.title ?? reel?['title']?.toString();
     final resolvedCaption = widget.caption ?? reel?['caption']?.toString();
 
@@ -88,27 +105,29 @@ class _ShareReportScreenState extends State<ShareReportScreen> {
                         final id = opt['id'] as String;
                         final shared = _sharedOptionId == id;
                         return GestureDetector(
-                          onTap: () async {
-                            if (id != 'copy' && resolvedUrl.isEmpty) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Video is not available to share.'),
-                                ),
-                              );
-                              return;
-                            }
-                            setState(() => _sharedOptionId = id);
-                            await VideoShareHelper.shareVideo(
-                              context: context,
-                              optionId: id,
-                              videoUrl: resolvedUrl,
-                              title: resolvedTitle,
-                              caption: resolvedCaption,
-                            );
-                            if (mounted) {
-                              setState(() => _sharedOptionId = null);
-                            }
-                          },
+                          onTap: _sharedOptionId != null
+                              ? null
+                              : () async {
+                                  if (id == 'social' && effectiveUrl.isEmpty) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Video is not available to share.'),
+                                      ),
+                                    );
+                                    return;
+                                  }
+                                  setState(() => _sharedOptionId = id);
+                                  await VideoShareHelper.shareVideo(
+                                    context: context,
+                                    optionId: id,
+                                    videoUrl: effectiveUrl,
+                                    title: resolvedTitle,
+                                    caption: resolvedCaption,
+                                  );
+                                  if (mounted) {
+                                    setState(() => _sharedOptionId = null);
+                                  }
+                                },
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [

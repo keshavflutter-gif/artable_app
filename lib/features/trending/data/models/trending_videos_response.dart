@@ -1,4 +1,5 @@
 import 'package:artable_app/core/utils/reel_helpers.dart';
+import 'package:artable_app/core/utils/media_url_utils.dart';
 
 class TrendingVideosResponse {
   const TrendingVideosResponse({
@@ -306,7 +307,8 @@ class TrendingVideoItem {
     if (thumbnailUrl != null &&
         thumbnailUrl!.trim().isNotEmpty &&
         thumbnailUrl!.trim() != 'null' &&
-        !thumbnailUrl!.contains('storage.example')) {
+        !thumbnailUrl!.contains('storage.example') &&
+        !MediaUrlUtils.isDummyThumbnail(thumbnailUrl)) {
       return thumbnailUrl!.trim();
     }
     if (videoUrl != null &&
@@ -314,12 +316,6 @@ class TrendingVideoItem {
         videoUrl!.trim() != 'null' &&
         !videoUrl!.contains('storage.example')) {
       return videoUrl!.trim();
-    }
-    if (challenge?.bannerUrl != null && challenge!.bannerUrl!.trim().isNotEmpty) {
-      return challenge!.bannerUrl!.trim();
-    }
-    if (category?.imageUrl != null && category!.imageUrl!.trim().isNotEmpty) {
-      return category!.imageUrl!.trim();
     }
     return '';
   }
@@ -564,6 +560,7 @@ class TrendingVideoItem {
       'musicName': displayMusicName,
       'avatarUrl': displayAvatar,
       'handle': resolvedHandle,
+      'username': user?.username ?? resolvedHandle.replaceAll('@', ''),
       'creator': resolvedCreator,
       'talentScore': talentScore ?? 0.0,
       'userRating': talentScore ?? 0.0,
@@ -823,7 +820,10 @@ class TrendingVideoItem {
     for (final c in candidates) {
       if (c != null) {
         final str = c.toString().trim();
-        if (str.isNotEmpty && str != 'null') return str;
+        final lower = str.toLowerCase();
+        if (str.isNotEmpty && str != 'null' && lower != 'you' && lower != '@user' && lower != 'user') {
+          return str;
+        }
       }
     }
     return null;

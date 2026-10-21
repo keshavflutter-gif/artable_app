@@ -4,9 +4,11 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
+import 'package:video_player/video_player.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
 
 import 'package:artable_app/core/utils/media_url_utils.dart';
+import 'package:artable_app/features/studio/data/services/video_thumbnail_generator.dart';
 
 class AppImage extends StatelessWidget {
   const AppImage({
@@ -31,15 +33,31 @@ class AppImage extends StatelessWidget {
   final bool isVideo;
 
   static void cacheThumbnail(String key, Uint8List bytes) {
-    final cleanKey = MediaUrlUtils.resolve(key).trim();
-    if (cleanKey.isEmpty || bytes.isEmpty) return;
-    _VideoThumbnailView._cache[cleanKey] = bytes;
+    if (key.trim().isEmpty || bytes.isEmpty) return;
+    var rawKey = key.trim();
+    if (rawKey.startsWith('file://')) rawKey = rawKey.replaceFirst('file://', '');
+    final cleanKey = MediaUrlUtils.resolve(rawKey).trim();
+
     _VideoThumbnailView._cache[key.trim()] = bytes;
+    _VideoThumbnailView._cache[rawKey] = bytes;
+    if (cleanKey.isNotEmpty) _VideoThumbnailView._cache[cleanKey] = bytes;
+
+    final basename = rawKey.split(RegExp(r'[/\\]')).last;
+    if (basename.isNotEmpty) _VideoThumbnailView._cache[basename] = bytes;
+
     try {
       getTemporaryDirectory().then((tempDir) async {
         try {
-          final cacheFile = File('${tempDir.path}/vthumb_${cleanKey.hashCode.abs()}.jpg');
-          await cacheFile.writeAsBytes(bytes);
+          final cacheFile = File('${tempDir.path}/vthumb_${rawKey.hashCode.abs()}.jpg');
+          await cacheFile.writeAsBytes(bytes, flush: true);
+          if (cleanKey.isNotEmpty && cleanKey != rawKey) {
+            final cleanFile = File('${tempDir.path}/vthumb_${cleanKey.hashCode.abs()}.jpg');
+            await cleanFile.writeAsBytes(bytes, flush: true);
+          }
+          if (basename.isNotEmpty) {
+            final baseFile = File('${tempDir.path}/vthumb_${basename.hashCode.abs()}.jpg');
+            await baseFile.writeAsBytes(bytes, flush: true);
+          }
         } catch (_) {}
       }).catchError((_) {});
     } catch (_) {}
@@ -89,7 +107,7 @@ class AppImage extends StatelessWidget {
     final isUrlEmpty = cleanUrl.isEmpty;
     final hasValidThumbnail = !isUrlDummy && !isUrlVideo && !isUrlEmpty;
 
-    // 1. If we already have a real valid image thumbnail URL (remote or local), load it directly for instant display
+    // 1. If we already have a real valid image thumbnail URL (remote or local), load it directly
     if (hasValidThumbnail && (cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://'))) {
       img = CachedNetworkImage(
         imageUrl: cleanUrl,
@@ -188,7 +206,9 @@ class _VideoThumbnailView extends StatefulWidget {
 
 class _VideoThumbnailViewState extends State<_VideoThumbnailView> {
   Uint8List? _bytes;
-  bool _failed = false;
+  VideoPlayerController? _controller;
+  bool _isPlayerInitialized = false;
+  bool _isDisposed = false;
 
   @override
   void initState() {
@@ -200,169 +220,189 @@ class _VideoThumbnailViewState extends State<_VideoThumbnailView> {
   void didUpdateWidget(covariant _VideoThumbnailView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.videoSource != widget.videoSource) {
+      _controller?.dispose();
+      _controller = null;
+      _isPlayerInitialized = false;
       _loadThumbnail();
     }
   }
 
+  @override
+  void dispose() {
+    _isDisposed = true;
+    _controller?.dispose();
+    _controller = null;
+    super.dispose();
+  }
+
   Future<void> _loadThumbnail() async {
-    final src = widget.videoSource.trim();
-    if (src.isEmpty) {
-      if (mounted) setState(() => _failed = true);
-      return;
+    var src = widget.videoSource.trim();
+    if (src.startsWith('file://')) {
+      src = src.replaceFirst('file://', '');
     }
+    src = MediaUrlUtils.resolve(src).trim();
+    if (src.isEmpty) return;
 
     // 1. Check in-memory RAM cache
     if (_VideoThumbnailView._cache.containsKey(src)) {
       if (mounted) {
         setState(() {
           _bytes = _VideoThumbnailView._cache[src];
-          _failed = false;
         });
       }
       return;
     }
 
-    _failed = false;
-    _bytes = null;
+    final basename = src.split(RegExp(r'[/\\]')).last;
+    if (basename.isNotEmpty && _VideoThumbnailView._cache.containsKey(basename)) {
+      if (mounted) {
+        setState(() {
+          _bytes = _VideoThumbnailView._cache[basename];
+        });
+      }
+      return;
+    }
 
+    final keyHash = src.hashCode.abs().toString();
+
+    // 2. Check disk cache
+    try {
+      final tempDir = await getTemporaryDirectory();
+      final cacheFile = File('${tempDir.path}/vthumb_$keyHash.jpg');
+      if (await cacheFile.exists() && await cacheFile.length() > 0) {
+        final diskBytes = await cacheFile.readAsBytes();
+        if (diskBytes.isNotEmpty) {
+          _VideoThumbnailView._cache[src] = diskBytes;
+          if (basename.isNotEmpty) {
+            _VideoThumbnailView._cache[basename] = diskBytes;
+          }
+          if (mounted) {
+            setState(() {
+              _bytes = diskBytes;
+            });
+          }
+          return;
+        }
+      }
+    } catch (_) {}
+
+    final isRemote = src.startsWith('http://') || src.startsWith('https://');
+
+    // 3. Launch VideoPlayerController as instant visual fallback
+    if (_controller == null && !_isPlayerInitialized) {
+      _initVideoPlayer(src, isRemote);
+    }
+
+    // 4. Extract JPEG frame in background for fast caching
     final future = _VideoThumbnailView._inFlight.putIfAbsent(src, () async {
+      Uint8List? data;
       try {
-        // 2. Check disk cache
-        try {
-          final tempDir = await getTemporaryDirectory();
-          final cacheFile = File('${tempDir.path}/vthumb_${src.hashCode.abs()}.jpg');
-          if (await cacheFile.exists() && await cacheFile.length() > 0) {
-            final diskBytes = await cacheFile.readAsBytes();
-            if (diskBytes.isNotEmpty) {
-              _VideoThumbnailView._cache[src] = diskBytes;
-              return diskBytes;
-            }
+        final genFile = await VideoThumbnailGenerator.generateThumbnailFromVideo(src);
+        if (genFile != null && await genFile.exists()) {
+          final bytes = await genFile.readAsBytes();
+          if (bytes.isNotEmpty) {
+            data = bytes;
           }
-        } catch (_) {}
-
-        Uint8List? data;
-
-        // 3. Direct extraction using VideoThumbnail.thumbnailData
-        try {
-          data = await VideoThumbnail.thumbnailData(
-            video: src,
-            imageFormat: ImageFormat.JPEG,
-            maxWidth: 512,
-            quality: 75,
-            timeMs: 500,
-          );
-          if (data == null || data.isEmpty) {
-            data = await VideoThumbnail.thumbnailData(
-              video: src,
-              imageFormat: ImageFormat.JPEG,
-              maxWidth: 512,
-              quality: 75,
-              timeMs: 0,
-            );
-          }
-        } catch (e) {
-          debugPrint('VideoThumbnail.thumbnailData direct attempt error for $src: $e');
         }
+      } catch (_) {}
 
-        // 4. Try thumbnailFile if thumbnailData didn't yield bytes
+      try {
         if (data == null || data.isEmpty) {
-          try {
-            final tempDir = await getTemporaryDirectory();
-            final outPath = '${tempDir.path}/vthumb_${src.hashCode.abs()}.jpg';
-            var generatedPath = await VideoThumbnail.thumbnailFile(
-              video: src,
-              thumbnailPath: outPath,
-              imageFormat: ImageFormat.JPEG,
-              maxWidth: 512,
-              quality: 75,
-              timeMs: 500,
-            );
-            if (generatedPath == null || generatedPath.isEmpty) {
-              generatedPath = await VideoThumbnail.thumbnailFile(
-                video: src,
-                thumbnailPath: outPath,
-                imageFormat: ImageFormat.JPEG,
-                maxWidth: 512,
-                quality: 75,
-                timeMs: 0,
-              );
-            }
-            if (generatedPath != null && generatedPath.isNotEmpty) {
-              final f = File(generatedPath);
-              if (await f.exists() && await f.length() > 0) {
-                data = await f.readAsBytes();
-              }
-            }
-          } catch (e) {
-            debugPrint('VideoThumbnail.thumbnailFile direct attempt error for $src: $e');
-          }
-        }
-
-        // 5. If remote HTTP/HTTPS video URL extraction failed directly on device,
-        // download the first segment locally to guarantee 100% reliable local extraction
-        if ((data == null || data.isEmpty) &&
-            (src.startsWith('http://') || src.startsWith('https://'))) {
-          try {
-            final tempDir = await getTemporaryDirectory();
-            final tempVideoFile = File('${tempDir.path}/vdl_${src.hashCode.abs()}.mp4');
-
-            if (!await tempVideoFile.exists() || await tempVideoFile.length() == 0) {
-              final client = http.Client();
+          if (!isRemote) {
+          final f = File(src);
+          if (await f.exists()) {
+            for (final t in [0, 200, 500]) {
               try {
-                final response = await client.send(http.Request('GET', Uri.parse(src)));
-                if (response.statusCode >= 200 && response.statusCode < 300) {
-                  final sink = tempVideoFile.openWrite();
-                  int totalBytes = 0;
-                  const maxBytesToRead = 3 * 1024 * 1024; // 3MB is plenty for video headers & initial frames
-                  await for (final chunk in response.stream) {
-                    sink.add(chunk);
-                    totalBytes += chunk.length;
-                    if (totalBytes >= maxBytesToRead) break;
-                  }
-                  await sink.flush();
-                  await sink.close();
-                }
-              } finally {
-                client.close();
-              }
-            }
-
-            if (await tempVideoFile.exists() && await tempVideoFile.length() > 0) {
-              data = await VideoThumbnail.thumbnailData(
-                video: tempVideoFile.path,
-                imageFormat: ImageFormat.JPEG,
-                maxWidth: 512,
-                quality: 75,
-                timeMs: 500,
-              );
-              if (data == null || data.isEmpty) {
                 data = await VideoThumbnail.thumbnailData(
-                  video: tempVideoFile.path,
+                  video: f.path,
                   imageFormat: ImageFormat.JPEG,
                   maxWidth: 512,
-                  quality: 75,
-                  timeMs: 0,
+                  quality: 80,
+                  timeMs: t,
                 );
-              }
+                if (data != null && data.isNotEmpty) break;
+              } catch (_) {}
             }
-          } catch (e) {
-            debugPrint('Local segment download & thumbnail extraction error for $src: $e');
+          }
+        } else {
+          // Remote extraction direct attempt
+          for (final t in [0, 200]) {
+            try {
+              data = await VideoThumbnail.thumbnailData(
+                video: src,
+                imageFormat: ImageFormat.JPEG,
+                maxWidth: 512,
+                quality: 80,
+                timeMs: t,
+              );
+              if (data != null && data.isNotEmpty) break;
+            } catch (_) {}
+          }
+
+          // Remote download first segment to extract locally
+          if (data == null || data.isEmpty) {
+            File? tempVideoFile;
+            try {
+              final tempDir = await getTemporaryDirectory();
+              tempVideoFile = File('${tempDir.path}/vdl_$keyHash.mp4');
+
+              if (!await tempVideoFile.exists() || await tempVideoFile.length() == 0) {
+                final client = http.Client();
+                try {
+                  final req = http.Request('GET', Uri.parse(src));
+                  final response = await client.send(req).timeout(const Duration(seconds: 5));
+                  if (response.statusCode >= 200 && response.statusCode < 300) {
+                    final sink = tempVideoFile.openWrite();
+                    int totalBytes = 0;
+                    const maxBytes = 4 * 1024 * 1024;
+                    await for (final chunk in response.stream.timeout(const Duration(seconds: 5))) {
+                      sink.add(chunk);
+                      totalBytes += chunk.length;
+                      if (totalBytes >= maxBytes) break;
+                    }
+                    await sink.flush();
+                    await sink.close();
+                  }
+                } finally {
+                  client.close();
+                }
+              }
+
+              if (await tempVideoFile.exists() && await tempVideoFile.length() > 0) {
+                for (final t in [0, 200, 500]) {
+                  try {
+                    data = await VideoThumbnail.thumbnailData(
+                      video: tempVideoFile.path,
+                      imageFormat: ImageFormat.JPEG,
+                      maxWidth: 512,
+                      quality: 80,
+                      timeMs: t,
+                    );
+                    if (data != null && data.isNotEmpty) break;
+                  } catch (_) {}
+                }
+              }
+            } catch (e) {
+              debugPrint('Segment download thumbnail error: $e');
+            }
           }
         }
+      }
 
-        // 6. Save extracted bytes to memory and disk cache
         if (data != null && data.isNotEmpty) {
+          _VideoThumbnailView._cache[src] = data;
+          if (basename.isNotEmpty) {
+            _VideoThumbnailView._cache[basename] = data;
+          }
           try {
             final tempDir = await getTemporaryDirectory();
-            final cacheFile = File('${tempDir.path}/vthumb_${src.hashCode.abs()}.jpg');
+            final cacheFile = File('${tempDir.path}/vthumb_$keyHash.jpg');
             await cacheFile.writeAsBytes(data, flush: true);
           } catch (_) {}
-
-          _VideoThumbnailView._cache[src] = data;
           return data;
         }
       } catch (e) {
-        debugPrint('_VideoThumbnailView error generating thumb for $src: $e');
+        debugPrint('Thumbnail generation error for $src: $e');
       } finally {
         _VideoThumbnailView._inFlight.remove(src);
       }
@@ -370,15 +410,46 @@ class _VideoThumbnailViewState extends State<_VideoThumbnailView> {
     });
 
     final resBytes = await future;
-    if (!mounted) return;
-    setState(() {
-      if (resBytes != null && resBytes.isNotEmpty) {
+    if (_isDisposed || !mounted) return;
+    if (resBytes != null && resBytes.isNotEmpty) {
+      setState(() {
         _bytes = resBytes;
-        _failed = false;
-      } else {
-        _failed = true;
-      }
-    });
+        _controller?.dispose();
+        _controller = null;
+        _isPlayerInitialized = false;
+      });
+    }
+  }
+
+  void _initVideoPlayer(String src, bool isRemote) {
+    try {
+      final controller = isRemote
+          ? VideoPlayerController.networkUrl(Uri.parse(src))
+          : VideoPlayerController.file(File(src));
+      _controller = controller;
+      controller.initialize().then((_) {
+        if (_isDisposed || !mounted || _controller != controller) {
+          controller.dispose();
+          return;
+        }
+        controller.setVolume(0.0);
+        controller.seekTo(const Duration(milliseconds: 200)).then((_) {
+          if (_isDisposed || !mounted || _controller != controller) return;
+          controller.pause();
+          setState(() {
+            _isPlayerInitialized = true;
+          });
+        }).catchError((_) {
+          if (_isDisposed || !mounted || _controller != controller) return;
+          controller.pause();
+          setState(() {
+            _isPlayerInitialized = true;
+          });
+        });
+      }).catchError((e) {
+        debugPrint('VideoPlayer fallback init error for $src: $e');
+      });
+    } catch (_) {}
   }
 
   @override
@@ -389,40 +460,27 @@ class _VideoThumbnailViewState extends State<_VideoThumbnailView> {
         width: widget.width,
         height: widget.height,
         fit: widget.fit,
-        errorBuilder: (context, error, stackTrace) => _buildFallback(),
+        errorBuilder: (context, error, stackTrace) => widget.fallback,
       );
     }
-    if (_failed) {
-      return _buildFallback();
-    }
 
-    // While loading, if a valid (non-dummy) fallback image is available, show it as placeholder
-    final fb = widget.fallbackImageUrl;
-    if (fb != null && fb.isNotEmpty && !MediaUrlUtils.isDummyThumbnail(fb)) {
-      return CachedNetworkImage(
-        imageUrl: fb,
+    if (_isPlayerInitialized && _controller != null && _controller!.value.isInitialized) {
+      return SizedBox(
         width: widget.width,
         height: widget.height,
-        fit: widget.fit,
-        errorWidget: (context, url, error) => widget.fallback,
-        placeholder: (context, url) => widget.fallback,
+        child: ClipRect(
+          child: FittedBox(
+            fit: widget.fit,
+            child: SizedBox(
+              width: _controller!.value.size.width > 0 ? _controller!.value.size.width : 200,
+              height: _controller!.value.size.height > 0 ? _controller!.value.size.height : 200,
+              child: VideoPlayer(_controller!),
+            ),
+          ),
+        ),
       );
     }
 
-    return widget.fallback;
-  }
-
-  Widget _buildFallback() {
-    final fb = widget.fallbackImageUrl;
-    if (fb != null && fb.isNotEmpty && !MediaUrlUtils.isDummyThumbnail(fb)) {
-      return CachedNetworkImage(
-        imageUrl: fb,
-        width: widget.width,
-        height: widget.height,
-        fit: widget.fit,
-        errorWidget: (context, url, error) => widget.fallback,
-      );
-    }
     return widget.fallback;
   }
 }

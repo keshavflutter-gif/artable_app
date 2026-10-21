@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_typography.dart';
 import 'package:artable_app/features/challenges/presentation/bloc/challenges_cubit.dart';
@@ -36,14 +37,20 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
     final isLoading =
         provider.isLoadingCategories && !provider.hasLoadedCategories;
 
-    return AppShell(
-      currentPath: '/categories',
-      body: Column(
-        children: [
-          AppPageHeader(
-            title: 'Challenge Categories',
-            onBack: () => context.go('/home'),
-          ),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        context.go(AppRoutes.home);
+      },
+      child: AppShell(
+        currentPath: '/categories',
+        body: Column(
+          children: [
+            AppPageHeader(
+              title: 'Challenge Categories',
+              onBack: () => context.go(AppRoutes.home),
+            ),
           SearchBarWidget(
             placeholder: 'Search categories...',
             onChanged: (value) =>
@@ -130,8 +137,9 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
           ),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 }
 
 class _CategoryHero extends StatelessWidget {

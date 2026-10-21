@@ -214,4 +214,17 @@ class StoredProfileDetails {
   final String? username;
   final String? category;
   final List<Map<String, dynamic>>? socialLinks;
+
+  String get fullName {
+    if (displayName != null && displayName!.trim().isNotEmpty) {
+      return displayName!.trim();
+    }
+    final parts = [firstName, middleName, lastName]
+        .whereType<String>()
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+    if (parts.isNotEmpty) return parts.join(' ');
+    return username ?? '';
+  }
 }

@@ -585,7 +585,18 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                         child: Material(
                           color: Colors.transparent,
                           child: InkWell(
-                            onTap: () => context.push(AppRoutes.shareReport),
+                            onTap: () {
+                              final name = _user?.fullName ?? _user?.username ?? 'Creator';
+                              final profileId = widget.userId ?? _user?.id ?? '';
+                              context.push(
+                                AppRoutes.shareReport,
+                                extra: {
+                                  'title': 'Check out $name on Artable!',
+                                  'caption': 'Follow $name on Artable to watch amazing videos!',
+                                  'videoUrl': 'https://artable.app/profile/$profileId',
+                                },
+                              );
+                            },
                             borderRadius: BorderRadius.circular(24),
                             child: Container(
                               decoration: BoxDecoration(
@@ -646,8 +657,13 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                             fit: StackFit.expand,
                             children: [
                               AppImage(
-                                url: topReel.first['imageUrl'] as String? ?? '',
+                                url: ((topReel.first['imageUrl'] as String? ?? '').isNotEmpty &&
+                                        !MediaUrlUtils.isDummyThumbnail(topReel.first['imageUrl'] as String?))
+                                    ? (topReel.first['imageUrl'] as String? ?? '')
+                                    : (topReel.first['videoUrl'] as String? ?? topReel.first['video_url'] as String? ?? ''),
+                                videoUrl: topReel.first['videoUrl'] as String? ?? topReel.first['video_url'] as String?,
                                 fit: BoxFit.cover,
+                                isVideo: true,
                               ),
                               DecoratedBox(
                                 decoration: BoxDecoration(
@@ -804,6 +820,13 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                       itemCount: displayReels.length,
                       itemBuilder: (_, i) {
                         final r = displayReels[i];
+                        final rawThumb = (r['thumbnailUrl'] as String? ?? r['imageUrl'] as String? ?? '').trim();
+                        final rawVideo = (r['videoUrl'] as String? ?? r['video_url'] as String? ?? '').trim();
+                        final isThumbValid = rawThumb.isNotEmpty && !MediaUrlUtils.isDummyThumbnail(rawThumb);
+                        final effectiveThumb = isThumbValid ? rawThumb : rawVideo;
+                        final effectiveVideo = rawVideo.isNotEmpty
+                            ? rawVideo
+                            : (MediaUrlUtils.looksLikeVideoUrl(effectiveThumb) ? effectiveThumb : null);
                         return GestureDetector(
                           onTap: () => context.push(
                             '${AppRoutes.videoDetail}?id=${r['id']}',
@@ -814,8 +837,8 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                               fit: StackFit.expand,
                               children: [
                                 AppImage(
-                                  url: r['imageUrl'] as String? ?? r['thumbnailUrl'] as String? ?? '',
-                                  videoUrl: r['videoUrl'] as String? ?? r['video_url'] as String?,
+                                  url: effectiveThumb,
+                                  videoUrl: effectiveVideo,
                                   fit: BoxFit.cover,
                                   isVideo: true,
                                 ),

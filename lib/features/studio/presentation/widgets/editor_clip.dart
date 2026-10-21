@@ -8,6 +8,8 @@ class EditorClip {
     required this.originalDuration,
     Duration? trimStart,
     Duration? trimEnd,
+    this.thumbnailPath,
+    this.thumbnailBytes,
   })  : trimStart = trimStart ?? Duration.zero,
         trimEnd = trimEnd ?? originalDuration,
         thumbnailColors = _generateColors(filePath);
@@ -17,10 +19,10 @@ class EditorClip {
   final Duration originalDuration;
   Duration trimStart;
   Duration trimEnd;
+  final String? thumbnailPath;
+  final Uint8List? thumbnailBytes;
 
-  /// Stable list of placeholder colors keyed to this clip — used until real
-  /// thumbnails are extracted (video_thumbnail is not in pubspec, so we use
-  /// representative colored blocks).
+  /// Stable list of placeholder colors keyed to this clip
   final List<int> thumbnailColors;
 
   Duration get trimmedDuration {
@@ -34,6 +36,8 @@ class EditorClip {
     Duration? originalDuration,
     Duration? trimStart,
     Duration? trimEnd,
+    String? thumbnailPath,
+    Uint8List? thumbnailBytes,
   }) {
     return EditorClip(
       id: id,
@@ -41,6 +45,8 @@ class EditorClip {
       originalDuration: originalDuration ?? this.originalDuration,
       trimStart: trimStart ?? this.trimStart,
       trimEnd: trimEnd ?? this.trimEnd,
+      thumbnailPath: thumbnailPath ?? this.thumbnailPath,
+      thumbnailBytes: thumbnailBytes ?? this.thumbnailBytes,
     );
   }
 

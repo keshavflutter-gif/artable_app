@@ -13,6 +13,7 @@ import 'package:artable_app/core/utils/reel_helpers.dart';
 import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
 import 'package:artable_app/features/home/presentation/bloc/home_cubit.dart';
 import 'package:artable_app/features/reels/presentation/bloc/reels_cubit.dart';
+import 'package:artable_app/features/profile/presentation/bloc/profile_cubit.dart';
 import 'package:artable_app/features/trending/presentation/bloc/trending_videos_cubit.dart';
 import 'package:artable_app/features/trending/data/models/trending_videos_response.dart';
 import 'package:artable_app/features/trending/data/repositories/videos_repository.dart';
@@ -426,9 +427,38 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
 
   // --- Creator Card (Deep Purple Card) ---
   Widget _buildCreatorCard(Map<String, dynamic> reel, Map<String, dynamic> creator) {
-    final handle = (reel['handle'] as String?)?.isNotEmpty == true
-        ? reel['handle'] as String
-        : ((creator['handle'] as String?)?.isNotEmpty == true ? creator['handle'] as String : '@user');
+    final authCubit = context.read<AuthCubit>();
+    final profileUser = context.read<ProfileCubit>().user;
+    final currentUsername = authCubit.username.isNotEmpty
+        ? authCubit.username.trim().replaceAll('@', '')
+        : (profileUser?.username?.isNotEmpty == true
+            ? profileUser!.username!.trim().replaceAll('@', '')
+            : '');
+    final currentFullName = (authCubit.fullName.isNotEmpty
+            ? authCubit.fullName
+            : (profileUser?.fullName ?? ''))
+        .trim();
+
+    final userMap = reel['user'] is Map
+        ? Map<String, dynamic>.from(reel['user'] as Map)
+        : (reel['creator'] is Map ? Map<String, dynamic>.from(reel['creator'] as Map) : null);
+
+    String rawUsername = (reel['username']?.toString() ??
+        userMap?['username']?.toString() ??
+        userMap?['handle']?.toString() ??
+        (reel['handle']?.toString() != '@user' ? reel['handle']?.toString() : null) ??
+        (creator['handle']?.toString() != '@user' ? creator['handle']?.toString() : null) ??
+        '').trim().replaceAll('@', '');
+
+    if (rawUsername.isEmpty || rawUsername == 'user' || rawUsername == 'You') {
+      if (currentUsername.isNotEmpty) {
+        rawUsername = currentUsername;
+      } else if (currentFullName.isNotEmpty) {
+        rawUsername = currentFullName;
+      }
+    }
+
+    final handle = rawUsername.isNotEmpty ? '@$rawUsername' : '@user';
     final views = _getFormattedCount(
       reel['viewsCount'] ?? reel['viewCount'] ?? reel['views'],
       reel['viewsLabel'],

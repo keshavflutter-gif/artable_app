@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:artable_app/app/theme/app_colors.dart';
+import 'package:artable_app/core/utils/media_url_utils.dart';
 import 'package:artable_app/core/widgets/app_image.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
 import 'package:artable_app/features/shell/presentation/widgets/bottom_nav_layout.dart';
@@ -797,10 +798,54 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
     );
   }
 
+  Map<String, dynamic> _enrichUiMap(BuildContext context, MyVideoItem video) {
+    final uiMap = video.toUiMap();
+    final profileUser = context.read<ProfileCubit>().user;
+    final authCubit = context.read<AuthCubit>();
+    final realUsername = (profileUser?.username?.trim().isNotEmpty == true
+            ? profileUser!.username!.trim()
+            : authCubit.username.trim())
+        .replaceAll('@', '');
+    final realFullName = (profileUser?.fullName?.trim().isNotEmpty == true
+            ? profileUser!.fullName!.trim()
+            : authCubit.fullName.trim());
+    final realAvatar = (profileUser?.profilePhotoUrl?.trim().isNotEmpty == true
+            ? profileUser!.profilePhotoUrl!.trim()
+            : authCubit.avatarUrl.trim());
+    final realUserId = profileUser?.id ?? authCubit.userId;
+
+    if (uiMap['username'] == null || (uiMap['username'] as String).isEmpty) {
+      uiMap['username'] = realUsername;
+    }
+    if (uiMap['handle'] == null || uiMap['handle'] == '@user' || (uiMap['handle'] as String).isEmpty) {
+      uiMap['handle'] = realUsername.isNotEmpty ? '@$realUsername' : '@user';
+    }
+    if (uiMap['creator'] == null || uiMap['creator'] == 'You' || (uiMap['creator'] as String).isEmpty) {
+      uiMap['creator'] = realFullName.isNotEmpty ? realFullName : realUsername;
+    }
+    if (uiMap['avatarUrl'] == null || (uiMap['avatarUrl'] as String).isEmpty || (uiMap['avatarUrl'] as String).contains('pravatar.cc')) {
+      if (realAvatar.isNotEmpty && !realAvatar.contains('pravatar.cc')) {
+        uiMap['avatarUrl'] = realAvatar;
+      }
+    }
+    if (uiMap['userId'] == null || (uiMap['userId'] as String).isEmpty) {
+      uiMap['userId'] = realUserId ?? '';
+      uiMap['user_id'] = realUserId ?? '';
+    }
+    uiMap['isMyVideo'] = true;
+    return uiMap;
+  }
+
   Widget _buildFigmaVideoCard(BuildContext context, MyVideoItem video) {
     final status = video.status.toLowerCase();
     final title = video.title.isNotEmpty ? video.title : 'Challenge Video';
-    final thumbnailUrl = video.thumbnailUrl;
+    final rawThumb = video.thumbnailUrl.trim();
+    final rawVideo = (video.videoUrl ?? '').trim();
+    final isThumbValid = rawThumb.isNotEmpty && !MediaUrlUtils.isDummyThumbnail(rawThumb);
+    final effectiveThumb = isThumbValid ? rawThumb : rawVideo;
+    final effectiveVideo = rawVideo.isNotEmpty
+        ? rawVideo
+        : (MediaUrlUtils.looksLikeVideoUrl(effectiveThumb) ? effectiveThumb : null);
     final views = video.viewsLabel;
     final likes = video.likesLabel;
     final date = video.dateLabel;
@@ -854,13 +899,13 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
                   GestureDetector(
                     onTap: () {
                       final routeId = video.id.isNotEmpty ? video.id : challengeId;
-                      final uiMap = video.toUiMap();
+                      final uiMap = _enrichUiMap(context, video);
                       context.read<ReelsCubit>().syncVideos([uiMap]);
                       context.push('/video-detail?id=$routeId', extra: uiMap);
                     },
                     child: AppImage(
-                      url: thumbnailUrl,
-                      videoUrl: video.videoUrl,
+                      url: effectiveThumb,
+                      videoUrl: effectiveVideo,
                       fit: BoxFit.cover,
                       isVideo: true,
                     ),
@@ -1047,7 +1092,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
                             label: 'View',
                             onTap: () {
                               final routeId = video.id.isNotEmpty ? video.id : challengeId;
-                              final uiMap = video.toUiMap();
+                              final uiMap = _enrichUiMap(context, video);
                               context.read<ReelsCubit>().syncVideos([uiMap]);
                               context.push('/video-detail?id=$routeId', extra: uiMap);
                             },

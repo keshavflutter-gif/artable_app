@@ -256,50 +256,59 @@ class _SongTrimmerSheetState extends State<SongTrimmerSheet> {
               final videoDuration = context.read<StudioCubit>().effectiveVideoDuration;
               final presetDurations = {videoDuration, 15.0, 30.0}.toList();
 
-              return Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    'Clip Duration: ',
-                    style: AppTextStyles.hint12.copyWith(fontWeight: FontWeight.w600),
-                  ),
-                  const SizedBox(width: 8),
-                  ...presetDurations.map((dur) {
-                    if (dur > widget.track.duration) return const SizedBox.shrink();
-                    final isSelected = (_cropDuration - dur).abs() < 1.0;
-                    final isVideoLen = (dur - videoDuration).abs() < 0.5;
-                    final label = isVideoLen ? 'Video (${dur.toInt()}s)' : '${dur.toInt()}s';
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: ChoiceChip(
-                        label: Text(label),
-                        selected: isSelected,
-                        onSelected: (val) {
-                          if (val) {
-                            setState(() {
-                              _cropDuration = dur;
-                              if (_startSeconds + _cropDuration > widget.track.duration) {
-                                _startSeconds = (widget.track.duration - _cropDuration).clamp(0.0, widget.track.duration);
-                              }
-                              _stopPreview();
-                            });
-                          }
-                        },
-                        selectedColor: AppColors.purple,
-                        labelStyle: TextStyle(
-                          color: isSelected ? Colors.white : AppColors.textSoft,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                        ),
-                        backgroundColor: const Color(0xFFF5F2FC),
-                        side: BorderSide.none,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
-                        ),
+              return Center(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Clip Duration: ',
+                        style: AppTextStyles.hint12.copyWith(fontWeight: FontWeight.w600),
                       ),
-                    );
-                  }),
-                ],
+                      const SizedBox(width: 8),
+                      ...presetDurations.map((dur) {
+                        if (dur > widget.track.duration) return const SizedBox.shrink();
+                        final isSelected = (_cropDuration - dur).abs() < 1.0;
+                        final isVideoLen = (dur - videoDuration).abs() < 0.5;
+                        final label = isVideoLen ? 'Video (${dur.toInt()}s)' : '${dur.toInt()}s';
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: ChoiceChip(
+                            visualDensity: VisualDensity.compact,
+                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            label: Text(label),
+                            selected: isSelected,
+                            onSelected: (val) {
+                              if (val) {
+                                setState(() {
+                                  _cropDuration = dur;
+                                  if (_startSeconds + _cropDuration > widget.track.duration) {
+                                    _startSeconds = (widget.track.duration - _cropDuration).clamp(0.0, widget.track.duration);
+                                  }
+                                  _stopPreview();
+                                });
+                              }
+                            },
+                            selectedColor: AppColors.purple,
+                            labelStyle: TextStyle(
+                              color: isSelected ? Colors.white : AppColors.textSoft,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                            backgroundColor: const Color(0xFFF5F2FC),
+                            side: BorderSide.none,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                          ),
+                        );
+                      }),
+                    ],
+                  ),
+                ),
               );
             },
           ),

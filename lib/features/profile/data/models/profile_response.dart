@@ -120,13 +120,14 @@ class ProfileData {
         root['videos'] ??
         (root['user'] is Map ? (root['user'] as Map)['recentVideos'] ?? (root['user'] as Map)['videos'] : null) ??
         (root['data'] is Map ? (root['data'] as Map)['recentVideos'] ?? (root['data'] as Map)['videos'] : null);
+    final fallbackUserMap = userRaw is Map ? Map<String, dynamic>.from(userRaw) : null;
     final videosList = <MyVideoItem>[];
     if (videosRaw is List) {
       for (final item in videosRaw) {
         if (item is Map<String, dynamic>) {
-          videosList.add(MyVideoItem.fromJson(item));
+          videosList.add(MyVideoItem.fromJson(item, fallbackUser: fallbackUserMap));
         } else if (item is Map) {
-          videosList.add(MyVideoItem.fromJson(Map<String, dynamic>.from(item)));
+          videosList.add(MyVideoItem.fromJson(Map<String, dynamic>.from(item), fallbackUser: fallbackUserMap));
         }
       }
     }
@@ -236,7 +237,7 @@ class ProfileUser {
     return ProfileUser(
       id: json['id']?.toString() ?? json['_id']?.toString() ?? '',
       fullName: json['fullName']?.toString() ?? json['full_name']?.toString() ?? json['name']?.toString(),
-      username: json['username']?.toString() ?? json['user_name']?.toString(),
+      username: json['username']?.toString() ?? json['user_name']?.toString() ?? json['handle']?.toString(),
       email: json['email']?.toString(),
       profilePhotoUrl: photo,
       coverImageUrl: cover,

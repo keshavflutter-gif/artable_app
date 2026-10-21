@@ -44,7 +44,7 @@ class _InviteFriendsScreenState extends State<InviteFriendsScreen> {
     VideoShareHelper.shareVideo(
       context: context,
       optionId: optionId,
-      videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
+      videoUrl: 'https://vjs.zencdn.net/v/oceans.mp4',
       title: 'Join me on Artable!',
       caption: 'Use my referral code ART100 to join Artable and earn rewards!',
     );

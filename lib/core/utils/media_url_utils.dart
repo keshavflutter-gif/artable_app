@@ -40,8 +40,13 @@ class MediaUrlUtils {
       return clean;
     }
 
-    // Absolute local filesystem path
-    if ((clean.startsWith('/') || clean.contains(':\\') || clean.contains(':/')) &&
+    // Absolute local filesystem path on mobile or desktop
+    if (clean.startsWith('/data/') ||
+        clean.startsWith('/storage/') ||
+        clean.startsWith('/sdcard/') ||
+        clean.startsWith('/var/') ||
+        clean.contains(':\\') ||
+        clean.contains(':/') ||
         File(clean).existsSync()) {
       return clean;
     }
@@ -53,27 +58,23 @@ class MediaUrlUtils {
   }
 
   static String? extractThumbnail(Map<String, dynamic> json) {
-    const keys = [
+    const directKeys = [
       'thumbnailUrl',
       'thumbnail_url',
       'videoThumbnail',
       'video_thumbnail',
-      'imageUrl',
-      'image_url',
-      'coverUrl',
-      'cover_url',
       'posterUrl',
       'poster_url',
       'thumbnail',
       'thumb',
-      'previewUrl',
-      'preview_url',
     ];
-    for (final k in keys) {
+    for (final k in directKeys) {
       final v = json[k];
       if (v is String) {
         final resolved = resolve(v);
-        if (resolved.isNotEmpty && !looksLikeVideoUrl(resolved)) {
+        if (resolved.isNotEmpty &&
+            !looksLikeVideoUrl(resolved) &&
+            !isDummyThumbnail(resolved)) {
           return resolved;
         }
       } else if (v is Map) {
@@ -81,20 +82,41 @@ class MediaUrlUtils {
         if (nested != null && nested.isNotEmpty) return nested;
       }
     }
+    // Also check 'imageUrl' only if it's on the root video object and NOT a dummy/banner image
+    final directImg = json['imageUrl'] ?? json['image_url'];
+    if (directImg is String) {
+      final resolved = resolve(directImg);
+      if (resolved.isNotEmpty &&
+          !looksLikeVideoUrl(resolved) &&
+          !isDummyThumbnail(resolved)) {
+        return resolved;
+      }
+    } else if (directImg is Map) {
+      final nested = extractThumbnail(Map<String, dynamic>.from(directImg));
+      if (nested != null && nested.isNotEmpty) return nested;
+    }
     return null;
   }
 
-  /// Detects whether an image URL is a dummy placeholder or invalid.
+  /// Detects whether an image URL is truly a dummy placeholder, mock data, or invalid.
   static bool isDummyThumbnail(String? url) {
     if (url == null) return true;
     final clean = url.trim().toLowerCase();
-    if (clean.isEmpty || clean == 'null' || clean.contains('storage.example')) {
+    if (clean.isEmpty ||
+        clean == 'null' ||
+        clean == 'undefined' ||
+        clean.contains('storage.example') ||
+        clean.contains('example.com')) {
       return true;
     }
-    // Check for dummy thumbnail patterns
+    // Check for dummy / mock thumbnail patterns
     if (clean.contains('dummy') ||
         clean.contains('placeholder') ||
         clean.contains('16x16') ||
+        clean.contains('unsplash') ||
+        clean.contains('loremflickr') ||
+        clean.contains('picsum') ||
+        clean.contains('pravatar') ||
         looksLikeVideoUrl(clean)) {
       return true;
     }

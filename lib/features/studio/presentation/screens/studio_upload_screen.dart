@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+
+import 'package:artable_app/features/studio/data/services/video_thumbnail_generator.dart';
 
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_text_styles.dart';
@@ -63,6 +66,7 @@ class _StudioUploadScreenState extends State<StudioUploadScreen> {
 
     final studioCubit = context.read<StudioCubit>();
     final authCubit = context.read<AuthCubit>();
+    final profileCubit = context.read<ProfileCubit>();
     final videosRepo = VideosRepository();
 
     try {
@@ -114,7 +118,17 @@ class _StudioUploadScreenState extends State<StudioUploadScreen> {
         _stepIndex = 1;
       });
 
-      final manualThumbnail = studioCubit.selectedThumbnailPath;
+      String? manualThumbnail = studioCubit.selectedThumbnailPath;
+      if (manualThumbnail == null || !File(manualThumbnail).existsSync()) {
+        try {
+          final genFile = await VideoThumbnailGenerator.generateThumbnailFromVideo(videoPath);
+          if (genFile != null && await genFile.exists()) {
+            manualThumbnail = genFile.path;
+            studioCubit.setSelectedThumbnailPath(manualThumbnail);
+          }
+        } catch (_) {}
+      }
+
       final title = (studioCubit.videoTitle != null && studioCubit.videoTitle!.trim().isNotEmpty)
           ? studioCubit.videoTitle!.trim()
           : 'Talent Performance Entry';
@@ -134,6 +148,18 @@ class _StudioUploadScreenState extends State<StudioUploadScreen> {
       });
 
       // Call Repository createVideo (which executes Presigned URL + Storage PUT upload + Create Video API)
+      final profileUser = profileCubit.state.data?.user;
+      final realUsername = authCubit.username.isNotEmpty
+          ? authCubit.username
+          : (profileUser?.username ?? '');
+      final realCreator = authCubit.fullName.isNotEmpty
+          ? authCubit.fullName
+          : (profileUser?.fullName ?? realUsername);
+      final realAvatar = authCubit.avatarUrl.isNotEmpty
+          ? authCubit.avatarUrl
+          : (profileUser?.profilePhotoUrl ?? '');
+      final realUserId = authCubit.userId ?? profileUser?.id;
+
       final res = await videosRepo.createVideo(
         title: title,
         videoPathOrUrl: videoPath,
@@ -149,6 +175,11 @@ class _StudioUploadScreenState extends State<StudioUploadScreen> {
             : null,
         videoTrimEndSeconds: studioCubit.state.videoTrimEndSeconds,
         mergedClipPaths: mergedClips.isNotEmpty ? mergedClips : null,
+        creator: realCreator,
+        username: realUsername,
+        handle: realUsername.isNotEmpty ? (realUsername.startsWith('@') ? realUsername : '@$realUsername') : null,
+        avatarUrl: realAvatar,
+        userId: realUserId,
       );
 
       // Step 3: Submitting Entry & Feed Refresh

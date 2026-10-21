@@ -605,7 +605,7 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                                   ),
                                 );
                                 if (response.success) {
-                                  context.push('${AppRoutes.studioStart}?id=$targetId');
+                                  context.push('${AppRoutes.submitEntry}?id=$targetId');
                                 }
                               },
                             ),

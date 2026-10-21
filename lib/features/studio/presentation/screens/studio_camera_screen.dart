@@ -554,7 +554,7 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
         _seconds = 0;
         _secondsNotifier.value = 0;
       });
-      await context.push('${AppRoutes.studioPreview}?id=${_challenge['id']}');
+      await context.push('${AppRoutes.studioEditVideo}?id=${_challenge['id']}');
       if (mounted) {
         _retake();
       }
@@ -1678,6 +1678,20 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
                                     ),
                                   ),
                                 ),
+                                const SizedBox(width: 6),
+                                GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: () {
+                                    final studio = context.read<StudioCubit>();
+                                    studio.setSelectedTrack(null);
+                                    unawaited(StudioMusicPlaybackService.stop());
+                                  },
+                                  child: const Icon(
+                                    Icons.close_rounded,
+                                    size: 14,
+                                    color: Colors.white70,
+                                  ),
+                                ),
                               ],
                             ],
                           ),
@@ -1914,7 +1928,7 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
                             }
                             final videoPath = studio.recordedVideoPath;
                             if (context.mounted && videoPath != null && videoPath.isNotEmpty) {
-                              context.push('${AppRoutes.studioPreview}?id=${challenge['id']}');
+                              context.push('${AppRoutes.studioEditVideo}?id=${challenge['id']}');
                             } else if (context.mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(content: Text('Recorded video not found. Please retake.')),

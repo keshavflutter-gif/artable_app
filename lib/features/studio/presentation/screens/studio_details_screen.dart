@@ -329,7 +329,8 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
       }
 
       final isPlaying = controller.value.isPlaying;
-      if (durMs > 0 && (posMs >= durMs - 200 || (!isPlaying && posMs >= durMs - 350 && posMs > 0))) {
+      final isCompleted = controller.value.isCompleted;
+      if (durMs > 0 && (isCompleted || posMs >= durMs - 40 || (!isPlaying && posMs >= durMs - 120 && posMs > 0))) {
         _advanceToNextMergedClip();
       }
     }
@@ -394,16 +395,14 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
     try {
       final oldController = _videoController;
       oldController?.removeListener(_onVideoControllerUpdate);
-      await oldController?.pause();
 
       _currentClipIndex = (_currentClipIndex + 1) % _clipControllers.length;
       final nextController = _clipControllers[_currentClipIndex];
       final hasBgm = studio.selectedMusic != null || studio.selectedTrack != null;
       try {
-        await nextController.setVolume((studio.isMuted || hasBgm) ? 0.0 : 1.0);
+        nextController.setVolume((studio.isMuted || hasBgm) ? 0.0 : 1.0);
       } catch (_) {}
 
-      await nextController.seekTo(Duration.zero);
       nextController.addListener(_onVideoControllerUpdate);
       await nextController.play();
 
@@ -414,10 +413,18 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
           _playing = true;
         });
       }
+
+      unawaited(oldController?.pause());
+      unawaited(oldController?.seekTo(Duration.zero));
+
+      final upcoming = (_currentClipIndex + 1) % _clipControllers.length;
+      unawaited(_clipControllers[upcoming].seekTo(Duration.zero));
     } catch (e) {
       debugPrint('Error advancing merged clip in details: $e');
     } finally {
-      _isSwitchingClip = false;
+      Future.delayed(const Duration(milliseconds: 80), () {
+        if (mounted) _isSwitchingClip = false;
+      });
     }
   }
 
