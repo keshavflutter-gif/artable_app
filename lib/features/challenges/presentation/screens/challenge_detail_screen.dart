@@ -9,7 +9,6 @@ import 'package:artable_app/app/theme/app_typography.dart';
 import 'package:artable_app/core/utils/challenge_helpers.dart';
 import 'package:artable_app/core/widgets/gradient_button.dart';
 import 'package:artable_app/features/challenges/presentation/bloc/challenges_cubit.dart';
-import 'package:artable_app/data/datasources/mock_data.dart';
 import 'package:artable_app/features/challenges/data/models/challenge_detail_response.dart';
 import 'package:artable_app/core/widgets/network_image_widget.dart';
 
@@ -33,82 +32,45 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
     });
   }
 
-  Map<String, dynamic> _fallbackChallenge(String id) {
-    return findChallengeById(
-          MockData.CHALLENGES.cast<Map<String, dynamic>>(),
-          id,
-        ) ??
-        MockData.CHALLENGES.first;
-  }
-
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<ChallengesCubit>();
     final ChallengeDetailData? liveDetail = provider.getChallengeDetail(widget.challengeId);
-    final fallback = _fallbackChallenge(widget.challengeId);
+    final isLoading = provider.isLoadingChallengeDetail(widget.challengeId) &&
+        liveDetail == null;
 
-    final title = liveDetail?.title.isNotEmpty == true
-        ? liveDetail!.title
-        : (fallback['title'] as String? ?? '');
+    final title = liveDetail?.title ?? '';
+    final bannerUrl = liveDetail?.bannerUrl ?? '';
+    final status = (liveDetail?.status ?? 'ACTIVE').toLowerCase();
+    final prize = liveDetail?.formattedPrizePool ?? '₹0';
+    final joinedCount = liveDetail?.joinedCount ?? 0;
+    final joinedText = formatParticipants(joinedCount);
 
-    final bannerUrl = liveDetail?.bannerUrl.isNotEmpty == true
-        ? liveDetail!.bannerUrl
-        : (fallback['imageUrl'] as String? ?? '');
+    String countdownMain = 'Active';
+    String countdownSub = 'Active';
+    if (liveDetail != null) {
+      if (liveDetail.daysLeftLabel.isNotEmpty) {
+        countdownMain = liveDetail.daysLeftLabel;
+      } else if (liveDetail.endDate.isNotEmpty) {
+        final remaining = daysRemaining(liveDetail.endDate);
+        countdownMain = remaining > 0 ? '$remaining days left' : 'Ending today';
+      }
 
-    final status = (liveDetail?.status ?? fallback['status'] as String? ?? 'ACTIVE')
-        .toLowerCase();
-
-    final prize = liveDetail?.formattedPrizePool.isNotEmpty == true
-        ? liveDetail!.formattedPrizePool
-        : (fallback['prize'] as String? ?? '₹5,000');
-
-    final joinedText = liveDetail?.joinedLabel.isNotEmpty == true
-        ? liveDetail!.joinedLabel
-        : '${formatParticipants(liveDetail?.joinedCount ?? fallback['participants'] as int? ?? 1)} joined';
-
-    final remaining = daysRemaining(liveDetail?.endDate.isNotEmpty == true
-        ? liveDetail!.endDate
-        : (fallback['endDate'] as String? ?? ''));
-
-    String countdownMain;
-    String countdownSub;
-    if (liveDetail != null && liveDetail.daysLeftLabel.isNotEmpty) {
-      countdownMain = liveDetail.daysLeftLabel;
-      countdownSub = liveDetail.endDateLabel.isNotEmpty
-          ? 'Ends ${liveDetail.endDateLabel}'
-          : 'Active';
-    } else if (status == 'completed') {
-      countdownMain = 'Ended';
-      countdownSub = formatDate(fallback['endDate'] as String);
-    } else if (status == 'upcoming') {
-      countdownMain = 'Starts soon';
-      countdownSub = formatDate(fallback['endDate'] as String);
-    } else {
-      countdownMain = remaining > 0 ? '$remaining days left' : 'Ending today';
-      countdownSub = 'Ends ${formatDate(fallback['endDate'] as String)}';
+      if (liveDetail.endDateLabel.isNotEmpty) {
+        countdownSub = 'Ends ${liveDetail.endDateLabel}';
+      } else if (liveDetail.endDate.isNotEmpty) {
+        countdownSub = 'Ends ${formatDate(liveDetail.endDate)}';
+      }
     }
 
     final categoryName = liveDetail?.categoryName.isNotEmpty == true
         ? liveDetail!.categoryName
-        : (liveDetail?.category?.name ?? fallback['category'] as String? ?? 'Dance');
+        : (liveDetail?.category?.name ?? '');
 
-    final description = liveDetail?.description.isNotEmpty == true
-        ? liveDetail!.description
-        : (fallback['description'] as String? ?? '');
-
-    final rules = (liveDetail != null && liveDetail.rules.isNotEmpty)
-        ? liveDetail.rules
-        : (fallback['rules'] as List? ?? const []).cast<String>();
-
-    final prizeBreakdown = (liveDetail != null && liveDetail.prizeBreakdown.isNotEmpty)
-        ? liveDetail.prizeBreakdown.map((p) => p.toUiMap()).toList()
-        : (fallback['prizeBreakdown'] as List? ?? const []).cast<Map<String, dynamic>>();
-
-    final topParticipants =
-        (fallback['topParticipants'] as List? ?? const []).cast<Map<String, dynamic>>();
-
-    final isLoading = provider.isLoadingChallengeDetail(widget.challengeId) &&
-        liveDetail == null;
+    final description = liveDetail?.description ?? '';
+    final rules = liveDetail?.rules ?? const <String>[];
+    final prizeBreakdown = liveDetail?.prizeBreakdown.map((p) => p.toUiMap()).toList() ?? const <Map<String, dynamic>>[];
+    final topParticipants = liveDetail?.topParticipants.map((p) => p.toUiMap()).toList() ?? const <Map<String, dynamic>>[];
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -223,43 +185,46 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 14),
-                      RichText(
-                        text: TextSpan(
-                          style: AppTypography.body(
-                            fontSize: 12.5,
-                            color: AppColors.textSoft,
+                      if (categoryName.isNotEmpty) ...[
+                        const SizedBox(height: 14),
+                        RichText(
+                          text: TextSpan(
+                            style: AppTypography.body(
+                              fontSize: 12.5,
+                              color: AppColors.textSoft,
+                            ),
+                            children: [
+                              const TextSpan(text: 'Category: '),
+                              TextSpan(
+                                text: categoryName,
+                                style: const TextStyle(
+                                  color: AppColors.purple,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
                           ),
-                          children: [
-                            const TextSpan(text: 'Category: '),
-                            TextSpan(
-                              text: categoryName,
-                              style: const TextStyle(
-                                color: AppColors.purple,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ],
                         ),
-                      ),
-                      _DetailSection(
-                        title: 'About this Challenge',
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              description,
-                              style: AppTypography.body(
-                                fontSize: 13,
-                                color: AppColors.textSoft,
-                                height: 1.6,
+                      ],
+                      if (description.isNotEmpty)
+                        _DetailSection(
+                          title: 'About this Challenge',
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                description,
+                                style: AppTypography.body(
+                                  fontSize: 13,
+                                  color: AppColors.textSoft,
+                                  height: 1.6,
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 12),
-                            const _RatingNote(),
-                          ],
+                              const SizedBox(height: 12),
+                              const _RatingNote(),
+                            ],
+                          ),
                         ),
-                      ),
                       if (rules.isNotEmpty)
                         _DetailSection(
                           title: 'Rules',
@@ -538,7 +503,30 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                       Row(
                         children: [
                           GestureDetector(
-                            onTap: () {},
+                            onTap: () {
+                              ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: const Text(
+                                    'Coming Soon',
+                                    style: TextStyle(
+                                      fontFamily: 'Poppins',
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                  duration: const Duration(milliseconds: 1500),
+                                  behavior: SnackBarBehavior.floating,
+                                  margin: const EdgeInsets.symmetric(
+                                      horizontal: 20, vertical: 16),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  backgroundColor: const Color(0xFF8B3DFF),
+                                ),
+                              );
+                            },
                             child: Container(
                               width: 50,
                               height: 50,
@@ -591,6 +579,7 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                                     .read<ChallengesCubit>()
                                     .joinChallenge(targetId);
                                 if (!context.mounted) return;
+                                ScaffoldMessenger.of(context).hideCurrentSnackBar();
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
                                     content: Text(
@@ -598,9 +587,22 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                                           (response.success
                                               ? 'Challenge joined successfully'
                                               : 'Failed to join challenge'),
+                                      style: const TextStyle(
+                                        fontFamily: 'Poppins',
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                    duration: const Duration(milliseconds: 1500),
+                                    behavior: SnackBarBehavior.floating,
+                                    margin: const EdgeInsets.symmetric(
+                                        horizontal: 20, vertical: 16),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
                                     ),
                                     backgroundColor: response.success
-                                        ? AppColors.purple
+                                        ? const Color(0xFF8B3DFF)
                                         : Colors.redAccent,
                                   ),
                                 );

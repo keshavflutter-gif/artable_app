@@ -14,6 +14,7 @@ import 'package:artable_app/features/home/presentation/bloc/home_cubit.dart';
 import 'package:artable_app/data/datasources/mock_data.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/core/utils/reel_helpers.dart';
+import 'package:artable_app/core/widgets/app_image.dart';
 import 'package:artable_app/core/widgets/app_network_image.dart';
 import 'package:artable_app/features/reels/presentation/widgets/creator_info_row.dart';
 import 'package:artable_app/features/reels/presentation/widgets/talent_rating_slider.dart';
@@ -901,7 +902,7 @@ class _ReelVideoPlayer extends StatefulWidget {
 class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
     with AutomaticKeepAliveClientMixin {
   @override
-  bool get wantKeepAlive => true;
+  bool get wantKeepAlive => widget.isActive;
 
   VideoPlayerController? _controller;
   final Map<int, VideoPlayerController> _clipControllers = {};
@@ -1031,6 +1032,44 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
     }
   }
 
+  static final Set<String> _cachingUrls = {};
+
+  void _cacheRemoteVideoLocally(String remoteUrl) {
+    if (_cachingUrls.contains(remoteUrl)) return;
+    _cachingUrls.add(remoteUrl);
+
+    () async {
+      try {
+        final uri = Uri.parse(remoteUrl);
+        final fileName = uri.pathSegments.isNotEmpty ? uri.pathSegments.last : 'v_${remoteUrl.hashCode.abs()}.mp4';
+        final tempDir = await getTemporaryDirectory();
+        final cacheFile = File('${tempDir.path}/$fileName');
+        if (await cacheFile.exists() && await cacheFile.length() > 5000) {
+          return;
+        }
+
+        final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
+        final req = await client.getUrl(uri);
+        final resp = await req.close();
+        if (resp.statusCode >= 200 && resp.statusCode < 300) {
+          final tempFile = File('${cacheFile.path}.tmp');
+          final sink = tempFile.openWrite();
+          await resp.pipe(sink);
+          await sink.flush();
+          await sink.close();
+          if (await tempFile.exists() && await tempFile.length() > 5000) {
+            await tempFile.rename(cacheFile.path);
+            debugPrint('Cached reel video locally: ${cacheFile.path}');
+          }
+        }
+      } catch (e) {
+        debugPrint('Background video cache error: $e');
+      } finally {
+        _cachingUrls.remove(remoteUrl);
+      }
+    }();
+  }
+
   Future<VideoPlayerController?> _createAndInitController(String resolvedUrl) async {
     VideoPlayerController controller;
     var cleanFilePath = resolvedUrl.startsWith('file://')
@@ -1047,7 +1086,7 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
       File? localCandidate;
       try {
         final uri = Uri.parse(resolvedUrl);
-        final fileName = uri.pathSegments.isNotEmpty ? uri.pathSegments.last : '';
+        final fileName = uri.pathSegments.isNotEmpty ? uri.pathSegments.last : 'v_${resolvedUrl.hashCode.abs()}.mp4';
         if (fileName.isNotEmpty) {
           final tempDir = await getTemporaryDirectory();
           final candidate = File('${tempDir.path}/$fileName');
@@ -1065,6 +1104,7 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
           uri,
           videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
         );
+        _cacheRemoteVideoLocally(resolvedUrl);
       }
     }
     await controller.initialize().timeout(const Duration(seconds: 15));
@@ -1225,7 +1265,7 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
   void _startPlaybackTimer() {
     _playbackTimer?.cancel();
     if (!_hasMultiClips) return;
-    _playbackTimer = Timer.periodic(const Duration(milliseconds: 20), (_) {
+    _playbackTimer = Timer.periodic(const Duration(milliseconds: 50), (_) {
       if (!mounted || _isSwitchingClip || !_hasMultiClips) return;
       final controller = _activeController;
       if (controller != null && controller.value.isInitialized) {
@@ -1249,16 +1289,20 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
     final trimStart = widget.trimStart ?? 0.0;
     final trimEnd = widget.trimEnd;
 
+    // Smooth bounded looping for trimmed reels:
+    // Only seek back to trimStart when playback has genuinely reached or exceeded trimEnd
     if (trimEnd != null && trimEnd > trimStart && !_hasMultiClips) {
       final startMs = (trimStart * 1000).round();
       final endMs = (trimEnd * 1000).round();
       final posMs = controller.value.position.inMilliseconds;
 
-      if (!_isSeekingToStart && (posMs >= endMs || posMs < startMs)) {
+      if (!_isSeekingToStart && posMs >= endMs - 50 && posMs > startMs + 300) {
         _isSeekingToStart = true;
         controller.seekTo(Duration(milliseconds: startMs)).then((_) {
           if (mounted) {
-            _isSeekingToStart = false;
+            Future.delayed(const Duration(milliseconds: 150), () {
+              if (mounted) _isSeekingToStart = false;
+            });
             if (controller.value.isPlaying) {
               controller.play();
             }
@@ -1410,9 +1454,11 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
           // 1. Thumbnail Image Preview (shown initially as background/preview)
           if (widget.thumbnailUrl.trim().isNotEmpty &&
               widget.thumbnailUrl.trim() != 'null')
-            AppNetworkImage(
+            AppImage(
               url: widget.thumbnailUrl,
+              videoUrl: widget.videoUrl,
               fit: BoxFit.cover,
+              isVideo: true,
             )
           else
             const ColoredBox(color: Color(0xFF140A28)),

@@ -116,24 +116,49 @@ class ProfileCubit extends Cubit<ProfileState> {
     );
   }
 
-  Future<bool> deleteVideo(String videoId) async {
-    final token = _authCubit.sessionToken;
-    final refresh = _authCubit.refreshToken;
-
-    // Optimistically update UI state by removing the video
+  void removeVideoOptimistically(String videoId) {
     if (state.data != null) {
       final updatedVideos = state.data!.recentVideos
           .where((v) => v.id != videoId)
           .toList();
 
+      final currentStats = state.data!.stats;
+      final newTotalVideos = (currentStats.totalVideos > 0)
+          ? currentStats.totalVideos - 1
+          : 0;
+      final updatedStats = currentStats.copyWith(
+        totalVideos: newTotalVideos,
+      );
+
+      final updatedStatCards = state.data!.statCards.map((c) {
+        if (c.key.toLowerCase().contains('video') || c.label.toLowerCase().contains('video')) {
+          final val = (c.value > 0) ? c.value - 1 : 0;
+          return c.copyWith(
+            value: val,
+            displayValue: '$val',
+          );
+        }
+        return c;
+      }).toList();
+
       final updatedData = state.data!.copyWith(
         recentVideos: updatedVideos,
+        stats: updatedStats,
+        statCards: updatedStatCards,
       );
 
       emit(state.copyWith(
         response: state.response?.copyWith(data: updatedData),
       ));
     }
+  }
+
+  Future<bool> deleteVideo(String videoId) async {
+    final token = _authCubit.sessionToken;
+    final refresh = _authCubit.refreshToken;
+
+    // Optimistically update UI state by removing video and decrementing video count
+    removeVideoOptimistically(videoId);
 
     try {
       await _profileRepository.deleteVideo(
@@ -141,10 +166,13 @@ class ProfileCubit extends Cubit<ProfileState> {
         sessionToken: (token != null && token != 'design_preview') ? token : null,
         refreshToken: (refresh != null && refresh != 'design_preview') ? refresh : null,
       );
+      // Fetch fresh profile data from server so real-time stats and videos sync
+      await loadProfile(forceRefresh: true);
       return true;
     } catch (e) {
       debugPrint('Error executing deleteVideo: $e');
-      return true;
+      await loadProfile(forceRefresh: true);
+      return false;
     }
   }
 

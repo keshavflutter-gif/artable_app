@@ -105,6 +105,7 @@ class ChallengeDetailData {
     this.joinedLabel = '',
     this.approvedVideosCount = 0,
     this.averageRating = 0,
+    this.topParticipants = const [],
   });
 
   final String id;
@@ -112,6 +113,7 @@ class ChallengeDetailData {
   final String description;
   final List<String> rules;
   final List<PrizeBreakdownItem> prizeBreakdown;
+  final List<ChallengeDetailParticipant> topParticipants;
   final String rewardPool;
   final String prizePoolLabel;
   final String participationFee;
@@ -138,6 +140,7 @@ class ChallengeDetailData {
       description: json['description']?.toString() ?? '',
       rules: _parseRules(json['rules']),
       prizeBreakdown: _parsePrizeBreakdown(json['prizeBreakdown']),
+      topParticipants: _parseTopParticipants(json['topParticipants'] ?? json['top_participants'] ?? json['participants']),
       rewardPool: json['rewardPool']?.toString() ?? '',
       prizePoolLabel: json['prizePoolLabel']?.toString() ?? '',
       participationFee: json['participationFee']?.toString() ?? '0',
@@ -177,6 +180,14 @@ class ChallengeDetailData {
     return raw
         .whereType<Map>()
         .map((e) => PrizeBreakdownItem.fromJson(Map<String, dynamic>.from(e)))
+        .toList();
+  }
+
+  static List<ChallengeDetailParticipant> _parseTopParticipants(dynamic raw) {
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map>()
+        .map((e) => ChallengeDetailParticipant.fromJson(Map<String, dynamic>.from(e)))
         .toList();
   }
 
@@ -234,6 +245,57 @@ class ChallengeDetailData {
       'status': status.toLowerCase(),
       'isFeatured': isFeatured,
       'maxVideoDuration': maxVideoDuration,
+      'topParticipants': topParticipants.map((p) => p.toUiMap()).toList(),
+    };
+  }
+}
+
+class ChallengeDetailParticipant {
+  const ChallengeDetailParticipant({
+    required this.name,
+    this.avatarUrl = '',
+    this.score = 0.0,
+    this.userId,
+    this.rank,
+  });
+
+  final String name;
+  final String avatarUrl;
+  final double score;
+  final String? userId;
+  final int? rank;
+
+  factory ChallengeDetailParticipant.fromJson(Map<String, dynamic> json) {
+    return ChallengeDetailParticipant(
+      name: json['name']?.toString() ??
+          json['username']?.toString() ??
+          (json['user'] is Map
+              ? json['user']['name']?.toString() ?? json['user']['username']?.toString() ?? 'User'
+              : 'User'),
+      avatarUrl: json['avatarUrl']?.toString() ??
+          json['avatar']?.toString() ??
+          json['profilePicture']?.toString() ??
+          (json['user'] is Map
+              ? json['user']['avatar']?.toString() ?? json['user']['profilePicture']?.toString() ?? ''
+              : ''),
+      score: (json['score'] is num)
+          ? (json['score'] as num).toDouble()
+          : (double.tryParse(json['score']?.toString() ?? '0') ?? 0.0),
+      userId: json['userId']?.toString() ??
+          (json['user'] is Map ? json['user']['id']?.toString() : null),
+      rank: json['rank'] is int
+          ? json['rank'] as int
+          : int.tryParse(json['rank']?.toString() ?? ''),
+    );
+  }
+
+  Map<String, dynamic> toUiMap() {
+    return {
+      'name': name,
+      'avatarUrl': avatarUrl,
+      'score': score,
+      'userId': userId,
+      'rank': rank,
     };
   }
 }

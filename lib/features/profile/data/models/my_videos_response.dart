@@ -63,6 +63,26 @@ class MyVideosResponse {
           : null,
     );
   }
+
+  MyVideosResponse copyWith({
+    bool? success,
+    String? message,
+    List<MyVideoItem>? data,
+    List<MyVideoTabItem>? tabs,
+    String? activeTab,
+    MyVideoEmptyState? emptyState,
+    MyVideoPagination? pagination,
+  }) {
+    return MyVideosResponse(
+      success: success ?? this.success,
+      message: message ?? this.message,
+      data: data ?? this.data,
+      tabs: tabs ?? this.tabs,
+      activeTab: activeTab ?? this.activeTab,
+      emptyState: emptyState ?? this.emptyState,
+      pagination: pagination ?? this.pagination,
+    );
+  }
 }
 
 class MyVideoItem {
@@ -212,6 +232,16 @@ class MyVideoItem {
         resolvedVideoUrl != null &&
         resolvedVideoUrl.trim().isNotEmpty) {
       thumb = resolvedVideoUrl;
+    }
+
+    // 4. Fallback to genuine challenge banner/image if video thumbnail is unavailable
+    if (thumb.isEmpty || MediaUrlUtils.isDummyThumbnail(thumb)) {
+      final chBanner = challengeObj?['bannerUrl']?.toString() ??
+          challengeObj?['imageUrl']?.toString() ??
+          challengeObj?['coverUrl']?.toString();
+      if (chBanner != null && chBanner.trim().isNotEmpty && !MediaUrlUtils.isDummyThumbnail(chBanner)) {
+        thumb = MediaUrlUtils.resolve(chBanner);
+      }
     }
 
     String dateStr = json['dateLabel']?.toString() ?? json['date']?.toString() ?? '';

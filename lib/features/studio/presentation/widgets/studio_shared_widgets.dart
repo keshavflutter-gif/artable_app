@@ -345,10 +345,11 @@ class ChallengeSummaryCard extends StatelessWidget {
           ClipRRect(
             borderRadius: BorderRadius.circular(12),
             child: AppNetworkImage(
-              url: challenge['imageUrl'] as String,
+              url: (challenge['imageUrl'] as String?) ?? (challenge['bannerUrl'] as String?) ?? '',
               width: 74,
               height: 74,
               alt: challenge['title'] as String? ?? '',
+              placeholderIcon: Icons.emoji_events_rounded,
             ),
           ),
           const SizedBox(width: 12),

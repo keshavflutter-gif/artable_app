@@ -10,7 +10,7 @@ import 'package:artable_app/app/theme/app_text_styles.dart';
 import 'package:artable_app/features/studio/presentation/bloc/studio_cubit.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/core/utils/formatters.dart';
-import 'package:artable_app/core/widgets/app_network_image.dart';
+import 'package:artable_app/core/widgets/app_image.dart';
 import 'package:artable_app/core/widgets/app_screen_header.dart';
 import 'package:artable_app/core/widgets/gradient_button.dart';
 import 'package:artable_app/features/studio/data/services/studio_music_playback_service.dart';
@@ -51,28 +51,6 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
     });
   }
 
-  bool _isDraftInCurrentTimeline(Map<String, dynamic> draft, StudioCubit studio) {
-    if (!widget.selectForMerge) return false;
-    final currentRec = studio.state.recordedVideoPath?.trim();
-    if (currentRec == null || currentRec.isEmpty) return false;
-    final cleanRec = currentRec.replaceFirst('file://', '');
-
-    final vPath = (draft['videoPath']?.toString() ?? draft['videoUrl']?.toString() ?? '').trim();
-    if (vPath.isEmpty) return false;
-    final cleanVPath = vPath.replaceFirst('file://', '');
-
-    if (cleanVPath == cleanRec) return true;
-
-    if (studio.state.mergedClipPaths != null && studio.state.mergedClipPaths!.isNotEmpty) {
-      for (final p in studio.state.mergedClipPaths!) {
-        final cleanP = p.trim().replaceFirst('file://', '');
-        if (cleanP.isNotEmpty && cleanP == cleanVPath) {
-          return true;
-        }
-      }
-    }
-    return false;
-  }
 
   bool _computeHasExtraCurrentRec(StudioCubit studio, List<Map<String, dynamic>> selected) {
     final currentRecPath = studio.state.recordedVideoPath?.trim();
@@ -105,19 +83,68 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
   Future<void> _handleMergeSelected() async {
     final studio = context.read<StudioCubit>();
     final selected = studio.state.drafts.where((d) => _selectedDraftIds.contains(d['id'])).toList();
-    final hasExtraCurrentRec = _computeHasExtraCurrentRec(studio, selected);
-    final minRequired = (widget.selectForMerge || hasExtraCurrentRec) ? 1 : 2;
+    if (selected.isEmpty) return;
 
-    if (_selectedDraftIds.length < minRequired) return;
     if (_selectedDraftIds.length > StudioCubit.maxMergeClipsLimit) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Maximum 10 videos can be merged at a time.'),
           backgroundColor: Colors.redAccent,
+          duration: Duration(milliseconds: 1000),
         ),
       );
       return;
     }
+
+    // When selecting drafts to add to the timeline in StudioEditVideoScreen
+    if (widget.selectForMerge) {
+      final combinedPaths = <String>[];
+      final combinedThumbs = <String>[];
+      final combinedDurs = <double>[];
+
+      for (final d in selected) {
+        if (d['mergedClipPaths'] is List && (d['mergedClipPaths'] as List).isNotEmpty) {
+          final subP = List<String>.from(d['mergedClipPaths'] as List);
+          final subT = (d['mergedClipThumbnails'] is List)
+              ? List<String>.from(d['mergedClipThumbnails'] as List)
+              : <String>[];
+          final subD = (d['mergedClipDurations'] is List)
+              ? (d['mergedClipDurations'] as List).map((e) => (e as num).toDouble()).toList()
+              : <double>[];
+          for (int i = 0; i < subP.length; i++) {
+            combinedPaths.add(subP[i]);
+            combinedThumbs.add(i < subT.length ? subT[i] : (d['thumbnailPath']?.toString() ?? ''));
+            combinedDurs.add(i < subD.length ? subD[i] : 15.0);
+          }
+        } else {
+          final p = (d['videoPath']?.toString() ?? d['videoUrl']?.toString() ?? '').trim();
+          if (p.isNotEmpty) {
+            combinedPaths.add(p);
+            combinedThumbs.add((d['thumbnailPath']?.toString() ?? d['thumbnailUrl']?.toString() ?? '').trim());
+            combinedDurs.add((d['durationSeconds'] as num?)?.toDouble() ?? 15.0);
+          }
+        }
+      }
+
+      setState(() {
+        _isSelectionMode = false;
+        _selectedDraftIds.clear();
+      });
+
+      context.pop({
+        ...selected.first,
+        'mergedClipPaths': combinedPaths,
+        'mergedClipThumbnails': combinedThumbs,
+        'mergedClipDurations': combinedDurs,
+      });
+      return;
+    }
+
+    final hasExtraCurrentRec = _computeHasExtraCurrentRec(studio, selected);
+    final minRequired = hasExtraCurrentRec ? 1 : 2;
+    if (_selectedDraftIds.length < minRequired) return;
+
     setState(() => _isMerging = true);
 
     final merged = await studio.mergeDrafts(draftIds: _selectedDraftIds.toList());
@@ -133,26 +160,25 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
         _isSelectionMode = false;
         _selectedDraftIds.clear();
       });
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Successfully merged $totalClips clips into 1 video!'),
           backgroundColor: AppColors.purple,
-          duration: const Duration(seconds: 2),
+          duration: const Duration(milliseconds: 1000),
         ),
       );
-      if (widget.selectForMerge) {
-        context.pop(merged);
-        return;
-      }
       context.push(
         '${AppRoutes.studioEditVideo}?draft=${merged['id']}&id=${merged['challengeId']}',
       );
     } else {
       final error = studio.state.saveDraftError ?? 'Failed to merge drafts';
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(error),
           backgroundColor: Colors.redAccent,
+          duration: const Duration(milliseconds: 1000),
         ),
       );
     }
@@ -280,9 +306,11 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
             )
           : null,
       body: SafeArea(
-        child: Column(
+        child: Stack(
           children: [
-            const AppScreenHeader(title: 'My Videos'),
+            Column(
+              children: [
+                const AppScreenHeader(title: 'My Videos'),
             if (drafts.length >= StudioCubit.maxDraftsLimit)
               Container(
                 margin: const EdgeInsets.symmetric(horizontal: 22, vertical: 8),
@@ -397,26 +425,14 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
                             itemBuilder: (context, i) {
                               final draft = drafts[i];
                               final draftId = draft['id'] as String;
-                              final isAlreadyInTimeline = _isDraftInCurrentTimeline(draft, context.read<StudioCubit>());
                               return Padding(
                                 padding: EdgeInsets.only(top: i == 0 ? 0 : 10),
                                 child: _DraftCard(
                                   draft: draft,
                                   isSelectionMode: _isSelectionMode,
                                   isSelected: _selectedDraftIds.contains(draftId),
-                                  isAlreadyInTimeline: isAlreadyInTimeline,
+                                  isAlreadyInTimeline: false,
                                   onToggleSelect: () {
-                                    if (isAlreadyInTimeline) {
-                                      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(
-                                          content: Text('This video is already in your editor timeline.'),
-                                          backgroundColor: Color(0xFF2E7D32),
-                                          duration: Duration(seconds: 2),
-                                        ),
-                                      );
-                                      return;
-                                    }
                                     setState(() {
                                       if (_selectedDraftIds.contains(draftId)) {
                                         _selectedDraftIds.remove(draftId);
@@ -429,7 +445,7 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
                                                 'Maximum 10 videos can be selected for merging.',
                                               ),
                                               backgroundColor: Colors.redAccent,
-                                              duration: Duration(seconds: 2),
+                                              duration: Duration(milliseconds: 1000),
                                             ),
                                           );
                                         } else {
@@ -445,13 +461,14 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
                                     if (!context.mounted) return;
                                     final success = await context.read<StudioCubit>().deleteDraft(draftId);
                                     if (context.mounted) {
+                                      ScaffoldMessenger.of(context).hideCurrentSnackBar();
                                       ScaffoldMessenger.of(context).showSnackBar(
                                         SnackBar(
                                           content: Text(
                                             success ? 'Draft deleted successfully' : 'Failed to delete draft',
                                           ),
                                           backgroundColor: success ? AppColors.purple : Colors.redAccent,
-                                          duration: const Duration(seconds: 2),
+                                          duration: const Duration(milliseconds: 1000),
                                         ),
                                       );
                                     }
@@ -467,8 +484,64 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
             ),
           ],
         ),
-      ),
-    );
+        if (_isMerging)
+          Positioned.fill(
+            child: Container(
+              color: Colors.black.withValues(alpha: 0.55),
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 22),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(18),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.18),
+                        blurRadius: 20,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      SizedBox(
+                        width: 36,
+                        height: 36,
+                        child: CircularProgressIndicator(
+                          color: AppColors.purple,
+                          strokeWidth: 3.2,
+                        ),
+                      ),
+                      SizedBox(height: 16),
+                      Text(
+                        'Merging Video Clips...',
+                        style: TextStyle(
+                          fontFamily: 'Poppins',
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.text,
+                        ),
+                      ),
+                      SizedBox(height: 4),
+                      Text(
+                        'Preparing for video editor',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 12,
+                          color: AppColors.textSoft,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
+    ),
+  ),
+);
   }
 
   Future<bool?> _showDeleteConfirmDialog(BuildContext context) {
@@ -620,14 +693,14 @@ class _DraftCard extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: (isSelected || isAlreadyInTimeline)
+          colors: isSelected
               ? [const Color(0xFFF3EBFF), const Color(0xFFEADBFF)]
               : [const Color(0xFFFFFFFF), const Color(0xFFFBF6FF)],
         ),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
-          color: (isSelected || isAlreadyInTimeline) ? AppColors.purple : AppColors.purple.withValues(alpha: 0.1),
-          width: (isSelected || isAlreadyInTimeline) ? 1.8 : 1.0,
+          color: isSelected ? AppColors.purple : AppColors.purple.withValues(alpha: 0.1),
+          width: isSelected ? 1.8 : 1.0,
         ),
         boxShadow: [
           BoxShadow(
@@ -646,32 +719,26 @@ class _DraftCard extends StatelessWidget {
                 width: 22,
                 height: 22,
                 decoration: BoxDecoration(
-                  color: isAlreadyInTimeline
-                      ? const Color(0xFFE2DCEF)
-                      : (isSelected ? AppColors.purple : Colors.white),
+                  color: isSelected ? AppColors.purple : Colors.white,
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color: isAlreadyInTimeline
-                        ? const Color(0xFFB5A9D3)
-                        : (isSelected ? AppColors.purple : const Color(0xFFC7C0D8)),
+                    color: isSelected ? AppColors.purple : const Color(0xFFC7C0D8),
                     width: 2,
                   ),
                 ),
-                child: isAlreadyInTimeline
-                    ? const Icon(Icons.check, size: 14, color: AppColors.purple)
-                    : (isSelected
-                        ? const Icon(Icons.check, size: 14, color: Colors.white)
-                        : null),
+                child: isSelected
+                    ? const Icon(Icons.check, size: 14, color: Colors.white)
+                    : null,
               ),
             ),
-          ClipRRect(
+          AppImage(
+            url: thumbnailUrl,
+            videoUrl: (draft['videoPath'] as String?) ?? (draft['videoUrl'] as String?),
+            width: 58,
+            height: 78,
+            fit: BoxFit.cover,
             borderRadius: BorderRadius.circular(12),
-            child: AppNetworkImage(
-              url: thumbnailUrl,
-              width: 58,
-              height: 78,
-              alt: title,
-            ),
+            isVideo: true,
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -694,17 +761,15 @@ class _DraftCard extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 2),
                   decoration: BoxDecoration(
-                    color: isAlreadyInTimeline
-                        ? const Color(0xFFE8F5E9)
-                        : const Color(0xFFF5F2FC),
+                    color: const Color(0xFFF5F2FC),
                     borderRadius: BorderRadius.circular(999),
                   ),
-                  child: Text(
-                    isAlreadyInTimeline ? 'CURRENT VIDEO (IN EDITOR)' : 'DRAFT',
+                  child: const Text(
+                    'DRAFT',
                     style: TextStyle(
                       fontSize: 9.5,
                       fontWeight: FontWeight.w800,
-                      color: isAlreadyInTimeline ? const Color(0xFF2E7D32) : AppColors.purple,
+                      color: AppColors.purple,
                     ),
                   ),
                 ),

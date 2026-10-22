@@ -216,13 +216,31 @@ class _FigmaMyVideoCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final statusRaw = item.status.toLowerCase();
     final title = item.title.isNotEmpty ? item.title : 'Challenge Video';
+    final challengeObj = item.challenge;
+    final challengeId = challengeObj?['id']?.toString() ?? '';
+    final challengeBanner = (challengeObj?['bannerUrl']?.toString() ??
+            challengeObj?['imageUrl']?.toString() ??
+            challengeObj?['coverUrl']?.toString() ??
+            '')
+        .trim();
+
     final rawThumb = item.thumbnailUrl.trim();
     final rawVideo = (item.videoUrl ?? '').trim();
     final isThumbValid = rawThumb.isNotEmpty && !MediaUrlUtils.isDummyThumbnail(rawThumb);
-    final effectiveThumb = isThumbValid ? rawThumb : rawVideo;
+    final effectiveThumb = isThumbValid
+        ? rawThumb
+        : (rawVideo.isNotEmpty
+            ? rawVideo
+            : (challengeBanner.isNotEmpty && !MediaUrlUtils.isDummyThumbnail(challengeBanner)
+                ? challengeBanner
+                : ''));
     final effectiveVideo = rawVideo.isNotEmpty
         ? rawVideo
         : (MediaUrlUtils.looksLikeVideoUrl(effectiveThumb) ? effectiveThumb : null);
+    final fallbackImg = (challengeBanner.isNotEmpty && !MediaUrlUtils.isDummyThumbnail(challengeBanner))
+        ? challengeBanner
+        : null;
+
     final views = item.viewsLabel;
     final likes = item.likesLabel;
     final date = item.dateLabel;
@@ -284,8 +302,6 @@ class _FigmaMyVideoCard extends StatelessWidget {
                 children: [
                   GestureDetector(
                     onTap: () {
-                      final challengeObj = item.challenge;
-                      final challengeId = challengeObj?['id']?.toString() ?? '';
                       final routeId = item.id.isNotEmpty ? item.id : challengeId;
                       final uiMap = _enrichUiMap(context, item);
                       context.read<ReelsCubit>().syncVideos([uiMap]);
@@ -294,6 +310,7 @@ class _FigmaMyVideoCard extends StatelessWidget {
                     child: AppImage(
                       url: effectiveThumb,
                       videoUrl: effectiveVideo,
+                      fallbackUrl: fallbackImg,
                       fit: BoxFit.cover,
                       isVideo: true,
                     ),
@@ -474,10 +491,9 @@ class _FigmaMyVideoCard extends StatelessWidget {
                     Row(
                       children: [
                         Expanded(
-                          flex: 3,
                           child: _buildSmallActionButton(
                             icon: Icons.edit_outlined,
-                            label: 'Continue Draft',
+                            label: 'Continue',
                             onTap: () {
                               final challengeObj = item.challenge;
                               final challengeId = challengeObj?['id']?.toString() ?? '';
@@ -489,9 +505,8 @@ class _FigmaMyVideoCard extends StatelessWidget {
                             },
                           ),
                         ),
-                        const SizedBox(width: 5),
+                        const SizedBox(width: 4),
                         Expanded(
-                          flex: 2,
                           child: _buildSmallActionButton(
                             icon: Icons.share_outlined,
                             label: 'Share',
@@ -560,119 +575,179 @@ class _FigmaMyVideoCard extends StatelessWidget {
     String videoId,
     String videoTitle,
   ) async {
-    final confirm = await showDialog<bool>(
+    bool isDeleting = false;
+
+    final result = await showDialog<bool>(
       context: context,
-      barrierDismissible: true,
-      builder: (ctx) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        backgroundColor: Colors.white,
-        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-        child: Padding(
-          padding: const EdgeInsets.all(22.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 60,
-                height: 60,
-                decoration: const BoxDecoration(
-                  color: Color(0xFFFFF2F2),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.delete_outline_rounded,
-                  color: Color(0xFFFF3B30),
-                  size: 32,
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Delete Video?',
-                style: TextStyle(
-                  fontFamily: 'Poppins',
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF241E38),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Are you sure you want to delete "$videoTitle"? This action cannot be undone.',
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 12.5,
-                  color: Color(0xFF7A7090),
-                  height: 1.4,
-                ),
-              ),
-              const SizedBox(height: 22),
-              Row(
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => PopScope(
+          canPop: !isDeleting,
+          child: Dialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+            backgroundColor: Colors.white,
+            insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+            child: Padding(
+              padding: const EdgeInsets.all(22.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.of(ctx).pop(false),
-                      style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: Color(0xFFECE8F5), width: 1.5),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
-                      child: const Text(
-                        'Cancel',
-                        style: TextStyle(
-                          fontFamily: 'Poppins',
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF7A7090),
-                          fontSize: 13.5,
-                        ),
-                      ),
+                  Container(
+                    width: 60,
+                    height: 60,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFFFF2F2),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.delete_outline_rounded,
+                      color: Color(0xFFFF3B30),
+                      size: 32,
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () => Navigator.of(ctx).pop(true),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFFF3B30),
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
-                      child: const Text(
-                        'Delete',
-                        style: TextStyle(
-                          fontFamily: 'Poppins',
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                          fontSize: 13.5,
-                        ),
-                      ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Delete Video?',
+                    style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF241E38),
                     ),
                   ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Are you sure you want to delete "$videoTitle"? This action cannot be undone.',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 12.5,
+                      color: Color(0xFF7A7090),
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 22),
+                  if (isDeleting)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(
+                            width: 30,
+                            height: 30,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.8,
+                              color: Color(0xFFFF3B30),
+                            ),
+                          ),
+                          SizedBox(height: 12),
+                          Text(
+                            'Deleting video...',
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF7A7090),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.of(ctx).pop(false),
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: Color(0xFFECE8F5), width: 1.5),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                            child: const Text(
+                              'Cancel',
+                              style: TextStyle(
+                                fontFamily: 'Poppins',
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF7A7090),
+                                fontSize: 13.5,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: () async {
+                              setDialogState(() {
+                                isDeleting = true;
+                              });
+
+                              final myVideosCubit = context.read<MyVideosCubit>();
+                              final profileCubit = context.read<ProfileCubit>();
+
+                              final success = await myVideosCubit.deleteVideo(videoId);
+                              profileCubit.removeVideoOptimistically(videoId);
+                              profileCubit.loadProfile(forceRefresh: true);
+
+                              if (ctx.mounted) {
+                                Navigator.of(ctx).pop(success);
+                              }
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFFF3B30),
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                            child: const Text(
+                              'Delete',
+                              style: TextStyle(
+                                fontFamily: 'Poppins',
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                                fontSize: 13.5,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                 ],
               ),
-            ],
+            ),
           ),
         ),
       ),
     );
 
-    if (confirm == true && context.mounted) {
-      final success = await context.read<MyVideosCubit>().deleteVideo(videoId);
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              success ? 'Video deleted successfully' : 'Failed to delete video',
+    if (result != null && context.mounted) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            result ? 'Video deleted successfully' : 'Failed to delete video',
+            style: const TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
             ),
-            backgroundColor: success ? const Color(0xFF8B3DFF) : Colors.red,
           ),
-        );
-      }
+          duration: const Duration(milliseconds: 1500),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          backgroundColor: result ? const Color(0xFF8B3DFF) : Colors.red,
+        ),
+      );
     }
   }
 
@@ -686,6 +761,7 @@ class _FigmaMyVideoCard extends StatelessWidget {
       onTap: onTap,
       child: Container(
         height: 26,
+        padding: const EdgeInsets.symmetric(horizontal: 2),
         decoration: BoxDecoration(
           color: const Color(0xFFF7F5FC),
           borderRadius: BorderRadius.circular(13),
@@ -694,8 +770,8 @@ class _FigmaMyVideoCard extends StatelessWidget {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, size: 11, color: AppColors.text),
-            const SizedBox(width: 3),
+            Icon(icon, size: 10.5, color: AppColors.text),
+            const SizedBox(width: 2.5),
             Flexible(
               child: Text(
                 label,
@@ -703,7 +779,7 @@ class _FigmaMyVideoCard extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   fontFamily: 'Inter',
-                  fontSize: 9.5,
+                  fontSize: 9.0,
                   fontWeight: FontWeight.w700,
                   color: AppColors.text,
                 ),

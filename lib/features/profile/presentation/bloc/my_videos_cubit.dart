@@ -216,25 +216,23 @@ class MyVideosCubit extends Cubit<MyVideosState> {
     loadMyVideos(tab: tabKey, forceRefresh: true);
   }
 
+  void removeVideoOptimistically(String videoId) {
+    final updatedList = state.videos.where((v) => v.id != videoId).toList();
+    if (state.response != null) {
+      emit(state.copyWith(
+        response: state.response!.copyWith(
+          data: updatedList,
+        ),
+      ));
+    }
+  }
+
   Future<bool> deleteVideo(String videoId) async {
     final token = _authCubit.sessionToken;
     final refresh = _authCubit.refreshToken;
 
     // Optimistically update state
-    final updatedList = state.videos.where((v) => v.id != videoId).toList();
-    emit(state.copyWith(
-      response: state.response != null
-          ? MyVideosResponse(
-              success: state.response!.success,
-              message: state.response!.message,
-              data: updatedList,
-              tabs: state.response!.tabs,
-              activeTab: state.response!.activeTab,
-              emptyState: state.response!.emptyState,
-              pagination: state.response!.pagination,
-            )
-          : null,
-    ));
+    removeVideoOptimistically(videoId);
 
     try {
       await _repository.deleteVideo(
@@ -242,10 +240,12 @@ class MyVideosCubit extends Cubit<MyVideosState> {
         sessionToken: (token != null && token != 'design_preview') ? token : null,
         refreshToken: (refresh != null && refresh != 'design_preview') ? refresh : null,
       );
+      await loadMyVideos(tab: state.activeTab, forceRefresh: true);
       return true;
     } catch (e) {
       debugPrint('Error executing deleteVideo in MyVideosCubit: $e');
-      return true;
+      await loadMyVideos(tab: state.activeTab, forceRefresh: true);
+      return false;
     }
   }
 

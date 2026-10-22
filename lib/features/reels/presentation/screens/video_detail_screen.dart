@@ -314,7 +314,9 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                 // Video Thumbnail
                 AppImage(
                   url: imageUrl,
+                  videoUrl: (reel['videoUrl'] as String?) ?? (reel['videoPath'] as String?),
                   fit: BoxFit.cover,
+                  isVideo: true,
                 ),
 
                 // Gradient Overlay
@@ -938,8 +940,10 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                 children: [
                   // Reel Thumbnail Cover
                   AppImage(
-                    url: item['imageUrl'] as String,
+                    url: (item['imageUrl'] as String?) ?? (item['thumbnailUrl'] as String?) ?? '',
+                    videoUrl: (item['videoUrl'] as String?) ?? (item['videoPath'] as String?),
                     fit: BoxFit.cover,
+                    isVideo: true,
                   ),
 
                   // Bottom Gradient Overlay for High Contrast Text

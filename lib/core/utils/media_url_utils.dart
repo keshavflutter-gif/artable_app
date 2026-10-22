@@ -37,6 +37,28 @@ class MediaUrlUtils {
       return clean.replaceFirst('file://', '');
     }
     if (clean.startsWith('http://') || clean.startsWith('https://')) {
+      if (clean.contains('loremflickr.com')) {
+        if (clean.contains('dance')) {
+          return 'https://images.unsplash.com/photo-1547153760-18fc86324498?w=700&h=440&q=80&fit=crop';
+        } else if (clean.contains('singer') || clean.contains('concert') || clean.contains('music')) {
+          return 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=700&h=440&q=80&fit=crop';
+        } else if (clean.contains('comedian') || clean.contains('standup')) {
+          return 'https://images.unsplash.com/photo-1585699324551-f6c309eedeca?w=700&h=440&q=80&fit=crop';
+        } else if (clean.contains('fitness') || clean.contains('workout') || clean.contains('athlete') || clean.contains('sports')) {
+          return 'https://images.unsplash.com/photo-1517838277536-f5f99be501cd?w=700&h=440&q=80&fit=crop';
+        } else if (clean.contains('magician') || clean.contains('magic')) {
+          return 'https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=700&h=440&q=80&fit=crop';
+        } else if (clean.contains('painter') || clean.contains('artist')) {
+          return 'https://images.unsplash.com/photo-1579783902614-a3fb3927b675?w=700&h=440&q=80&fit=crop';
+        } else if (clean.contains('actor') || clean.contains('theater')) {
+          return 'https://images.unsplash.com/photo-1507676184212-d03ab07a01bf?w=700&h=440&q=80&fit=crop';
+        } else if (clean.contains('portrait') || clean.contains('woman')) {
+          return 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=120&h=120&q=80&fit=crop';
+        } else if (clean.contains('man')) {
+          return 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&h=120&q=80&fit=crop';
+        }
+        return 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=700&h=440&q=80&fit=crop';
+      }
       return clean;
     }
 

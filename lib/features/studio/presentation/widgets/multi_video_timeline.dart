@@ -2,9 +2,8 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
-import 'package:video_thumbnail/video_thumbnail.dart';
 import 'package:artable_app/core/widgets/app_image.dart';
-import 'package:artable_app/features/studio/data/services/video_thumbnail_generator.dart';
+import '../../data/services/video_thumbnail_generator.dart';
 import 'editor_clip.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -30,9 +29,11 @@ class MultiVideoTimeline extends StatefulWidget {
     required this.onClipRemoved,
     required this.onTrimChanged,
     required this.isPlaying,
+    this.isMerging = false,
   });
 
   final EditorClipListNotifier notifier;
+  final bool isMerging;
 
   /// Current global playback position in milliseconds.
   final int globalPositionMs;
@@ -149,7 +150,7 @@ class _MultiVideoTimelineState extends State<MultiVideoTimeline> {
     final localMs = (clip.trimmedDuration.inMilliseconds * progress).round();
     final globalMs = accumulatedMs + localMs;
 
-    widget.onClipSelected(clipIndex);
+    // Call only onGlobalSeek to atomically activate and seek to the exact frame
     widget.onGlobalSeek(globalMs);
     _isUserScrubbing = false;
   }
@@ -216,11 +217,13 @@ class _MultiVideoTimelineState extends State<MultiVideoTimeline> {
                       crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
                         ...List.generate(clips.length, (i) {
+                          final clip = clips[i];
                           return _ClipTile(
-                            clip: clips[i],
+                            clip: clip,
                             clipIndex: i,
                             isSelected: i == selectedIndex,
-                            clipPx: _clipTrimmedPx(clips[i]),
+                            clipPx: _clipTrimmedPx(clip),
+                            isMerging: clip.isMerging,
                             onTap: () => widget.onClipSelected(i),
                             onRemove: () => widget.onClipRemoved(i),
                             onSeekInsideClip: (progress) => _onSeekInsideClip(i, progress),
@@ -353,6 +356,7 @@ class _ClipTile extends StatelessWidget {
     required this.clipIndex,
     required this.isSelected,
     required this.clipPx,
+    this.isMerging = false,
     required this.onTap,
     required this.onRemove,
     required this.onSeekInsideClip,
@@ -366,6 +370,7 @@ class _ClipTile extends StatelessWidget {
   final int clipIndex;
   final bool isSelected;
   final double clipPx;
+  final bool isMerging;
   final VoidCallback onTap;
   final VoidCallback onRemove;
   final ValueChanged<double> onSeekInsideClip;
@@ -385,6 +390,7 @@ class _ClipTile extends StatelessWidget {
 
     return GestureDetector(
       onTapUp: (details) {
+        if (isMerging || clip.isMerging) return;
         final dx = details.localPosition.dx;
         if (dx >= _kHandleWidth && dx <= clipPx + _kHandleWidth) {
           final tapInsideTrack = dx - _kHandleWidth;
@@ -395,7 +401,7 @@ class _ClipTile extends StatelessWidget {
         }
       },
       onPanUpdate: (details) {
-        if (!isSelected) return;
+        if (!isSelected || isMerging || clip.isMerging) return;
         final dx = details.localPosition.dx;
         if (dx >= _kHandleWidth && dx <= clipPx + _kHandleWidth) {
           final tapInsideTrack = dx - _kHandleWidth;
@@ -410,7 +416,7 @@ class _ClipTile extends StatelessWidget {
           clipBehavior: Clip.none,
           children: [
             // Selected clip: delete button top-right
-            if (isSelected)
+            if (isSelected && !isMerging && !clip.isMerging)
               Positioned(
                 top: 0,
                 right: _kHandleWidth + 2,
@@ -447,27 +453,47 @@ class _ClipTile extends StatelessWidget {
                 children: [
                   // Left trim handle
                   GestureDetector(
-                    onPanStart: (_) => onHandleDragStart(true),
-                    onPanUpdate: (d) => onLeftHandleDrag(d.delta.dx),
-                    onPanEnd: (_) => onHandleDragEnd(),
+                    onPanStart: (_) {
+                      if (isMerging || clip.isMerging) return;
+                      onHandleDragStart(true);
+                    },
+                    onPanUpdate: (d) {
+                      if (isMerging || clip.isMerging) return;
+                      onLeftHandleDrag(d.delta.dx);
+                    },
+                    onPanEnd: (_) {
+                      if (isMerging || clip.isMerging) return;
+                      onHandleDragEnd();
+                    },
                     child: _Handle(isLeft: true, isSelected: isSelected, color: borderColor),
                   ),
 
                   // Thumbnail strip with real video frames
                   Expanded(
                     child: _ClipFilmstripStrip(
+                      key: ValueKey('${clip.id}_${clip.filePath}'),
                       clip: clip,
                       frameCount: thumbnailCount,
                       borderColor: borderColor,
                       borderWidth: borderWidth,
+                      isMerging: isMerging || clip.isMerging,
                     ),
                   ),
 
                   // Right trim handle
                   GestureDetector(
-                    onPanStart: (_) => onHandleDragStart(false),
-                    onPanUpdate: (d) => onRightHandleDrag(d.delta.dx),
-                    onPanEnd: (_) => onHandleDragEnd(),
+                    onPanStart: (_) {
+                      if (isMerging || clip.isMerging) return;
+                      onHandleDragStart(false);
+                    },
+                    onPanUpdate: (d) {
+                      if (isMerging || clip.isMerging) return;
+                      onRightHandleDrag(d.delta.dx);
+                    },
+                    onPanEnd: (_) {
+                      if (isMerging || clip.isMerging) return;
+                      onHandleDragEnd();
+                    },
                     child: _Handle(isLeft: false, isSelected: isSelected, color: borderColor),
                   ),
                 ],
@@ -485,16 +511,19 @@ class _ClipTile extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 class _ClipFilmstripStrip extends StatefulWidget {
   const _ClipFilmstripStrip({
+    super.key,
     required this.clip,
     required this.frameCount,
     required this.borderColor,
     required this.borderWidth,
+    this.isMerging = false,
   });
 
   final EditorClip clip;
   final int frameCount;
   final Color borderColor;
   final double borderWidth;
+  final bool isMerging;
 
   @override
   State<_ClipFilmstripStrip> createState() => _ClipFilmstripStripState();
@@ -504,128 +533,236 @@ class _ClipFilmstripStripState extends State<_ClipFilmstripStrip> {
   static final Map<String, List<Uint8List>> _framesCache = {};
   static final Map<String, Uint8List> _singleThumbCache = {};
   static final Set<String> _inFlight = {};
+  bool _isLoading = true;
+
+  String _cleanPath(String path) {
+    var p = path.trim();
+    if (p.startsWith('file://')) {
+      p = p.replaceFirst('file://', '');
+    }
+    return p;
+  }
+
+  String _cacheKey() {
+    final rawPath = _cleanPath(widget.clip.filePath);
+    return VideoThumbnailGenerator.buildCacheKey(
+      rawPath,
+      trimStart: widget.clip.trimStart,
+      trimEnd: widget.clip.trimEnd,
+      count: widget.frameCount,
+      extra: widget.clip.id,
+    );
+  }
 
   @override
   void initState() {
     super.initState();
-    _loadThumbnails();
+    final key = _cacheKey();
+    final cached = _framesCache[key] ?? VideoThumbnailGenerator.getCachedFilmstripFrames(key);
+    if (cached != null && cached.length > 1) {
+      _framesCache[key] = cached;
+      _singleThumbCache[key] = cached.first;
+      _isLoading = false;
+    } else {
+      _isLoading = true;
+      _loadThumbnails();
+    }
   }
 
   @override
   void didUpdateWidget(covariant _ClipFilmstripStrip oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.clip.filePath != widget.clip.filePath ||
-        oldWidget.frameCount != widget.frameCount) {
-      _loadThumbnails();
+    final oldKey = VideoThumbnailGenerator.buildCacheKey(
+      _cleanPath(oldWidget.clip.filePath),
+      trimStart: oldWidget.clip.trimStart,
+      trimEnd: oldWidget.clip.trimEnd,
+      count: oldWidget.frameCount,
+      extra: oldWidget.clip.id,
+    );
+    final newKey = _cacheKey();
+
+    if (oldKey != newKey ||
+        oldWidget.clip.isMerging != widget.clip.isMerging ||
+        oldWidget.isMerging != widget.isMerging ||
+        oldWidget.clip.thumbnailBytes != widget.clip.thumbnailBytes ||
+        oldWidget.clip.thumbnailPath != widget.clip.thumbnailPath) {
+      final cached = _framesCache[newKey] ?? VideoThumbnailGenerator.getCachedFilmstripFrames(newKey);
+      if (cached != null && cached.length > 1) {
+        _framesCache[newKey] = cached;
+        if (_isLoading) {
+          setState(() => _isLoading = false);
+        }
+      } else {
+        _loadThumbnails();
+      }
+    } else if (_isLoading && _framesCache.containsKey(newKey) && _framesCache[newKey]!.length > 1) {
+      setState(() => _isLoading = false);
     }
   }
 
   Future<void> _loadThumbnails() async {
-    var rawPath = widget.clip.filePath.trim();
-    if (rawPath.startsWith('file://')) {
-      rawPath = rawPath.replaceFirst('file://', '');
-    }
+    final rawPath = _cleanPath(widget.clip.filePath);
     if (rawPath.isEmpty) return;
 
+    final key = _cacheKey();
     final frameCount = widget.frameCount.clamp(1, 15);
-    final cacheKey = '${rawPath}_$frameCount';
 
-    if (_framesCache.containsKey(cacheKey) && _framesCache[cacheKey]!.isNotEmpty) {
+    // 1. Instant check if frames already cached for this exact clip and trim interval
+    if (_framesCache.containsKey(key) && _framesCache[key]!.length > 1) {
+      if (_isLoading && mounted) {
+        setState(() => _isLoading = false);
+      }
       return;
     }
 
-    if (!_singleThumbCache.containsKey(rawPath)) {
-      if (widget.clip.thumbnailBytes != null && widget.clip.thumbnailBytes!.isNotEmpty) {
-        _singleThumbCache[rawPath] = widget.clip.thumbnailBytes!;
-      } else if (widget.clip.thumbnailPath != null && widget.clip.thumbnailPath!.isNotEmpty) {
-        try {
-          final f = File(widget.clip.thumbnailPath!);
-          if (await f.exists()) {
-            final b = await f.readAsBytes();
-            if (b.isNotEmpty) {
-              _singleThumbCache[rawPath] = b;
-              if (mounted) setState(() {});
-            }
+    final genCached = VideoThumbnailGenerator.getCachedFilmstripFrames(key);
+    if (genCached != null && genCached.length > 1) {
+      _framesCache[key] = genCached;
+      _singleThumbCache[key] = genCached.first;
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+      return;
+    }
+
+    // 2. Check clip thumbnail bytes for immediate non-empty display while frames extract
+    Uint8List? existingThumb = widget.clip.thumbnailBytes ??
+        _singleThumbCache[key] ??
+        _singleThumbCache[rawPath] ??
+        AppImage.getCachedThumbnail(rawPath);
+
+    if (existingThumb == null && widget.clip.thumbnailPath != null && widget.clip.thumbnailPath!.isNotEmpty) {
+      try {
+        final f = File(_cleanPath(widget.clip.thumbnailPath!));
+        if (f.existsSync()) {
+          final b = f.readAsBytesSync();
+          if (b.isNotEmpty && b.length > 200) {
+            existingThumb = b;
           }
-        } catch (_) {}
+        }
+      } catch (_) {}
+    }
+
+    if (existingThumb != null && existingThumb.isNotEmpty) {
+      _singleThumbCache[key] = existingThumb;
+      if (mounted && _isLoading) {
+        setState(() => _isLoading = false);
       }
     }
 
-    if (_inFlight.contains(cacheKey)) return;
-    _inFlight.add(cacheKey);
+    if (_inFlight.contains(key)) return;
+    _inFlight.add(key);
 
     try {
-      if (!_singleThumbCache.containsKey(rawPath)) {
-        try {
-          final singleFrame = await VideoThumbnail.thumbnailData(
-            video: rawPath,
-            imageFormat: ImageFormat.JPEG,
-            maxWidth: 160,
-            quality: 65,
-            timeMs: 200,
-          );
-          if (singleFrame != null && singleFrame.isNotEmpty) {
-            _singleThumbCache[rawPath] = singleFrame;
-            if (mounted) setState(() {});
-          } else {
-            final genFile = await VideoThumbnailGenerator.generateThumbnailFromVideo(rawPath);
-            if (genFile != null && await genFile.exists()) {
-              final b = await genFile.readAsBytes();
-              if (b.isNotEmpty) {
-                _singleThumbCache[rawPath] = b;
-                if (mounted) setState(() {});
-              }
-            }
-          }
-        } catch (_) {}
-      }
-
-      final durationMs = widget.clip.originalDuration.inMilliseconds;
-      final stepMs = durationMs > 0 ? (durationMs / frameCount) : 1000.0;
-      final List<Uint8List> frames = [];
-
-      for (int i = 0; i < frameCount; i++) {
-        final timeMs = (i * stepMs + stepMs / 2).round().clamp(0, durationMs > 100 ? durationMs - 100 : 0);
-        try {
-          final frame = await VideoThumbnail.thumbnailData(
-            video: rawPath,
-            imageFormat: ImageFormat.JPEG,
-            maxWidth: 140,
-            quality: 60,
-            timeMs: timeMs,
-          );
-          if (frame != null && frame.isNotEmpty) {
-            frames.add(frame);
-          } else if (_singleThumbCache.containsKey(rawPath)) {
-            frames.add(_singleThumbCache[rawPath]!);
-          }
-        } catch (_) {
-          if (_singleThumbCache.containsKey(rawPath)) {
-            frames.add(_singleThumbCache[rawPath]!);
-          }
-        }
-      }
+      final frames = await VideoThumbnailGenerator.extractFilmstripFrames(
+        rawPath,
+        targetCount: frameCount,
+        trimStart: widget.clip.trimStart,
+        trimEnd: widget.clip.trimEnd,
+        duration: widget.clip.originalDuration,
+        cacheKeyExtra: widget.clip.id,
+      );
 
       if (frames.isNotEmpty) {
-        _framesCache[cacheKey] = frames;
-        if (mounted) setState(() {});
+        _framesCache[key] = frames;
+        _singleThumbCache[key] = frames.first;
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
       }
     } catch (_) {
     } finally {
-      _inFlight.remove(cacheKey);
+      _inFlight.remove(key);
+      if (mounted && _isLoading) {
+        setState(() => _isLoading = false);
+      }
     }
+  }
+
+  Widget _buildCell(int index, int totalCount, List<Uint8List>? frames) {
+    if (frames != null && frames.isNotEmpty) {
+      // 1-to-1 mapping if exact frameCount was extracted, otherwise proportional
+      final int frameIdx = (frames.length == totalCount)
+          ? index.clamp(0, frames.length - 1)
+          : ((index / (totalCount <= 1 ? 1 : totalCount - 1)) * (frames.length - 1)).round().clamp(0, frames.length - 1);
+      final Uint8List cellBytes = frames[frameIdx];
+      return Image.memory(
+        cellBytes,
+        fit: BoxFit.cover,
+        width: double.infinity,
+        height: double.infinity,
+        gaplessPlayback: true,
+      );
+    }
+
+    final key = _cacheKey();
+    final rawPath = _cleanPath(widget.clip.filePath);
+    final single = widget.clip.thumbnailBytes ??
+        _singleThumbCache[key] ??
+        _singleThumbCache[rawPath] ??
+        AppImage.getCachedThumbnail(rawPath);
+    if (single != null && single.isNotEmpty) {
+      return Image.memory(
+        single,
+        fit: BoxFit.cover,
+        width: double.infinity,
+        height: double.infinity,
+        gaplessPlayback: true,
+      );
+    }
+
+    final thumbPath = widget.clip.thumbnailPath;
+    if (thumbPath != null && thumbPath.trim().isNotEmpty) {
+      final cleanThumb = _cleanPath(thumbPath);
+      final f = File(cleanThumb);
+      if (f.existsSync()) {
+        return Image.file(
+          f,
+          fit: BoxFit.cover,
+          width: double.infinity,
+          height: double.infinity,
+          gaplessPlayback: true,
+        );
+      }
+    }
+
+    // High quality filmstrip cell placeholder (never spawn video controller in cells)
+    return Container(
+      decoration: const BoxDecoration(
+        color: Color(0xFF1E1435),
+      ),
+      child: Center(
+        child: Container(
+          width: 4,
+          height: 4,
+          decoration: const BoxDecoration(
+            shape: BoxShape.circle,
+            color: Color(0x22FFFFFF),
+          ),
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    var rawPath = widget.clip.filePath.trim();
-    if (rawPath.startsWith('file://')) {
-      rawPath = rawPath.replaceFirst('file://', '');
-    }
+    final rawPath = _cleanPath(widget.clip.filePath);
+    final key = _cacheKey();
     final frameCount = widget.frameCount.clamp(1, 15);
-    final cacheKey = '${rawPath}_$frameCount';
-    final frames = _framesCache[cacheKey];
-    final singleBytes = _singleThumbCache[rawPath] ?? widget.clip.thumbnailBytes;
+    final frames = _framesCache[key] ?? VideoThumbnailGenerator.getCachedFilmstripFrames(key);
+
+    final bool isMergingNow = widget.isMerging || widget.clip.isMerging;
+    final bool hasFrames = frames != null && frames.isNotEmpty;
+    final bool hasThumbBytes = (widget.clip.thumbnailBytes != null && widget.clip.thumbnailBytes!.isNotEmpty) ||
+        _singleThumbCache.containsKey(key) ||
+        _singleThumbCache.containsKey(rawPath) ||
+        AppImage.getCachedThumbnail(rawPath) != null;
+    final bool hasThumbPath = widget.clip.thumbnailPath != null && widget.clip.thumbnailPath!.trim().isNotEmpty;
+    final bool hasAnyVisual = hasFrames || hasThumbBytes || hasThumbPath;
+
+    // While merging is active, ALWAYS show the loader in this row.
+    // If not merging, show loader ONLY while actively loading frames and no visual is ready.
+    final bool showLoader = isMergingNow || (_isLoading && !hasAnyVisual);
 
     return Container(
       decoration: BoxDecoration(
@@ -636,47 +773,43 @@ class _ClipFilmstripStripState extends State<_ClipFilmstripStrip> {
         ),
       ),
       child: ClipRect(
-        child: Row(
-          children: List.generate(frameCount, (i) {
-            Uint8List? cellBytes;
-            if (frames != null && i < frames.length) {
-              cellBytes = frames[i];
-            } else if (singleBytes != null) {
-              cellBytes = singleBytes;
-            }
-
-            Widget content;
-            if (cellBytes != null) {
-              content = Image.memory(
-                cellBytes,
-                fit: BoxFit.cover,
-                width: double.infinity,
-                height: double.infinity,
-                gaplessPlayback: true,
-              );
-            } else {
-              content = AppImage(
-                url: widget.clip.thumbnailPath ?? '',
-                videoUrl: widget.clip.filePath,
-                isVideo: true,
-                fit: BoxFit.cover,
-                width: double.infinity,
-                height: double.infinity,
-              );
-            }
-
-            return Expanded(
-              child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 0.75, vertical: 1.0),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1E1435),
-                  borderRadius: BorderRadius.circular(1.5),
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: content,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            // When ready: display clean frames/thumbnails across the strip
+            if (!showLoader)
+              Row(
+                children: List.generate(frameCount, (i) {
+                  return Expanded(
+                    child: Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 0.75, vertical: 1.0),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1E1435),
+                        borderRadius: BorderRadius.circular(1.5),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: _buildCell(i, frameCount, frames),
+                    ),
+                  );
+                }),
               ),
-            );
-          }),
+
+            // While loading or merging: show ONLY the centered loader (no text)
+            if (showLoader)
+              Container(
+                color: const Color(0xFF140D24),
+                child: const Center(
+                  child: SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFFD54F)),
+                    ),
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );

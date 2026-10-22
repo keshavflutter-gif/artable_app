@@ -17,10 +17,12 @@ class ChallengesScreen extends StatefulWidget {
     super.key,
     this.initialTab = 'active',
     this.categoryFilter,
+    this.showBackButton = false,
   });
 
   final String initialTab;
   final String? categoryFilter;
+  final bool showBackButton;
 
   @override
   State<ChallengesScreen> createState() => _ChallengesScreenState();
@@ -109,11 +111,11 @@ class _ChallengesScreenState extends State<ChallengesScreen> {
         children: [
           AppPageHeader(
             title: 'Challenges',
+            showBackButton: widget.showBackButton,
             onBack: () => context.go(AppRoutes.home),
           ),
           SearchBarWidget(
             placeholder: 'Search challenges...',
-            showFilter: true,
             onChanged: (value) => context
                 .read<ChallengesCubit>()
                 .setChallengeQuery(

@@ -60,10 +60,12 @@ class AppPageHeader extends StatelessWidget {
     super.key,
     required this.title,
     this.onBack,
+    this.showBackButton = true,
   });
 
   final String title;
   final VoidCallback? onBack;
+  final bool showBackButton;
 
   @override
   Widget build(BuildContext context) {
@@ -71,31 +73,35 @@ class AppPageHeader extends StatelessWidget {
       bottom: false,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(22, 12, 22, 8),
-        child: Row(
-          children: [
-            _BackButton(
-              onTap: onBack ??
-                  () {
-                    if (context.canPop()) {
-                      context.pop();
-                    } else {
-                      context.go(AppRoutes.home);
-                    }
-                  },
-            ),
-            Expanded(
-              child: Text(
-                title,
-                textAlign: TextAlign.center,
-                style: AppTypography.display(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  color: const Color(0xFF1E1B2E),
+        child: SizedBox(
+          height: 40,
+          child: Row(
+            children: [
+              if (showBackButton)
+                _BackButton(
+                  onTap: onBack ??
+                      () {
+                        if (context.canPop()) {
+                          context.pop();
+                        } else {
+                          context.go(AppRoutes.home);
+                        }
+                      },
+                ),
+              Expanded(
+                child: Text(
+                  title,
+                  textAlign: TextAlign.center,
+                  style: AppTypography.display(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFF1E1B2E),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(width: 40),
-          ],
+              if (showBackButton) const SizedBox(width: 40),
+            ],
+          ),
         ),
       ),
     );

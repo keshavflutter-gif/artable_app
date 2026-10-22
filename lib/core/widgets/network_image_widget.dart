@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 
 import 'package:artable_app/app/theme/app_colors.dart';
 
+import 'package:artable_app/core/utils/media_url_utils.dart';
+
 class NetworkImageWidget extends StatelessWidget {
   const NetworkImageWidget({
     super.key,
@@ -23,8 +25,23 @@ class NetworkImageWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cleanUrl = MediaUrlUtils.resolve(url);
+    if (cleanUrl.isEmpty) {
+      final fallback = Container(
+        width: width,
+        height: height,
+        color: AppColors.inputBg,
+        alignment: Alignment.center,
+        child: Icon(Icons.image_outlined, color: AppColors.textFaint, size: 24),
+      );
+      if (borderRadius != null) {
+        return ClipRRect(borderRadius: borderRadius!, child: fallback);
+      }
+      return fallback;
+    }
+
     final image = CachedNetworkImage(
-      imageUrl: url,
+      imageUrl: cleanUrl,
       width: width,
       height: height,
       fit: fit,

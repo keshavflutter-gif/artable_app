@@ -326,6 +326,40 @@ class ProfileStats {
   factory ProfileStats.empty() {
     return const ProfileStats();
   }
+
+  ProfileStats copyWith({
+    int? totalVideos,
+    int? approvedVideos,
+    int? totalLikes,
+    int? totalViews,
+    num? talentScore,
+    int? wins,
+    int? joinedChallenges,
+    int? topThree,
+    num? rewardEarnings,
+    int? referrals,
+    int? maxVideoLikes,
+    int? maxRatingCount,
+    int? followers,
+    int? following,
+  }) {
+    return ProfileStats(
+      totalVideos: totalVideos ?? this.totalVideos,
+      approvedVideos: approvedVideos ?? this.approvedVideos,
+      totalLikes: totalLikes ?? this.totalLikes,
+      totalViews: totalViews ?? this.totalViews,
+      talentScore: talentScore ?? this.talentScore,
+      wins: wins ?? this.wins,
+      joinedChallenges: joinedChallenges ?? this.joinedChallenges,
+      topThree: topThree ?? this.topThree,
+      rewardEarnings: rewardEarnings ?? this.rewardEarnings,
+      referrals: referrals ?? this.referrals,
+      maxVideoLikes: maxVideoLikes ?? this.maxVideoLikes,
+      maxRatingCount: maxRatingCount ?? this.maxRatingCount,
+      followers: followers ?? this.followers,
+      following: following ?? this.following,
+    );
+  }
 }
 
 class ProfileStatCard {
@@ -340,6 +374,20 @@ class ProfileStatCard {
   final String label;
   final num value;
   final String displayValue;
+
+  ProfileStatCard copyWith({
+    String? key,
+    String? label,
+    num? value,
+    String? displayValue,
+  }) {
+    return ProfileStatCard(
+      key: key ?? this.key,
+      label: label ?? this.label,
+      value: value ?? this.value,
+      displayValue: displayValue ?? this.displayValue,
+    );
+  }
 
   factory ProfileStatCard.fromJson(Map<String, dynamic> json) {
     return ProfileStatCard(

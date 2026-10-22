@@ -20,19 +20,26 @@ class TabRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(0, 4, 0, 2),
-      child: Row(
-        children: List.generate(tabs.length, (index) {
-          final active = index == selectedIndex;
-          return Expanded(
-            child: Padding(
-              padding: EdgeInsets.only(left: index == 0 ? 0 : 3.5, right: index == tabs.length - 1 ? 0 : 3.5),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        clipBehavior: Clip.none,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: List.generate(tabs.length, (index) {
+            final active = index == selectedIndex;
+            return Padding(
+              padding: EdgeInsets.only(
+                left: index == 0 ? 0 : 3.5,
+                right: index == tabs.length - 1 ? 0 : 3.5,
+              ),
               child: GestureDetector(
                 onTap: () => onTabSelected(index),
                 child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 120),
+                  duration: const Duration(milliseconds: 140),
                   padding: EdgeInsets.symmetric(
                     vertical: active ? 10.5 : 9,
-                    horizontal: active ? 5.5 : 4,
+                    horizontal: 16,
                   ),
                   decoration: BoxDecoration(
                     gradient: active ? AppGradients.button : null,
@@ -54,18 +61,17 @@ class TabRow extends StatelessWidget {
                   alignment: Alignment.center,
                   child: Text(
                     tabs[index],
-                    overflow: TextOverflow.ellipsis,
                     style: AppTypography.display(
-                      fontSize: 12,
+                      fontSize: 12.5,
                       fontWeight: FontWeight.w600,
                       color: active ? Colors.white : AppColors.textSoft,
                     ),
                   ),
                 ),
               ),
-            ),
-          );
-        }),
+            );
+          }),
+        ),
       ),
     );
   }

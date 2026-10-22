@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -15,6 +16,7 @@ class AppImage extends StatelessWidget {
     super.key,
     required this.url,
     this.videoUrl,
+    this.fallbackUrl,
     this.width,
     this.height,
     this.fit = BoxFit.cover,
@@ -25,6 +27,7 @@ class AppImage extends StatelessWidget {
 
   final String url;
   final String? videoUrl;
+  final String? fallbackUrl;
   final double? width;
   final double? height;
   final BoxFit fit;
@@ -43,7 +46,13 @@ class AppImage extends StatelessWidget {
     if (cleanKey.isNotEmpty) _VideoThumbnailView._cache[cleanKey] = bytes;
 
     final basename = rawKey.split(RegExp(r'[/\\]')).last;
-    if (basename.isNotEmpty) _VideoThumbnailView._cache[basename] = bytes;
+    final bool isGenericBasename = [
+      'rec.mp4', 'cap.mp4', 'video.mp4', 'temp.mp4', 'output.mp4', 'input.mp4',
+      'merged.mp4', 'scaled_video.mp4', 'draft.mp4'
+    ].contains(basename.toLowerCase());
+    if (basename.isNotEmpty && !isGenericBasename && !rawKey.startsWith('/') && !rawKey.contains(':\\')) {
+      _VideoThumbnailView._cache[basename] = bytes;
+    }
 
     try {
       getTemporaryDirectory().then((tempDir) async {
@@ -54,13 +63,32 @@ class AppImage extends StatelessWidget {
             final cleanFile = File('${tempDir.path}/vthumb_${cleanKey.hashCode.abs()}.jpg');
             await cleanFile.writeAsBytes(bytes, flush: true);
           }
-          if (basename.isNotEmpty) {
+          if (basename.isNotEmpty && !isGenericBasename) {
             final baseFile = File('${tempDir.path}/vthumb_${basename.hashCode.abs()}.jpg');
             await baseFile.writeAsBytes(bytes, flush: true);
           }
         } catch (_) {}
       }).catchError((_) {});
     } catch (_) {}
+  }
+
+  static Uint8List? getCachedThumbnail(String key) {
+    if (key.trim().isEmpty) return null;
+    var rawKey = key.trim();
+    if (rawKey.startsWith('file://')) rawKey = rawKey.replaceFirst('file://', '');
+    final cleanKey = MediaUrlUtils.resolve(rawKey).trim();
+    final basename = rawKey.split(RegExp(r'[/\\]')).last;
+    final bool isGenericBasename = [
+      'rec.mp4', 'cap.mp4', 'video.mp4', 'temp.mp4', 'output.mp4', 'input.mp4',
+      'merged.mp4', 'scaled_video.mp4', 'draft.mp4'
+    ].contains(basename.toLowerCase());
+
+    return _VideoThumbnailView._cache[key.trim()] ??
+        _VideoThumbnailView._cache[rawKey] ??
+        (cleanKey.isNotEmpty ? _VideoThumbnailView._cache[cleanKey] : null) ??
+        (!isGenericBasename && !rawKey.startsWith('/') && !rawKey.contains(':\\') && basename.isNotEmpty
+            ? _VideoThumbnailView._cache[basename]
+            : null);
   }
 
   Widget _buildFallbackContainer() {
@@ -95,6 +123,27 @@ class AppImage extends StatelessWidget {
     );
   }
 
+  Widget _buildLoadingPlaceholder() {
+    return Container(
+      width: width,
+      height: height,
+      decoration: BoxDecoration(
+        color: const Color(0xFFF3EBFF),
+        borderRadius: borderRadius,
+      ),
+      child: Center(
+        child: SizedBox(
+          width: (width != null && width! < 50) ? 14 : 20,
+          height: (width != null && width! < 50) ? 14 : 20,
+          child: const CircularProgressIndicator(
+            strokeWidth: 2,
+            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF8B3DFF)),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     Widget img;
@@ -107,6 +156,12 @@ class AppImage extends StatelessWidget {
     final isUrlEmpty = cleanUrl.isEmpty;
     final hasValidThumbnail = !isUrlDummy && !isUrlVideo && !isUrlEmpty;
 
+    final effectiveFallbackImage = (fallbackUrl != null &&
+            fallbackUrl!.trim().isNotEmpty &&
+            !MediaUrlUtils.isDummyThumbnail(fallbackUrl))
+        ? fallbackUrl!.trim()
+        : (hasValidThumbnail ? cleanUrl : null);
+
     // 1. If we already have a real valid image thumbnail URL (remote or local), load it directly
     if (hasValidThumbnail && (cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://'))) {
       img = CachedNetworkImage(
@@ -114,15 +169,18 @@ class AppImage extends StatelessWidget {
         width: width,
         height: height,
         fit: fit,
-        placeholder: (context, url) => Container(
-          width: width,
-          height: height,
-          color: const Color(0xFF2A1560),
-        ),
+        memCacheWidth: width != null ? (width! * 2).toInt() : 150,
+        memCacheHeight: height != null ? (height! * 2).toInt() : 200,
+        maxWidthDiskCache: 600,
+        maxHeightDiskCache: 800,
+        fadeInDuration: const Duration(milliseconds: 150),
+        fadeOutDuration: const Duration(milliseconds: 100),
+        placeholder: (context, url) => _buildLoadingPlaceholder(),
         errorWidget: (context, url, error) {
           if (hasVideoSource) {
             return _VideoThumbnailView(
               videoSource: cleanVideoUrl,
+              fallbackImageUrl: effectiveFallbackImage,
               width: width,
               height: height,
               fit: fit,
@@ -138,10 +196,19 @@ class AppImage extends StatelessWidget {
         width: width,
         height: height,
         fit: fit,
+        cacheWidth: width != null ? (width! * 2).toInt() : 150,
+        cacheHeight: height != null ? (height! * 2).toInt() : 200,
+        frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+          if (wasSynchronouslyLoaded || frame != null) {
+            return child;
+          }
+          return _buildLoadingPlaceholder();
+        },
         errorBuilder: (context, error, stackTrace) {
           if (hasVideoSource) {
             return _VideoThumbnailView(
               videoSource: cleanVideoUrl,
+              fallbackImageUrl: effectiveFallbackImage,
               width: width,
               height: height,
               fit: fit,
@@ -155,7 +222,7 @@ class AppImage extends StatelessWidget {
       // 2. Only if thumbnail image is missing, dummy, or a video file, extract frame from video
       img = _VideoThumbnailView(
         videoSource: cleanVideoUrl,
-        fallbackImageUrl: hasValidThumbnail ? cleanUrl : null,
+        fallbackImageUrl: effectiveFallbackImage,
         width: width,
         height: height,
         fit: fit,
@@ -164,6 +231,16 @@ class AppImage extends StatelessWidget {
     } else if (isUrlVideo) {
       img = _VideoThumbnailView(
         videoSource: cleanUrl,
+        fallbackImageUrl: effectiveFallbackImage,
+        width: width,
+        height: height,
+        fit: fit,
+        fallback: _buildFallbackContainer(),
+      );
+    } else if (effectiveFallbackImage != null && effectiveFallbackImage.isNotEmpty) {
+      img = _VideoThumbnailView(
+        videoSource: '',
+        fallbackImageUrl: effectiveFallbackImage,
         width: width,
         height: height,
         fit: fit,
@@ -209,11 +286,26 @@ class _VideoThumbnailViewState extends State<_VideoThumbnailView> {
   VideoPlayerController? _controller;
   bool _isPlayerInitialized = false;
   bool _isDisposed = false;
+  bool _hasFailed = false;
+  Timer? _safetyTimer;
 
   @override
   void initState() {
     super.initState();
+    _startSafetyTimer();
     _loadThumbnail();
+  }
+
+  void _startSafetyTimer() {
+    _safetyTimer?.cancel();
+    // Maximum 3.0 seconds loading spinner before gracefully falling back
+    _safetyTimer = Timer(const Duration(milliseconds: 3000), () {
+      if (!_isDisposed && mounted && _bytes == null && !_isPlayerInitialized) {
+        setState(() {
+          _hasFailed = true;
+        });
+      }
+    });
   }
 
   @override
@@ -223,6 +315,8 @@ class _VideoThumbnailViewState extends State<_VideoThumbnailView> {
       _controller?.dispose();
       _controller = null;
       _isPlayerInitialized = false;
+      _hasFailed = false;
+      _startSafetyTimer();
       _loadThumbnail();
     }
   }
@@ -230,6 +324,8 @@ class _VideoThumbnailViewState extends State<_VideoThumbnailView> {
   @override
   void dispose() {
     _isDisposed = true;
+    _safetyTimer?.cancel();
+    _safetyTimer = null;
     _controller?.dispose();
     _controller = null;
     super.dispose();
@@ -241,13 +337,37 @@ class _VideoThumbnailViewState extends State<_VideoThumbnailView> {
       src = src.replaceFirst('file://', '');
     }
     src = MediaUrlUtils.resolve(src).trim();
-    if (src.isEmpty) return;
+
+    if (src.isEmpty) {
+      _safetyTimer?.cancel();
+      if (mounted) {
+        setState(() {
+          _hasFailed = true;
+        });
+      }
+      return;
+    }
+
+    final isRemote = src.startsWith('http://') || src.startsWith('https://');
+
+    // If local file does not exist, fail immediately to prevent infinite loading spinner
+    if (!isRemote && !File(src).existsSync()) {
+      _safetyTimer?.cancel();
+      if (mounted) {
+        setState(() {
+          _hasFailed = true;
+        });
+      }
+      return;
+    }
 
     // 1. Check in-memory RAM cache
     if (_VideoThumbnailView._cache.containsKey(src)) {
+      _safetyTimer?.cancel();
       if (mounted) {
         setState(() {
           _bytes = _VideoThumbnailView._cache[src];
+          _hasFailed = false;
         });
       }
       return;
@@ -255,9 +375,11 @@ class _VideoThumbnailViewState extends State<_VideoThumbnailView> {
 
     final basename = src.split(RegExp(r'[/\\]')).last;
     if (basename.isNotEmpty && _VideoThumbnailView._cache.containsKey(basename)) {
+      _safetyTimer?.cancel();
       if (mounted) {
         setState(() {
           _bytes = _VideoThumbnailView._cache[basename];
+          _hasFailed = false;
         });
       }
       return;
@@ -276,17 +398,17 @@ class _VideoThumbnailViewState extends State<_VideoThumbnailView> {
           if (basename.isNotEmpty) {
             _VideoThumbnailView._cache[basename] = diskBytes;
           }
+          _safetyTimer?.cancel();
           if (mounted) {
             setState(() {
               _bytes = diskBytes;
+              _hasFailed = false;
             });
           }
           return;
         }
       }
     } catch (_) {}
-
-    final isRemote = src.startsWith('http://') || src.startsWith('https://');
 
     // 3. Launch VideoPlayerController as instant visual fallback
     if (_controller == null && !_isPlayerInitialized) {
@@ -309,85 +431,85 @@ class _VideoThumbnailViewState extends State<_VideoThumbnailView> {
       try {
         if (data == null || data.isEmpty) {
           if (!isRemote) {
-          final f = File(src);
-          if (await f.exists()) {
-            for (final t in [0, 200, 500]) {
+            final f = File(src);
+            if (await f.exists()) {
+              for (final t in [0, 200, 500]) {
+                try {
+                  data = await VideoThumbnail.thumbnailData(
+                    video: f.path,
+                    imageFormat: ImageFormat.JPEG,
+                    maxWidth: 240,
+                    quality: 65,
+                    timeMs: t,
+                  ).timeout(const Duration(milliseconds: 2000));
+                  if (data != null && data.isNotEmpty) break;
+                } catch (_) {}
+              }
+            }
+          } else {
+            // Remote extraction direct attempt
+            for (final t in [0, 200]) {
               try {
                 data = await VideoThumbnail.thumbnailData(
-                  video: f.path,
+                  video: src,
                   imageFormat: ImageFormat.JPEG,
                   maxWidth: 512,
                   quality: 80,
                   timeMs: t,
-                );
+                ).timeout(const Duration(milliseconds: 2000));
                 if (data != null && data.isNotEmpty) break;
               } catch (_) {}
             }
-          }
-        } else {
-          // Remote extraction direct attempt
-          for (final t in [0, 200]) {
-            try {
-              data = await VideoThumbnail.thumbnailData(
-                video: src,
-                imageFormat: ImageFormat.JPEG,
-                maxWidth: 512,
-                quality: 80,
-                timeMs: t,
-              );
-              if (data != null && data.isNotEmpty) break;
-            } catch (_) {}
-          }
 
-          // Remote download first segment to extract locally
-          if (data == null || data.isEmpty) {
-            File? tempVideoFile;
-            try {
-              final tempDir = await getTemporaryDirectory();
-              tempVideoFile = File('${tempDir.path}/vdl_$keyHash.mp4');
+            // Remote download first segment to extract locally
+            if (data == null || data.isEmpty) {
+              File? tempVideoFile;
+              try {
+                final tempDir = await getTemporaryDirectory();
+                tempVideoFile = File('${tempDir.path}/vdl_$keyHash.mp4');
 
-              if (!await tempVideoFile.exists() || await tempVideoFile.length() == 0) {
-                final client = http.Client();
-                try {
-                  final req = http.Request('GET', Uri.parse(src));
-                  final response = await client.send(req).timeout(const Duration(seconds: 5));
-                  if (response.statusCode >= 200 && response.statusCode < 300) {
-                    final sink = tempVideoFile.openWrite();
-                    int totalBytes = 0;
-                    const maxBytes = 4 * 1024 * 1024;
-                    await for (final chunk in response.stream.timeout(const Duration(seconds: 5))) {
-                      sink.add(chunk);
-                      totalBytes += chunk.length;
-                      if (totalBytes >= maxBytes) break;
-                    }
-                    await sink.flush();
-                    await sink.close();
-                  }
-                } finally {
-                  client.close();
-                }
-              }
-
-              if (await tempVideoFile.exists() && await tempVideoFile.length() > 0) {
-                for (final t in [0, 200, 500]) {
+                if (!await tempVideoFile.exists() || await tempVideoFile.length() == 0) {
+                  final client = http.Client();
                   try {
-                    data = await VideoThumbnail.thumbnailData(
-                      video: tempVideoFile.path,
-                      imageFormat: ImageFormat.JPEG,
-                      maxWidth: 512,
-                      quality: 80,
-                      timeMs: t,
-                    );
-                    if (data != null && data.isNotEmpty) break;
-                  } catch (_) {}
+                    final req = http.Request('GET', Uri.parse(src));
+                    final response = await client.send(req).timeout(const Duration(seconds: 4));
+                    if (response.statusCode >= 200 && response.statusCode < 300) {
+                      final sink = tempVideoFile.openWrite();
+                      int totalBytes = 0;
+                      const maxBytes = 2 * 1024 * 1024;
+                      await for (final chunk in response.stream.timeout(const Duration(seconds: 3))) {
+                        sink.add(chunk);
+                        totalBytes += chunk.length;
+                        if (totalBytes >= maxBytes) break;
+                      }
+                      await sink.flush();
+                      await sink.close();
+                    }
+                  } finally {
+                    client.close();
+                  }
                 }
+
+                if (await tempVideoFile.exists() && await tempVideoFile.length() > 0) {
+                  for (final t in [0, 200, 500]) {
+                    try {
+                      data = await VideoThumbnail.thumbnailData(
+                        video: tempVideoFile.path,
+                        imageFormat: ImageFormat.JPEG,
+                        maxWidth: 512,
+                        quality: 80,
+                        timeMs: t,
+                      ).timeout(const Duration(milliseconds: 2000));
+                      if (data != null && data.isNotEmpty) break;
+                    } catch (_) {}
+                  }
+                }
+              } catch (e) {
+                debugPrint('Segment download thumbnail error: $e');
               }
-            } catch (e) {
-              debugPrint('Segment download thumbnail error: $e');
             }
           }
         }
-      }
 
         if (data != null && data.isNotEmpty) {
           _VideoThumbnailView._cache[src] = data;
@@ -410,14 +532,22 @@ class _VideoThumbnailViewState extends State<_VideoThumbnailView> {
     });
 
     final resBytes = await future;
+    _safetyTimer?.cancel();
     if (_isDisposed || !mounted) return;
     if (resBytes != null && resBytes.isNotEmpty) {
       setState(() {
         _bytes = resBytes;
+        _hasFailed = false;
         _controller?.dispose();
         _controller = null;
         _isPlayerInitialized = false;
       });
+    } else {
+      if (!_isPlayerInitialized) {
+        setState(() {
+          _hasFailed = true;
+        });
+      }
     }
   }
 
@@ -436,20 +566,64 @@ class _VideoThumbnailViewState extends State<_VideoThumbnailView> {
         controller.seekTo(const Duration(milliseconds: 200)).then((_) {
           if (_isDisposed || !mounted || _controller != controller) return;
           controller.pause();
+          _safetyTimer?.cancel();
           setState(() {
             _isPlayerInitialized = true;
+            _hasFailed = false;
           });
         }).catchError((_) {
           if (_isDisposed || !mounted || _controller != controller) return;
           controller.pause();
+          _safetyTimer?.cancel();
           setState(() {
             _isPlayerInitialized = true;
+            _hasFailed = false;
           });
         });
       }).catchError((e) {
         debugPrint('VideoPlayer fallback init error for $src: $e');
+        if (!_isDisposed && mounted && _bytes == null) {
+          setState(() {
+            _hasFailed = true;
+          });
+        }
       });
-    } catch (_) {}
+    } catch (_) {
+      if (!_isDisposed && mounted && _bytes == null) {
+        setState(() {
+          _hasFailed = true;
+        });
+      }
+    }
+  }
+
+  Widget _buildFallback() {
+    final fallbackUrl = widget.fallbackImageUrl?.trim();
+    if (fallbackUrl != null &&
+        fallbackUrl.isNotEmpty &&
+        !MediaUrlUtils.isDummyThumbnail(fallbackUrl) &&
+        !MediaUrlUtils.looksLikeVideoUrl(fallbackUrl)) {
+      if (fallbackUrl.startsWith('http://') || fallbackUrl.startsWith('https://')) {
+        return CachedNetworkImage(
+          imageUrl: fallbackUrl,
+          width: widget.width,
+          height: widget.height,
+          fit: widget.fit,
+          fadeInDuration: const Duration(milliseconds: 150),
+          fadeOutDuration: const Duration(milliseconds: 100),
+          errorWidget: (context, url, error) => widget.fallback,
+        );
+      } else if (File(fallbackUrl).existsSync()) {
+        return Image.file(
+          File(fallbackUrl),
+          width: widget.width,
+          height: widget.height,
+          fit: widget.fit,
+          errorBuilder: (context, error, stackTrace) => widget.fallback,
+        );
+      }
+    }
+    return widget.fallback;
   }
 
   @override
@@ -460,7 +634,7 @@ class _VideoThumbnailViewState extends State<_VideoThumbnailView> {
         width: widget.width,
         height: widget.height,
         fit: widget.fit,
-        errorBuilder: (context, error, stackTrace) => widget.fallback,
+        errorBuilder: (context, error, stackTrace) => _buildFallback(),
       );
     }
 
@@ -481,6 +655,27 @@ class _VideoThumbnailViewState extends State<_VideoThumbnailView> {
       );
     }
 
-    return widget.fallback;
+    if (_hasFailed) {
+      return _buildFallback();
+    }
+
+    return Container(
+      width: widget.width,
+      height: widget.height,
+      decoration: const BoxDecoration(
+        color: Color(0xFFF3EBFF),
+      ),
+      child: Center(
+        child: SizedBox(
+          width: (widget.width != null && widget.width! < 50) ? 14 : 20,
+          height: (widget.width != null && widget.width! < 50) ? 14 : 20,
+          child: const CircularProgressIndicator(
+            strokeWidth: 2,
+            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF8B3DFF)),
+          ),
+        ),
+      ),
+    );
   }
 }
+

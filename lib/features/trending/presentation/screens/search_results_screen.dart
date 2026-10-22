@@ -292,7 +292,9 @@ class _SearchResultsScreenState extends State<SearchResultsScreen>
           children: [
             AppImage(
               url: v['thumbnailUrl'] as String? ?? '',
+              videoUrl: v['videoUrl'] as String?,
               fit: BoxFit.cover,
+              isVideo: true,
             ),
             Container(
               decoration: const BoxDecoration(

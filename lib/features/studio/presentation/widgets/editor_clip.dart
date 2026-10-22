@@ -10,6 +10,7 @@ class EditorClip {
     Duration? trimEnd,
     this.thumbnailPath,
     this.thumbnailBytes,
+    this.isMerging = false,
   })  : trimStart = trimStart ?? Duration.zero,
         trimEnd = trimEnd ?? originalDuration,
         thumbnailColors = _generateColors(filePath);
@@ -21,6 +22,7 @@ class EditorClip {
   Duration trimEnd;
   final String? thumbnailPath;
   final Uint8List? thumbnailBytes;
+  final bool isMerging;
 
   /// Stable list of placeholder colors keyed to this clip
   final List<int> thumbnailColors;
@@ -38,6 +40,7 @@ class EditorClip {
     Duration? trimEnd,
     String? thumbnailPath,
     Uint8List? thumbnailBytes,
+    bool? isMerging,
   }) {
     return EditorClip(
       id: id,
@@ -47,6 +50,7 @@ class EditorClip {
       trimEnd: trimEnd ?? this.trimEnd,
       thumbnailPath: thumbnailPath ?? this.thumbnailPath,
       thumbnailBytes: thumbnailBytes ?? this.thumbnailBytes,
+      isMerging: isMerging ?? this.isMerging,
     );
   }
 
@@ -79,6 +83,13 @@ class EditorClipListNotifier extends ChangeNotifier {
     notifyListeners();
   }
 
+  void updateClip(String clipId, EditorClip updatedClip) {
+    final idx = _clips.indexWhere((c) => c.id == clipId);
+    if (idx < 0) return;
+    _clips[idx] = updatedClip;
+    notifyListeners();
+  }
+
   void updateClipDuration(String clipId, Duration realDur) {
     final idx = _clips.indexWhere((c) => c.id == clipId);
     if (idx < 0) return;
@@ -87,12 +98,21 @@ class EditorClipListNotifier extends ChangeNotifier {
     final trimEnd = (c.trimEnd == c.originalDuration || c.trimEnd > realDur)
         ? realDur
         : c.trimEnd;
-    _clips[idx] = EditorClip(
-      id: c.id,
-      filePath: c.filePath,
+    _clips[idx] = c.copyWith(
       originalDuration: realDur,
       trimStart: c.trimStart > realDur ? Duration.zero : c.trimStart,
       trimEnd: trimEnd,
+    );
+    notifyListeners();
+  }
+
+  void updateClipThumbnail(String clipId, Uint8List? bytes, String? path) {
+    final idx = _clips.indexWhere((c) => c.id == clipId);
+    if (idx < 0) return;
+    final c = _clips[idx];
+    _clips[idx] = c.copyWith(
+      thumbnailBytes: bytes ?? c.thumbnailBytes,
+      thumbnailPath: path ?? c.thumbnailPath,
     );
     notifyListeners();
   }

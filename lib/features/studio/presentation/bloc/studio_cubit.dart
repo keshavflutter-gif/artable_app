@@ -10,6 +10,7 @@ import 'package:artable_app/features/studio/data/models/studio_filters_response.
 import 'package:artable_app/features/studio/data/repositories/studio_repository.dart';
 import 'package:artable_app/features/studio/data/services/studio_music_playback_service.dart';
 import 'package:artable_app/features/studio/data/services/video_thumbnail_generator.dart';
+import 'package:artable_app/core/utils/media_url_utils.dart';
 import 'studio_state.dart';
 
 class StudioCubit extends Cubit<StudioState> {
@@ -139,8 +140,7 @@ class StudioCubit extends Cubit<StudioState> {
         !isCurrentRecSelected &&
         !isCurrentRecInDrafts;
 
-    final minRequired = shouldPrependCurrentRec ? 1 : 2;
-    if (draftIds.length < minRequired) return null;
+    if (draftIds.isEmpty && !shouldPrependCurrentRec) return null;
 
     if (draftIds.length > maxMergeClipsLimit) {
       emit(state.copyWith(
@@ -162,12 +162,14 @@ class StudioCubit extends Cubit<StudioState> {
 
     final mergedClipPaths = <String>[];
     final mergedClipDurations = <double>[];
+    final mergedClipThumbnails = <String>[];
     double totalSecs = 0.0;
 
     // 1st Clip: Current active video recording ONLY IF it's an unsaved recording not in drafts
     final recPath = currentRecPath;
     if (shouldPrependCurrentRec && recPath != null) {
       mergedClipPaths.add(recPath);
+      mergedClipThumbnails.add(state.selectedThumbnailPath ?? '');
       double recDur = 0.0;
       final parts = state.recordedDuration.split(':');
       if (parts.length == 2) {
@@ -200,17 +202,23 @@ class StudioCubit extends Cubit<StudioState> {
       }
       if (draftDur <= 0) draftDur = 15.0;
 
+      final dThumb = (d['thumbnailPath']?.toString() ?? d['thumbnailUrl']?.toString() ?? '').trim();
       if (d['mergedClipPaths'] is List && (d['mergedClipPaths'] as List).isNotEmpty) {
         final subPaths = List<String>.from(d['mergedClipPaths'] as List);
         final subDurs = (d['mergedClipDurations'] is List)
             ? (d['mergedClipDurations'] as List).map((e) => (e as num).toDouble()).toList()
             : <double>[];
+        final subThumbs = (d['mergedClipThumbnails'] is List)
+            ? List<String>.from(d['mergedClipThumbnails'] as List)
+            : <String>[];
         for (int i = 0; i < subPaths.length; i++) {
           final p = subPaths[i].trim();
           if (p.isNotEmpty) {
             mergedClipPaths.add(p);
             final dur = (i < subDurs.length && subDurs[i] > 0) ? subDurs[i] : (draftDur / subPaths.length);
             mergedClipDurations.add(dur);
+            final t = (i < subThumbs.length && subThumbs[i].isNotEmpty) ? subThumbs[i] : dThumb;
+            mergedClipThumbnails.add(t);
             totalSecs += dur;
           }
         }
@@ -219,6 +227,7 @@ class StudioCubit extends Cubit<StudioState> {
         if (p.isNotEmpty) {
           mergedClipPaths.add(p);
           mergedClipDurations.add(draftDur);
+          mergedClipThumbnails.add(dThumb);
           totalSecs += draftDur;
         }
       }
@@ -267,11 +276,12 @@ class StudioCubit extends Cubit<StudioState> {
       'recordedAt': DateTime.now().toIso8601String(),
       'thumbnailUrl': resolvedThumb.isNotEmpty
           ? resolvedThumb
-          : 'https://loremflickr.com/700/440/talent,stage?lock=501',
+          : (first['thumbnailUrl']?.toString() ?? finalVideoPath),
       'videoPath': finalVideoPath,
       'videoUrl': finalVideoPath,
       'mergedClipPaths': mergedClipPaths,
       'mergedClipDurations': mergedClipDurations,
+      'mergedClipThumbnails': mergedClipThumbnails,
       'videoTrimStartSeconds': 0.0,
       'videoTrimEndSeconds': totalSecs,
       ...state.recordingEffectsPayload,
@@ -406,8 +416,19 @@ class StudioCubit extends Cubit<StudioState> {
     }
 
 
-    if (tUrl.isEmpty || tUrl.contains('storage.example')) {
-      tUrl = 'https://loremflickr.com/700/440/talent,stage?lock=501';
+    if (tUrl.isEmpty || tUrl.contains('storage.example') || MediaUrlUtils.isDummyThumbnail(tUrl)) {
+      if (recVideoPath.isNotEmpty) {
+        try {
+          final gen = await VideoThumbnailGenerator.generateThumbnailFromVideo(recVideoPath);
+          if (gen != null && await gen.exists()) {
+            tUrl = gen.path;
+          }
+        } catch (_) {}
+      }
+      if (tUrl.isEmpty || MediaUrlUtils.isDummyThumbnail(tUrl)) {
+        final challengeBanner = (challenge['bannerUrl']?.toString() ?? challenge['imageUrl']?.toString() ?? '').trim();
+        tUrl = challengeBanner.isNotEmpty ? challengeBanner : recVideoPath;
+      }
     }
 
     int durSecs = durationSeconds ?? 42;
@@ -549,8 +570,19 @@ class StudioCubit extends Cubit<StudioState> {
       }
     }
 
-    if (tUrl.isEmpty || tUrl.contains('storage.example')) {
-      tUrl = 'https://loremflickr.com/700/440/talent,stage?lock=501';
+    if (tUrl.isEmpty || tUrl.contains('storage.example') || MediaUrlUtils.isDummyThumbnail(tUrl)) {
+      if (recVideoPath.isNotEmpty) {
+        try {
+          final gen = await VideoThumbnailGenerator.generateThumbnailFromVideo(recVideoPath);
+          if (gen != null && await gen.exists()) {
+            tUrl = gen.path;
+          }
+        } catch (_) {}
+      }
+      if (tUrl.isEmpty || MediaUrlUtils.isDummyThumbnail(tUrl)) {
+        final challengeBanner = (challenge?['bannerUrl']?.toString() ?? challenge?['imageUrl']?.toString() ?? '').trim();
+        tUrl = challengeBanner.isNotEmpty ? challengeBanner : recVideoPath;
+      }
     }
 
     int durSecs = durationSeconds ?? 42;
@@ -683,6 +715,40 @@ class StudioCubit extends Cubit<StudioState> {
     } else {
       emit(state.copyWith(selectedThumbnailPath: path));
     }
+  }
+
+  String? getThumbnailForClip(String path) {
+    if (path.isEmpty) return null;
+    final clean = path.trim().replaceFirst('file://', '').replaceAll('\\', '/').toLowerCase();
+
+    // 1. Check if it matches recorded video
+    final rec = (state.recordedVideoPath ?? '').trim().replaceFirst('file://', '').replaceAll('\\', '/').toLowerCase();
+    if (rec.isNotEmpty && rec == clean) {
+      if (state.selectedThumbnailPath != null && state.selectedThumbnailPath!.isNotEmpty) {
+        return state.selectedThumbnailPath;
+      }
+    }
+
+    // 2. Search in drafts
+    for (final d in state.drafts) {
+      final vp = (d['videoPath']?.toString() ?? d['videoUrl']?.toString() ?? '')
+          .trim().replaceFirst('file://', '').replaceAll('\\', '/').toLowerCase();
+      if (vp.isNotEmpty && vp == clean) {
+        final t = (d['thumbnailPath'] as String?) ?? (d['thumbnailUrl'] as String?);
+        if (t != null && t.isNotEmpty) return t;
+      }
+      if (d['mergedClipPaths'] is List && d['mergedClipThumbnails'] is List) {
+        final mPaths = List<String>.from(d['mergedClipPaths'] as List);
+        final mThumbs = List<String>.from(d['mergedClipThumbnails'] as List);
+        for (int i = 0; i < mPaths.length && i < mThumbs.length; i++) {
+          final p = mPaths[i].trim().replaceFirst('file://', '').replaceAll('\\', '/').toLowerCase();
+          if (p == clean && mThumbs[i].isNotEmpty) {
+            return mThumbs[i];
+          }
+        }
+      }
+    }
+    return null;
   }
 
   void setVideoSubmissionDetails({

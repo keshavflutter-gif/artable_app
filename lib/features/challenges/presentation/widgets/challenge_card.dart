@@ -5,6 +5,7 @@ import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_gradients.dart';
 import 'package:artable_app/app/theme/app_typography.dart';
 import 'package:artable_app/core/utils/challenge_helpers.dart';
+import 'package:artable_app/core/utils/media_url_utils.dart';
 import 'package:artable_app/core/widgets/network_image_widget.dart';
 
 class ChallengeCard extends StatelessWidget {
@@ -20,12 +21,34 @@ class ChallengeCard extends StatelessWidget {
         ? rawRating.toDouble()
         : (double.tryParse(rawRating.toString()) ?? 0.0);
     final id = challenge['id'] as String? ?? '';
-    final imageUrl = challenge['imageUrl'] as String? ??
-        challenge['bannerUrl'] as String? ??
-        '';
     final category = challenge['category'] as String? ??
         challenge['categoryName'] as String? ??
         'DANCE';
+    var imageUrl = MediaUrlUtils.resolve(
+      challenge['imageUrl'] as String? ??
+      challenge['bannerUrl'] as String? ??
+      '',
+    );
+    if (imageUrl.isEmpty) {
+      final c = category.toLowerCase();
+      if (c.contains('sing') || c.contains('vocal') || c.contains('music')) {
+        imageUrl = 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=700&h=440&q=80&fit=crop';
+      } else if (c.contains('dance')) {
+        imageUrl = 'https://images.unsplash.com/photo-1547153760-18fc86324498?w=700&h=440&q=80&fit=crop';
+      } else if (c.contains('comedy') || c.contains('standup')) {
+        imageUrl = 'https://images.unsplash.com/photo-1585699324551-f6c309eedeca?w=700&h=440&q=80&fit=crop';
+      } else if (c.contains('fit') || c.contains('sport') || c.contains('workout')) {
+        imageUrl = 'https://images.unsplash.com/photo-1517838277536-f5f99be501cd?w=700&h=440&q=80&fit=crop';
+      } else if (c.contains('magic')) {
+        imageUrl = 'https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=700&h=440&q=80&fit=crop';
+      } else if (c.contains('art') || c.contains('paint')) {
+        imageUrl = 'https://images.unsplash.com/photo-1579783902614-a3fb3927b675?w=700&h=440&q=80&fit=crop';
+      } else if (c.contains('act') || c.contains('drama')) {
+        imageUrl = 'https://images.unsplash.com/photo-1507676184212-d03ab07a01bf?w=700&h=440&q=80&fit=crop';
+      } else {
+        imageUrl = 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=700&h=440&q=80&fit=crop';
+      }
+    }
     final title = challenge['title'] as String? ?? '';
     final rawPrize = challenge['prize'] as String? ?? '₹5,000';
     final prizeLabel = rawPrize.contains('Prize') ? rawPrize : '$rawPrize Prize Pool';

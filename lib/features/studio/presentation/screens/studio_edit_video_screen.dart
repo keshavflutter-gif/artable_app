@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -8,7 +10,6 @@ import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/data/datasources/music_api_service.dart';
 import 'package:artable_app/core/utils/reel_helpers.dart';
-import 'package:artable_app/core/utils/studio_video_player_utils.dart';
 import 'package:artable_app/features/studio/presentation/bloc/studio_cubit.dart';
 import 'package:artable_app/features/studio/data/services/studio_music_playback_service.dart';
 import 'package:artable_app/features/studio/presentation/widgets/video_crop_sheet.dart';
@@ -20,6 +21,7 @@ import 'package:artable_app/features/studio/presentation/screens/studio_drafts_s
 import 'package:artable_app/core/widgets/app_image.dart';
 import 'package:artable_app/features/studio/data/services/video_thumbnail_generator.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
+import 'package:artable_app/core/utils/media_url_utils.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Screen
@@ -66,6 +68,9 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
 
   /// Guard against double tap navigation to details
   bool _isNavigating = false;
+
+  /// Guard and loader state while importing and mounting merged clips
+  bool _isImportingClip = false;
 
   // ── Legacy compat (mergedClipPaths from draft/state) ──────────────────────
   List<String> _mergedClipPaths = [];
@@ -243,7 +248,6 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
     // Immediately populate timeline & UI so the screen layout appears with 0 delay!
     _clipNotifier.setClips(clips, selectedIndex: 0);
     _activePlayingIndex = 0;
-    _prewarmThumbnails(clips);
 
     // ── 1. Fast path: Initialize first clip for immediate video preview ────────
     final firstClip = clips.first;
@@ -272,17 +276,63 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
       final safeStart = trimLooksValid ? startMs.clamp(0, durMs > 400 ? durMs - 400 : 0) : 0;
       final safeEnd = trimLooksValid ? endMs.clamp(1, durMs) : durMs;
 
+      final cleanVideo = firstClip.filePath.trim().replaceFirst('file://', '');
+      Uint8List? initialThumb = firstClip.thumbnailBytes ??
+          AppImage.getCachedThumbnail(firstClip.filePath) ??
+          AppImage.getCachedThumbnail(cleanVideo);
+
+      if (initialThumb == null) {
+        final isCurrentRec = firstClip.filePath == studio.recordedVideoPath ||
+            firstClip.filePath == studio.state.recordedVideoPath;
+        final tp = firstClip.thumbnailPath ?? (isCurrentRec ? studio.state.selectedThumbnailPath : null);
+        if (tp != null && tp.isNotEmpty && !tp.startsWith('http')) {
+          try {
+            final f = File(tp.replaceFirst('file://', ''));
+            if (f.existsSync() && f.lengthSync() > 200) {
+              initialThumb = f.readAsBytesSync();
+            }
+          } catch (_) {}
+        }
+      }
+
+      if (safeStart > 0) {
+        try {
+          final startThumb = await VideoThumbnailGenerator.extractFrameBytes(
+            cleanVideo,
+            timeMs: safeStart,
+            maxWidth: 360,
+            maxHeight: 360,
+            quality: 70,
+          );
+          if (startThumb != null && startThumb.isNotEmpty) {
+            initialThumb = startThumb;
+          }
+        } catch (_) {}
+      }
+
+      if (initialThumb != null && initialThumb.isNotEmpty) {
+        AppImage.cacheThumbnail(firstClip.filePath, initialThumb);
+        AppImage.cacheThumbnail(cleanVideo, initialThumb);
+      }
+
       final updatedFirst = firstClip.copyWith(
         originalDuration: realDur > Duration.zero ? realDur : firstClip.originalDuration,
         trimStart: Duration(milliseconds: safeStart),
         trimEnd: Duration(milliseconds: safeEnd),
+        thumbnailBytes: initialThumb,
       );
       clips[0] = updatedFirst;
       _clipNotifier.setClips(clips, selectedIndex: 0);
       _controllers[updatedFirst.id] = firstController;
 
       firstController.addListener(_onVideoUpdate);
-      await _seekClipToTrimStart(0);
+
+      // Seek to trimStart and prime ExoPlayer surface so the video frame renders immediately
+      await firstController.seekTo(Duration(milliseconds: safeStart));
+      try {
+        await firstController.play();
+        await firstController.pause();
+      } catch (_) {}
 
       // Music + original audio = echo; keep clips muted when BGM is selected.
       final shouldMute = studio.isMuted ||
@@ -293,7 +343,7 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
       }
       await _applyOriginalAudioMute(shouldMute);
 
-      // Instantly show the screen!
+      // Instantly show the screen! Zero blocking delay!
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -310,7 +360,7 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
       }
     }
 
-    // ── 2. Parallel background initialization for remaining clips ────────────
+    // ── 2. Background initialization of controllers for remaining clips ──────
     _syncClipsToStudioCubit();
     if (clips.length > 1) {
       final remaining = clips.sublist(1);
@@ -334,13 +384,20 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
     await Future.wait(remaining.map((clip) async {
       try {
         final controller = await _initController(clip.filePath);
+        final realDur = (controller != null && controller.value.isInitialized)
+            ? controller.value.duration
+            : clip.originalDuration;
         if (controller != null && controller.value.isInitialized && mounted) {
-          final realDur = controller.value.duration;
           _controllers[clip.id] = controller;
-          if (realDur > Duration.zero && realDur != clip.originalDuration) {
-            _clipNotifier.updateClipDuration(clip.id, realDur);
-          }
-          if (mounted) setState(() {});
+        }
+
+        if (mounted) {
+          final updated = clip.copyWith(
+            originalDuration: realDur > Duration.zero ? realDur : clip.originalDuration,
+            trimEnd: realDur > Duration.zero ? realDur : clip.trimEnd,
+          );
+          _clipNotifier.updateClip(clip.id, updated);
+          setState(() {});
         }
       } catch (e) {
         debugPrint('Error loading remaining clip ${clip.id}: $e');
@@ -356,30 +413,25 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
     }
   }
 
-  void _prewarmThumbnails(List<EditorClip> clips) {
-    for (final clip in clips) {
-      final p = clip.filePath.trim().replaceFirst('file://', '');
-      if (p.isNotEmpty) {
-        VideoThumbnailGenerator.generateThumbnailFromVideo(p).then((file) {
-          if (file != null && file.existsSync()) {
-            file.readAsBytes().then((bytes) {
-              if (bytes.isNotEmpty) {
-                AppImage.cacheThumbnail(clip.filePath, bytes);
-                AppImage.cacheThumbnail(p, bytes);
-                AppImage.cacheThumbnail(file.path, bytes);
-              }
-            }).catchError((_) {});
-          }
-        }).catchError((_) {});
-      }
-    }
-  }
-
   EditorClip _makeEditorClip(String path, Duration hintDuration) {
     final studio = context.read<StudioCubit>();
-    String? thumbPath = (path == studio.recordedVideoPath || path == studio.state.recordedVideoPath)
-        ? studio.state.selectedThumbnailPath
-        : null;
+    String? thumbPath = studio.getThumbnailForClip(path);
+    if (thumbPath == null || thumbPath.isEmpty) {
+      if (path == studio.recordedVideoPath || path == studio.state.recordedVideoPath) {
+        thumbPath = studio.state.selectedThumbnailPath;
+      }
+    }
+    Uint8List? cachedBytes = AppImage.getCachedThumbnail(path);
+    if (cachedBytes == null && thumbPath != null && thumbPath.isNotEmpty && !thumbPath.startsWith('http')) {
+      try {
+        final f = File(thumbPath.replaceFirst('file://', ''));
+        if (f.existsSync() && f.lengthSync() > 200) {
+          cachedBytes = f.readAsBytesSync();
+          AppImage.cacheThumbnail(path, cachedBytes);
+        }
+      } catch (_) {}
+    }
+
     return EditorClip(
       id: '${path.hashCode}_${DateTime.now().microsecondsSinceEpoch}',
       filePath: path,
@@ -387,25 +439,39 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
       trimStart: Duration.zero,
       trimEnd: hintDuration,
       thumbnailPath: thumbPath,
+      thumbnailBytes: cachedBytes,
     );
   }
 
   Future<VideoPlayerController?> _initController(String path) async {
     try {
-      // Fast path: try lightweight clip controller first (no file locking wait loops)
-      var controller = await StudioVideoPlayerUtils.initializeClipController(
-        path,
-        loop: false,
-        autoPlay: false,
-      );
-      if (controller == null || !controller.value.isInitialized) {
-        controller = await StudioVideoPlayerUtils.initializeRecordedVideo(
-          path,
-          loop: false,
-          autoPlay: false,
-        );
+      var cleanPath = path.trim();
+      if (cleanPath.startsWith('file://')) {
+        cleanPath = cleanPath.replaceFirst('file://', '');
       }
-      if (controller != null && controller.value.isInitialized) {
+      cleanPath = MediaUrlUtils.resolve(cleanPath).trim();
+      if (cleanPath.isEmpty) return null;
+
+      final isRemote = cleanPath.startsWith('http://') || cleanPath.startsWith('https://');
+
+      VideoPlayerController controller;
+      if (isRemote) {
+        controller = VideoPlayerController.networkUrl(Uri.parse(cleanPath));
+      } else {
+        final f = File(cleanPath);
+        if (!f.existsSync() || f.lengthSync() <= 0) {
+          debugPrint('_initController: file does not exist at $cleanPath');
+          return null;
+        }
+        controller = VideoPlayerController.file(f);
+      }
+
+      await controller.initialize().timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => throw TimeoutException('Controller init timed out'),
+      );
+
+      if (controller.value.isInitialized) {
         await controller.setLooping(false);
         if (!mounted) return controller;
         final studio = context.read<StudioCubit>();
@@ -669,7 +735,7 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
   // ─────────────────────────────────────────────────────────────────────────
   Future<void> _togglePlay() async {
     final clips = _clipNotifier.clips;
-    if (clips.isEmpty || _isLoading) return;
+    if (clips.isEmpty || _isLoading || _isImportingClip) return;
     final studio = context.read<StudioCubit>();
 
     if (_playing) {
@@ -728,6 +794,7 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
   // Select Clip (tap in timeline)
   // ─────────────────────────────────────────────────────────────────────────
   Future<void> _selectClip(int clipIndex) async {
+    if (_isImportingClip) return;
     final clips = _clipNotifier.clips;
     if (clipIndex >= clips.length) return;
     final studio = context.read<StudioCubit>();
@@ -764,6 +831,7 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
   // Seek from timeline scrub
   // ─────────────────────────────────────────────────────────────────────────
   Future<void> _onGlobalSeek(int globalMs) async {
+    if (_isImportingClip) return;
     final clips = _clipNotifier.clips;
     if (clips.isEmpty) return;
     final studio = context.read<StudioCubit>();
@@ -773,15 +841,45 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
     final seekPos = resolved.seekPosition;
 
     final clip = clips[clipIndex];
-    final controller = _controllers[clip.id];
+
+    // 1. Immediately pause any inactive controllers to avoid desync/echo
+    for (final entry in _controllers.entries) {
+      if (entry.key != clip.id) {
+        try {
+          entry.value.pause();
+        } catch (_) {}
+      }
+    }
+
+    // 2. Ensure target controller is active and seeks to the exact frame
+    var controller = _controllers[clip.id];
+    if (controller == null || !controller.value.isInitialized) {
+      controller = await _initController(clip.filePath);
+      if (controller != null && mounted) {
+        _controllers[clip.id] = controller;
+      }
+    }
 
     if (controller != null && controller.value.isInitialized) {
       await controller.seekTo(seekPos);
+      if (_playing) {
+        final hasBgm = studio.selectedMusic != null || studio.selectedTrack != null;
+        if (hasBgm || studio.isMuted) {
+          await controller.setVolume(0.0);
+        }
+        try {
+          await controller.setPlaybackSpeed(studio.speedMultiplier.clamp(0.4, 4.0));
+        } catch (_) {}
+        unawaited(controller.play());
+      } else {
+        await controller.pause();
+      }
     }
 
+    _ignoreAdvanceUntil = DateTime.now().add(const Duration(milliseconds: 300));
     _activePlayingIndex = clipIndex;
     _clipNotifier.selectClip(clipIndex);
-    setState(() => _globalPositionMs = globalMs);
+    if (mounted) setState(() => _globalPositionMs = globalMs);
 
     if (studio.selectedMusic != null || studio.selectedTrack != null) {
       final musicStartMs = (studio.musicStartSeconds * 1000).round();
@@ -793,11 +891,14 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
   // Add Video via ImagePicker
   // ─────────────────────────────────────────────────────────────────────────
   Future<void> _addVideo() async {
+    if (_isImportingClip) return;
     if (_clipNotifier.clips.length >= EditorClipListNotifier.maxClips) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Maximum 10 clips allowed in timeline.'),
           backgroundColor: Colors.deepOrange,
+          duration: Duration(milliseconds: 1000),
         ),
       );
       return;
@@ -834,98 +935,253 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
   }
 
   Future<void> _importDraftToTimeline(Map<String, dynamic> draft) async {
-    final existingPaths = _clipNotifier.clips
-        .map((c) => c.filePath.trim().replaceFirst('file://', ''))
-        .where((p) => p.isNotEmpty)
-        .toSet();
+    if (!mounted) return;
+    setState(() => _isImportingClip = true);
 
-    List<String> rawPaths = [];
-    if (draft['mergedClipPaths'] is List && (draft['mergedClipPaths'] as List).isNotEmpty) {
-      rawPaths = List<String>.from(draft['mergedClipPaths'] as List);
-    } else {
-      final String? path = (draft['videoPath'] as String?) ?? (draft['videoUrl'] as String?);
-      if (path != null && path.trim().isNotEmpty) {
-        rawPaths.add(path.trim());
+    try {
+      List<String> rawPaths = [];
+      List<String> rawThumbs = [];
+      if (draft['mergedClipPaths'] is List && (draft['mergedClipPaths'] as List).isNotEmpty) {
+        rawPaths = List<String>.from(draft['mergedClipPaths'] as List);
+        if (draft['mergedClipThumbnails'] is List) {
+          rawThumbs = List<String>.from(draft['mergedClipThumbnails'] as List);
+        }
+      } else {
+        final String? path = (draft['videoPath'] as String?) ?? (draft['videoUrl'] as String?);
+        if (path != null && path.trim().isNotEmpty) {
+          rawPaths.add(path.trim());
+          final String? t = (draft['thumbnailPath'] as String?) ?? (draft['thumbnailUrl'] as String?);
+          if (t != null && t.isNotEmpty) rawThumbs.add(t);
+        }
       }
-    }
 
-    final List<String> pathsToAdd = [];
-    for (final p in rawPaths) {
-      final clean = p.trim().replaceFirst('file://', '');
-      if (clean.isNotEmpty && !existingPaths.contains(clean)) {
-        pathsToAdd.add(p.trim());
+      final List<String> pathsToAdd = [];
+      final List<String?> thumbsToAdd = [];
+      for (int i = 0; i < rawPaths.length; i++) {
+        final p = rawPaths[i].trim();
+        if (p.isNotEmpty) {
+          pathsToAdd.add(p);
+          thumbsToAdd.add(i < rawThumbs.length ? rawThumbs[i] : null);
+        }
       }
-    }
 
-    if (pathsToAdd.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Selected video is already in the timeline.'),
-            backgroundColor: Colors.deepOrange,
-          ),
-        );
-      }
-      return;
-    }
-
-    int addedCount = 0;
-    for (final path in pathsToAdd) {
-      if (_clipNotifier.clips.length >= EditorClipListNotifier.maxClips) {
+      if (pathsToAdd.isEmpty) {
         if (mounted) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Reached maximum limit of 10 clips.'),
+              content: Text('No valid video found in the selected draft.'),
               backgroundColor: Colors.deepOrange,
+              duration: Duration(milliseconds: 1000),
             ),
           );
         }
-        break;
+        return;
       }
 
-      final controller = await _initController(path);
-      if (controller == null) continue;
+      // Immediately add separate rows for EACH merging video with loader spinning!
+      final studio = context.read<StudioCubit>();
+      final List<EditorClip> mergingPlaceholders = [];
+      for (int i = 0; i < pathsToAdd.length; i++) {
+        if (_clipNotifier.clips.length >= EditorClipListNotifier.maxClips) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Reached maximum limit of 10 clips.'),
+                backgroundColor: Colors.deepOrange,
+                duration: Duration(milliseconds: 1000),
+              ),
+            );
+          }
+          break;
+        }
 
-      final duration = controller.value.duration > Duration.zero
-          ? controller.value.duration
-          : const Duration(seconds: 15);
+        final path = pathsToAdd[i];
+        final candidateThumb = thumbsToAdd[i];
+        String? thumbPath;
+        Uint8List? thumbBytes;
 
-      final newClip = EditorClip(
-        id: '${path.hashCode}_${DateTime.now().microsecondsSinceEpoch}_$addedCount',
-        filePath: path,
-        originalDuration: duration,
-        trimStart: Duration.zero,
-        trimEnd: duration,
+        // 1. Check if candidateThumb points to a valid thumbnail file for THIS clip
+        if (candidateThumb != null && candidateThumb.isNotEmpty && !candidateThumb.startsWith('http')) {
+          final cleanP = candidateThumb.replaceFirst('file://', '');
+          try {
+            final f = File(cleanP);
+            if (f.existsSync() && f.lengthSync() > 300) {
+              thumbBytes = f.readAsBytesSync();
+              thumbPath = candidateThumb;
+            }
+          } catch (_) {}
+        }
+
+        // 2. Check StudioCubit and AppImage RAM cache
+        if (thumbBytes == null) {
+          final cubitThumb = studio.getThumbnailForClip(path);
+          if (cubitThumb != null && cubitThumb.isNotEmpty && !cubitThumb.startsWith('http')) {
+            try {
+              final f = File(cubitThumb.replaceFirst('file://', ''));
+              if (f.existsSync() && f.lengthSync() > 300) {
+                thumbBytes = f.readAsBytesSync();
+                thumbPath = cubitThumb;
+              }
+            } catch (_) {}
+          }
+        }
+        thumbBytes ??= AppImage.getCachedThumbnail(path);
+
+        // 3. Search drafts for this specific video path if not found yet
+        if (thumbBytes == null) {
+          final cleanP = path.trim().replaceFirst('file://', '').replaceAll('\\', '/').toLowerCase();
+          for (final d in studio.state.drafts) {
+            final vp = (d['videoPath']?.toString() ?? d['videoUrl']?.toString() ?? '')
+                .trim().replaceFirst('file://', '').replaceAll('\\', '/').toLowerCase();
+            if (vp.isNotEmpty && vp == cleanP) {
+              final t = (d['thumbnailPath'] as String?) ?? (d['thumbnailUrl'] as String?);
+              if (t != null && t.isNotEmpty && !t.startsWith('http')) {
+                try {
+                  final f = File(t.replaceFirst('file://', ''));
+                  if (f.existsSync() && f.lengthSync() > 300) {
+                    thumbBytes = f.readAsBytesSync();
+                    thumbPath = t;
+                    break;
+                  }
+                } catch (_) {}
+              }
+            }
+          }
+        }
+
+        if (thumbBytes != null && thumbBytes.isNotEmpty) {
+          AppImage.cacheThumbnail(path, thumbBytes);
+        }
+
+        // Add placeholder IMMEDIATELY so the row and spinner appear without waiting!
+        final placeholder = EditorClip(
+          id: '${path.hashCode}_${DateTime.now().microsecondsSinceEpoch}_$i',
+          filePath: path,
+          originalDuration: const Duration(seconds: 4), // visual timeline width
+          trimStart: Duration.zero,
+          trimEnd: const Duration(seconds: 4),
+          thumbnailPath: thumbPath,
+          thumbnailBytes: thumbBytes,
+          isMerging: true, // LOADER SPINS IN THIS SEPARATE ROW!
+        );
+        mergingPlaceholders.add(placeholder);
+        _clipNotifier.addClip(placeholder);
+      }
+
+      if (mergingPlaceholders.isEmpty) return;
+
+      // Fast parallel initialization of controllers & thumbnail extraction
+      final initResults = await Future.wait(
+        mergingPlaceholders.map((placeholder) async {
+          final path = placeholder.filePath;
+
+          final controller = await _initController(path);
+          final realDur = (controller != null && controller.value.isInitialized)
+              ? controller.value.duration
+              : placeholder.originalDuration;
+
+          // Always extract the true filmstrip frames directly from the video file while spinner shows
+          final cleanVideo = path.trim().replaceFirst('file://', '');
+          final frames = await VideoThumbnailGenerator.extractFilmstripFrames(
+            cleanVideo,
+            targetCount: 8,
+            trimStart: Duration.zero,
+            trimEnd: realDur,
+            duration: realDur,
+            cacheKeyExtra: placeholder.id,
+          );
+          final realThumb = frames.isNotEmpty ? frames.first : placeholder.thumbnailBytes;
+
+          if (realThumb != null && realThumb.isNotEmpty) {
+            AppImage.cacheThumbnail(path, realThumb);
+            AppImage.cacheThumbnail(cleanVideo, realThumb);
+          }
+
+          return (
+            placeholder: placeholder,
+            controller: controller,
+            thumbBytes: realThumb,
+            thumbPath: placeholder.thumbnailPath,
+          );
+        }),
       );
 
-      _controllers[newClip.id] = controller;
-      final added = _clipNotifier.addClip(newClip);
-      if (added) {
-        addedCount++;
-      } else {
-        await controller.dispose();
-        _controllers.remove(newClip.id);
-      }
-    }
+      int addedCount = 0;
+      for (final res in initResults) {
+        final placeholder = res.placeholder;
+        var controller = res.controller;
 
-    if (mounted) {
-      _syncClipsToStudioCubit();
-      _prewarmThumbnails(_clipNotifier.clips);
-      final studio = context.read<StudioCubit>();
-      final hasBgm = studio.selectedMusic != null || studio.selectedTrack != null;
-      if (hasBgm || studio.isMuted) {
-        await _applyOriginalAudioMute(true);
+        if (controller == null) {
+          try {
+            controller = await _initController(placeholder.filePath);
+          } catch (_) {}
+        }
+
+        if (controller != null && controller.value.isInitialized) {
+          final duration = controller.value.duration > Duration.zero
+              ? controller.value.duration
+              : const Duration(seconds: 15);
+
+          _controllers[placeholder.id] = controller;
+          final finalThumb = res.thumbBytes ?? placeholder.thumbnailBytes ?? AppImage.getCachedThumbnail(placeholder.filePath);
+          final readyClip = placeholder.copyWith(
+            originalDuration: duration,
+            trimStart: Duration.zero,
+            trimEnd: duration,
+            thumbnailBytes: finalThumb,
+            thumbnailPath: res.thumbPath ?? placeholder.thumbnailPath,
+            isMerging: false, // LOADER STOPS IMMEDIATELY, THUMBNAILS DISPLAY!
+          );
+          _clipNotifier.updateClip(placeholder.id, readyClip);
+          addedCount++;
+        } else {
+          final cleanP = placeholder.filePath.trim().replaceFirst('file://', '');
+          final isLocal = !placeholder.filePath.startsWith('http');
+          final fileMissing = isLocal && !File(cleanP).existsSync();
+
+          if (fileMissing) {
+            final idx = _clipNotifier.clips.indexWhere((c) => c.id == placeholder.id);
+            if (idx >= 0) _clipNotifier.removeClip(idx);
+          } else {
+            final finalThumb = res.thumbBytes ?? placeholder.thumbnailBytes ?? AppImage.getCachedThumbnail(placeholder.filePath);
+            final readyClip = placeholder.copyWith(
+              originalDuration: const Duration(seconds: 15),
+              trimStart: Duration.zero,
+              trimEnd: const Duration(seconds: 15),
+              thumbnailBytes: finalThumb,
+              isMerging: false,
+            );
+            _clipNotifier.updateClip(placeholder.id, readyClip);
+            addedCount++;
+          }
+        }
       }
-      if (!mounted) return;
-      setState(() {});
-      if (addedCount > 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Added $addedCount draft clip(s) to timeline!'),
-            backgroundColor: const Color(0xFF8B5CF6),
-            duration: const Duration(seconds: 2),
-          ),
-        );
+
+      if (mounted) {
+        _syncClipsToStudioCubit();
+        final studio = context.read<StudioCubit>();
+        final hasBgm = studio.selectedMusic != null || studio.selectedTrack != null;
+        if (hasBgm || studio.isMuted) {
+          await _applyOriginalAudioMute(true);
+        }
+        if (!mounted) return;
+        if (addedCount > 0) {
+          final total = _clipNotifier.clips.length;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Successfully merged $total clips into 1 video!'),
+              backgroundColor: const Color(0xFF8B5CF6),
+              duration: const Duration(milliseconds: 1000),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isImportingClip = false);
       }
     }
   }
@@ -938,11 +1194,12 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
     if (clipIndex >= clips.length) return;
     if (clips.length <= 1) {
       // Cannot remove the only clip
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('At least one video clip is required.'),
           backgroundColor: Colors.deepOrange,
-          duration: Duration(seconds: 2),
+          duration: Duration(milliseconds: 1000),
         ),
       );
       return;
@@ -979,6 +1236,15 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
   // ─────────────────────────────────────────────────────────────────────────
   void _onTrimChanged(int clipIndex, Duration trimStart, Duration trimEnd) {
     _syncClipsToStudioCubit();
+    // Seek controller to new trimStart so preview surface immediately updates to match the new start frame
+    final clips = _clipNotifier.clips;
+    if (clipIndex < clips.length) {
+      final clip = clips[clipIndex];
+      final ctrl = _controllers[clip.id];
+      if (ctrl != null && ctrl.value.isInitialized) {
+        ctrl.seekTo(trimStart);
+      }
+    }
     // Already applied in notifier; sync StudioCubit for first clip
     if (clipIndex == 0) {
       final studio = context.read<StudioCubit>();
@@ -1256,6 +1522,27 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
   // ─────────────────────────────────────────────────────────────────────────
   // Build
   // ─────────────────────────────────────────────────────────────────────────
+  void _navigateBackToSubmitEntry() {
+    _revertChangesIfNotConfirmed();
+    StudioMusicPlaybackService.stop();
+    for (final c in _controllers.values) {
+      try {
+        c.pause();
+      } catch (_) {}
+    }
+    final String? cid = (widget.challengeId != null && widget.challengeId!.isNotEmpty)
+        ? widget.challengeId
+        : ((_draft?['challengeId'] as String?)?.isNotEmpty == true
+            ? _draft!['challengeId'] as String
+            : (context.read<StudioCubit>().state.videoChallengeId?.isNotEmpty == true
+                ? context.read<StudioCubit>().state.videoChallengeId
+                : (_challenge['id'] as String?)));
+    final targetUrl = (cid != null && cid.isNotEmpty)
+        ? '${AppRoutes.submitEntry}?id=$cid'
+        : AppRoutes.submitEntry;
+    context.go(targetUrl);
+  }
+
   @override
   Widget build(BuildContext context) {
     final studio = context.watch<StudioCubit>();
@@ -1263,31 +1550,34 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
     final totalDuration = _clipNotifier.totalTrimmedDuration;
 
     return PopScope(
-      canPop: true,
+      canPop: false,
       onPopInvokedWithResult: (didPop, result) {
-        if (!_confirmedChanges) {
-          _revertChangesIfNotConfirmed();
-        }
+        if (didPop) return;
+        _navigateBackToSubmitEntry();
       },
       child: Scaffold(
         backgroundColor: Colors.black,
         body: SafeArea(
-          child: Column(
+          child: Stack(
             children: [
-              // ── 1. Top Bar ─────────────────────────────────────────────────
-              _buildTopBar(_challenge),
+              Column(
+                children: [
+                  // ── 1. Top Bar ─────────────────────────────────────────────────
+                  _buildTopBar(_challenge),
 
-              // ── 2. Video Preview ───────────────────────────────────────────
-              _buildVideoPreview(studio.isMuted),
+                  // ── 2. Video Preview ───────────────────────────────────────────
+                  _buildVideoPreview(studio.isMuted),
 
-              // ── 3. Playback Controls ───────────────────────────────────────
-              _buildControls(_globalPositionMs, totalDuration.inMilliseconds),
+                  // ── 3. Playback Controls ───────────────────────────────────────
+                  _buildControls(_globalPositionMs, totalDuration.inMilliseconds),
 
-              // ── 4. Multi-Video Horizontal Timeline ─────────────────────────
-              _buildMultiTimeline(music),
+                  // ── 4. Multi-Video Horizontal Timeline ─────────────────────────
+                  _buildMultiTimeline(music),
 
-              // ── 5. Bottom Toolbar ──────────────────────────────────────────
-              _buildBottomBar(),
+                  // ── 5. Bottom Toolbar ──────────────────────────────────────────
+                  _buildBottomBar(),
+                ],
+              ),
             ],
           ),
         ),
@@ -1296,7 +1586,7 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
   }
 
   Future<void> _onNextPressed() async {
-    if (_isNavigating) return;
+    if (_isNavigating || _isImportingClip) return;
 
     final clips = _clipNotifier.clips;
     debugPrint('EDITOR CLIP COUNT: ${clips.length}');
@@ -1363,10 +1653,13 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
         studio.updateDraftMap(updatedDraft);
       }
 
-      // Generate real frame thumbnail from edited video
+      // Generate real frame thumbnail from edited video matching actual start frame
       try {
-        final thumbFile =
-            await VideoThumbnailGenerator.generateThumbnailFromVideo(finalEditedVideoPath);
+        final startMs = clips.first.trimStart.inMilliseconds;
+        final thumbFile = await VideoThumbnailGenerator.generateThumbnailFromVideo(
+          finalEditedVideoPath,
+          timeMs: startMs > 0 ? startMs : null,
+        );
         if (thumbFile != null && await thumbFile.exists()) {
           studio.setSelectedThumbnailPath(thumbFile.path);
           final bytes = await thumbFile.readAsBytes();
@@ -1410,11 +1703,7 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
           _CircleBtn(
             icon: Icons.keyboard_arrow_down_rounded,
             size: 28,
-            onTap: () {
-              _revertChangesIfNotConfirmed();
-              StudioMusicPlaybackService.stop();
-              context.pop();
-            },
+            onTap: _navigateBackToSubmitEntry,
           ),
           const Spacer(),
           Container(
@@ -1467,6 +1756,11 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
   Widget _buildVideoPreview(bool isMuted) {
     final c = _activeController;
     final isInit = c != null && c.value.isInitialized;
+    final activeClip = _clipNotifier.clips.isNotEmpty
+        ? _clipNotifier.clips[_activePlayingIndex.clamp(0, _clipNotifier.clips.length - 1)]
+        : null;
+    final activeThumb = activeClip?.thumbnailBytes ??
+        (activeClip != null ? AppImage.getCachedThumbnail(activeClip.filePath) : null);
 
     return Expanded(
       flex: 5,
@@ -1480,16 +1774,27 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  // Video or placeholder
+                  // Video or placeholder with smooth fallback
                   if (isInit)
                     Container(
                       color: Colors.black,
                       child: Center(
                         child: AspectRatio(
                           aspectRatio: c.value.aspectRatio > 0 ? c.value.aspectRatio : 9 / 16,
-                          child: VideoPlayer(
-                            key: ValueKey(c),
-                            c,
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              if (activeThumb != null)
+                                Image.memory(
+                                  activeThumb,
+                                  fit: BoxFit.cover,
+                                  gaplessPlayback: true,
+                                ),
+                              VideoPlayer(
+                                key: ValueKey(c),
+                                c,
+                              ),
+                            ],
                           ),
                         ),
                       ),
@@ -1500,7 +1805,9 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
                       child: Center(
                         child: _videoError
                             ? const Icon(Icons.error_outline, color: Colors.white38, size: 36)
-                            : const CircularProgressIndicator(color: AppColors.purple, strokeWidth: 2),
+                            : (activeThumb != null
+                                ? Image.memory(activeThumb, fit: BoxFit.cover, gaplessPlayback: true)
+                                : const CircularProgressIndicator(color: AppColors.purple, strokeWidth: 2)),
                       ),
                     ),
 
@@ -1635,6 +1942,7 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
           onClipRemoved: _removeClip,
           onTrimChanged: _onTrimChanged,
           isPlaying: _playing,
+          isMerging: false,
         ),
 
         const SizedBox(height: 5),

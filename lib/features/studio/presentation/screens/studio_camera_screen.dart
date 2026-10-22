@@ -19,6 +19,8 @@ import 'package:artable_app/data/datasources/music_api_service.dart';
 import 'package:artable_app/features/studio/data/services/studio_music_playback_service.dart';
 import 'package:artable_app/core/utils/studio_video_player_utils.dart';
 import 'package:artable_app/features/studio/presentation/widgets/song_trimmer_sheet.dart';
+import 'package:artable_app/core/widgets/app_image.dart';
+import 'package:artable_app/features/studio/data/services/video_thumbnail_generator.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 enum _CameraState { idle, recording, recorded }
@@ -543,6 +545,24 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
 
     // Release music playback so preview screen audio starts fresh without conflict
     await StudioMusicPlaybackService.releaseForVideoPlayback();
+
+    // Clear any previous cached frames for this path so new recording never reuses old frames
+    VideoThumbnailGenerator.clearCacheForVideo(savedPath);
+
+    // Pre-generate and cache thumbnail for the newly recorded video immediately
+    try {
+      final thumbFile = await VideoThumbnailGenerator.generateThumbnailFromVideo(savedPath);
+      if (thumbFile != null && await thumbFile.exists()) {
+        final bytes = await thumbFile.readAsBytes();
+        if (bytes.isNotEmpty) {
+          studio.setSelectedThumbnailPath(thumbFile.path);
+          AppImage.cacheThumbnail(savedPath, bytes);
+          AppImage.cacheThumbnail(thumbFile.path, bytes);
+        }
+      }
+    } catch (e) {
+      debugPrint('Pre-generating thumbnail in camera error: $e');
+    }
 
     if (mounted) {
       if (_isFilterSheetOpen) {

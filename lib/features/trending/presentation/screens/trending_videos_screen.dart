@@ -265,7 +265,9 @@ class _FeaturedHeroCard extends StatelessWidget {
             children: [
               AppImage(
                 url: imageUrl,
+                videoUrl: hero.videoUrl,
                 fit: BoxFit.cover,
+                isVideo: true,
               ),
 
               // Gradient Overlay
@@ -485,7 +487,9 @@ class _TrendingVideoItemCard extends StatelessWidget {
             children: [
               AppImage(
                 url: video.displayThumbnail,
+                videoUrl: video.videoUrl,
                 fit: BoxFit.cover,
+                isVideo: true,
               ),
 
               // Gradient Overlay
