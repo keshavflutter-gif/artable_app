@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/core/utils/media_url_utils.dart';
+import 'package:artable_app/core/utils/video_share_helper.dart';
 import 'package:artable_app/core/widgets/app_image.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
 import 'package:artable_app/features/shell/presentation/widgets/bottom_nav_layout.dart';
@@ -340,10 +342,11 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
                         const Spacer(),
                         GestureDetector(
                           onTap: () async {
-                            await context.push('/my-videos');
+                            context.read<MyVideosCubit>().loadMyVideos(tab: 'ALL', forceRefresh: true);
+                            await context.push('${AppRoutes.myVideos}?tab=ALL');
                             if (context.mounted) {
                               context.read<ProfileCubit>().loadProfile(forceRefresh: true);
-                              context.read<MyVideosCubit>().loadMyVideos(forceRefresh: true);
+                              context.read<MyVideosCubit>().loadMyVideos(tab: 'ALL', forceRefresh: true);
                             }
                           },
                           child: const Text(
@@ -733,12 +736,16 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
   // --- 6. Recent Videos Grid ---
   Widget _buildRecentVideosGrid(BuildContext context) {
     final profileState = context.watch<ProfileCubit>();
-    var videos = profileState.recentVideos;
+    var videos = profileState.liveRecentVideos;
 
     if (videos.isEmpty) {
-      final myVideos = context.watch<MyVideosCubit>().videos;
-      if (myVideos.isNotEmpty) {
-        videos = myVideos.take(6).toList();
+      final myLiveVideos = context
+          .watch<MyVideosCubit>()
+          .videos
+          .where((v) => v.isVideoLive && !v.isDraft)
+          .toList();
+      if (myLiveVideos.isNotEmpty) {
+        videos = myLiveVideos.take(6).toList();
       }
     }
 
@@ -919,6 +926,18 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
                 children: [
                   GestureDetector(
                     onTap: () {
+                      final statusRaw = video.status.toLowerCase();
+                      final isDraft = video.canContinueDraft || statusRaw == 'draft';
+                      if (isDraft) {
+                        final challengeObj = video.challenge;
+                        final challengeId = challengeObj?['id']?.toString() ?? '';
+                        if (challengeId.isNotEmpty) {
+                          context.push('/studio-drafts?id=$challengeId');
+                        } else {
+                          context.push('/studio-drafts');
+                        }
+                        return;
+                      }
                       final routeId = video.id.isNotEmpty ? video.id : challengeId;
                       final uiMap = _enrichUiMap(context, video);
                       context.read<ReelsCubit>().syncVideos([uiMap]);
@@ -1090,6 +1109,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
                             icon: Icons.share_outlined,
                             label: 'Share',
                             onTap: () {
+                              unawaited(VideoShareHelper.precacheVideo(video.videoUrl, videoId: video.id));
                               context.push(
                                 '${AppRoutes.shareReport}?id=${video.id}',
                                 extra: {
@@ -1125,6 +1145,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
                               icon: Icons.share_outlined,
                               label: 'Share',
                               onTap: () {
+                                unawaited(VideoShareHelper.precacheVideo(video.videoUrl, videoId: video.id));
                                 context.push(
                                   '${AppRoutes.shareReport}?id=${video.id}',
                                   extra: {

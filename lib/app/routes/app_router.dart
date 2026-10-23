@@ -322,7 +322,9 @@ abstract final class AppRouter {
         ),
         GoRoute(
           path: AppRoutes.myVideos,
-          builder: (context, state) => const MyVideosScreen(),
+          builder: (context, state) => MyVideosScreen(
+            initialTab: state.uri.queryParameters['tab'] ?? 'ALL',
+          ),
         ),
         GoRoute(
           path: AppRoutes.achievements,

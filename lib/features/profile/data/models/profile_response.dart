@@ -59,6 +59,9 @@ class ProfileData {
   final List<ProfileBadgeItem> badges;
   final List<String> tabs;
 
+  List<MyVideoItem> get liveRecentVideos =>
+      recentVideos.where((v) => v.isVideoLive && !v.isDraft).toList();
+
   ProfileData copyWith({
     ProfileUser? user,
     ProfileStats? stats,

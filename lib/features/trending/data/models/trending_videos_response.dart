@@ -67,14 +67,16 @@ class TrendingVideosData {
 
   List<TrendingVideoItem> get gridVideos {
     final list = <TrendingVideoItem>[];
-    if (hero != null) list.add(hero!);
+    if (hero != null && hero!.isVideoLive && !hero!.isDraft) {
+      list.add(hero!);
+    }
     for (final v in videos) {
-      if (!list.any((item) => item.id == v.id)) {
+      if (v.isVideoLive && !v.isDraft && !list.any((item) => item.id == v.id)) {
         list.add(v);
       }
     }
     for (final v in moreTrendingTalent) {
-      if (!list.any((item) => item.id == v.id)) {
+      if (v.isVideoLive && !v.isDraft && !list.any((item) => item.id == v.id)) {
         list.add(v);
       }
     }
@@ -112,12 +114,16 @@ class TrendingVideosData {
       }
     }
 
-    final parsedVideos = _parseVideoList(rawVideos);
+    final parsedVideos = _parseVideoList(rawVideos)
+        .where((v) => v.isVideoLive && !v.isDraft)
+        .toList();
 
     final rawMore = json['moreTrendingTalent'] ??
         json['moreVideos'] ??
         json['more'];
-    final parsedMore = _parseVideoList(rawMore);
+    final parsedMore = _parseVideoList(rawMore)
+        .where((v) => v.isVideoLive && !v.isDraft)
+        .toList();
 
     TrendingVideoItem? heroItem;
     if (json['hero'] is Map) {
@@ -129,6 +135,10 @@ class TrendingVideosData {
     } else if (json['top_video'] is Map) {
       heroItem = TrendingVideoItem.fromJson(
           Map<String, dynamic>.from(json['top_video'] as Map));
+    }
+
+    if (heroItem != null && (!heroItem.isVideoLive || heroItem.isDraft)) {
+      heroItem = parsedVideos.isNotEmpty ? parsedVideos.first : null;
     }
 
     return TrendingVideosData(
@@ -294,6 +304,37 @@ class TrendingVideoItem {
       return '${val.toStringAsFixed(1).replaceAll('.0', '')}K';
     }
     return count.toString();
+  }
+
+  bool get isDraft {
+    if (canContinueDraft) return true;
+    final s = status?.trim().toLowerCase();
+    if (s != null && (s == 'draft' || s.contains('draft'))) return true;
+    final sl = statusLabel?.trim().toLowerCase();
+    if (sl != null && (sl == 'draft' || sl.contains('draft'))) return true;
+    final sb = statusBadge?['label']?.toString().trim().toLowerCase();
+    if (sb != null && (sb == 'draft' || sb.contains('draft'))) return true;
+    return false;
+  }
+
+  bool get isVideoLive {
+    if (isDraft) return false;
+    final s = status?.trim().toLowerCase();
+    if (s == 'rejected' ||
+        s == 'deleted' ||
+        s == 'inactive' ||
+        s == 'under_review' ||
+        s == 'pending_review' ||
+        s == 'archived') {
+      return false;
+    }
+    if (isLive) return true;
+    if (s == 'live' || s == 'approved' || s == 'published' || s == 'active') {
+      return true;
+    }
+    final hasMedia = playableVideoUrl.isNotEmpty ||
+        (mergedClipPaths != null && mergedClipPaths!.isNotEmpty);
+    return hasMedia && !isDraft;
   }
 
   String get playableVideoUrl {
@@ -571,6 +612,15 @@ class TrendingVideoItem {
       'isTrending': isTrending,
       'challengeId': challenge?.id ?? '',
       'challengeTitle': challenge?.title ?? '',
+      'status': status ?? (isVideoLive ? 'approved' : 'draft'),
+      'statusLabel': statusLabel ?? (isVideoLive ? 'LIVE' : 'DRAFT'),
+      'isLive': isVideoLive,
+      'is_live': isVideoLive,
+      'canContinueDraft': isDraft,
+      'isDraft': isDraft,
+      'draft': isDraft,
+      'canView': canView || isVideoLive,
+      'canShare': canShare,
     };
   }
 
@@ -860,6 +910,24 @@ class TrendingVideoItem {
       if (videoUrlStr != null && videoUrlStr.isNotEmpty) ReelHelpers.cacheMergedClips(videoUrlStr, effectiveMergedClips);
     }
 
+    final rawStatus = json['status']?.toString();
+    final rawStatusLabel = json['statusLabel']?.toString();
+    final isDraftVal = json['canContinueDraft'] == true ||
+        json['isDraft'] == true ||
+        json['draft'] == true ||
+        json['type']?.toString().toLowerCase() == 'draft' ||
+        (rawStatus != null && rawStatus.toLowerCase().contains('draft')) ||
+        (rawStatusLabel != null && rawStatusLabel.toLowerCase().contains('draft'));
+
+    final isLiveVal = !isDraftVal && (
+        json['isLive'] == true ||
+        json['is_live'] == true ||
+        (rawStatus != null && (
+            rawStatus.toUpperCase() == 'APPROVED' ||
+            rawStatus.toUpperCase() == 'LIVE' ||
+            rawStatus.toUpperCase() == 'PUBLISHED' ||
+            rawStatus.toUpperCase() == 'ACTIVE')));
+
     return TrendingVideoItem(
       id: idStr,
       title: json['title']?.toString() ?? '',
@@ -867,7 +935,7 @@ class TrendingVideoItem {
       videoUrl: videoUrlStr,
       thumbnailUrl: _extractThumbnailUrl(json),
       hashtags: _extractHashtags(json),
-      status: json['status']?.toString(),
+      status: rawStatus,
       statusMeta: json['statusMeta'] is Map
           ? Map<String, dynamic>.from(json['statusMeta'] as Map)
           : null,
@@ -897,11 +965,11 @@ class TrendingVideoItem {
       ratingCount: _parseInt(json['ratingCount']) ?? 0,
       createdAt: json['createdAt']?.toString(),
       dateLabel: json['dateLabel']?.toString(),
-      statusLabel: json['statusLabel']?.toString(),
-      isLive: json['isLive'] == true,
-      canView: json['canView'] == true,
+      statusLabel: rawStatusLabel,
+      isLive: isLiveVal,
+      canView: json['canView'] == true || isLiveVal,
       canShare: json['canShare'] == true,
-      canContinueDraft: json['canContinueDraft'] == true,
+      canContinueDraft: isDraftVal,
       canViewFeedback: json['canViewFeedback'] == true,
       primaryAction: json['primaryAction']?.toString(),
       actions: json['actions'] is List

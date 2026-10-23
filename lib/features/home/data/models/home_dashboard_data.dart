@@ -53,8 +53,28 @@ class HomeDashboardData {
       dataMap = json;
     }
 
+    bool isDraft(Map<String, dynamic> m) {
+      final status = m['status']?.toString().toLowerCase().trim();
+      if (status != null && (status == 'draft' || status.contains('draft'))) return true;
+      if (m['canContinueDraft'] == true ||
+          m['isDraft'] == true ||
+          m['draft'] == true ||
+          m['type']?.toString().toLowerCase() == 'draft') {
+        return true;
+      }
+      final statusLabel = m['statusLabel']?.toString().toLowerCase().trim();
+      if (statusLabel != null && (statusLabel == 'draft' || statusLabel.contains('draft'))) return true;
+      final badgeLabel = (m['statusBadge'] is Map ? m['statusBadge']['label'] : null)?.toString().toLowerCase().trim();
+      if (badgeLabel != null && (badgeLabel == 'draft' || badgeLabel.contains('draft'))) return true;
+      if (status == 'rejected' || status == 'deleted' || status == 'inactive' || status == 'under_review') return true;
+      return false;
+    }
+
     if (dataMap['hero'] is Map) {
-      list.add(Map<String, dynamic>.from(dataMap['hero'] as Map));
+      final heroMap = Map<String, dynamic>.from(dataMap['hero'] as Map);
+      if (!isDraft(heroMap)) {
+        list.add(heroMap);
+      }
     }
 
     final raw = json['trendingVideos'] ??
@@ -69,6 +89,7 @@ class HomeDashboardData {
       for (final item in raw) {
         if (item is Map) {
           final m = Map<String, dynamic>.from(item);
+          if (isDraft(m)) continue;
           final id = m['id']?.toString() ?? '';
           if (id.isNotEmpty && !list.any((existing) => existing['id']?.toString() == id)) {
             list.add(m);

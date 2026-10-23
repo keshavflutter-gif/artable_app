@@ -73,6 +73,43 @@ class HomeUiMapper {
     };
   }
 
+  static bool isItemLive(Map<String, dynamic> item) {
+    final status = item['status']?.toString().toLowerCase().trim();
+    if (status != null && (status == 'draft' || status.contains('draft'))) {
+      return false;
+    }
+    if (item['canContinueDraft'] == true ||
+        item['isDraft'] == true ||
+        item['draft'] == true ||
+        item['type']?.toString().toLowerCase() == 'draft') {
+      return false;
+    }
+    final statusLabel = item['statusLabel']?.toString().toLowerCase().trim();
+    if (statusLabel != null && (statusLabel == 'draft' || statusLabel.contains('draft'))) {
+      return false;
+    }
+    final badgeLabel = (item['statusBadge'] is Map ? item['statusBadge']['label'] : null)?.toString().toLowerCase().trim();
+    if (badgeLabel != null && (badgeLabel == 'draft' || badgeLabel.contains('draft'))) {
+      return false;
+    }
+
+    if (status == 'rejected' ||
+        status == 'deleted' ||
+        status == 'inactive' ||
+        status == 'under_review' ||
+        status == 'pending_review' ||
+        status == 'archived') {
+      return false;
+    }
+
+    if (item['isLive'] == true || item['is_live'] == true) return true;
+    if (status == 'live' || status == 'approved' || status == 'published' || status == 'active') {
+      return true;
+    }
+
+    return status != 'draft' && item['canContinueDraft'] != true;
+  }
+
   static Map<String, dynamic> trendingVideoToUiMap(Map<String, dynamic> item) {
     final user = item['user'] is Map
         ? Map<String, dynamic>.from(item['user'] as Map)
@@ -328,6 +365,13 @@ class HomeUiMapper {
       'ratingLabel': scoreStr,
       'challengeId': item['challengeId'] ?? (item['challenge'] is Map ? item['challenge']['id'] : ''),
       'challengeTitle': challengeTitleStr,
+      'status': item['status']?.toString() ?? (isItemLive(item) ? 'approved' : 'draft'),
+      'statusLabel': item['statusLabel']?.toString() ?? (isItemLive(item) ? 'LIVE' : 'DRAFT'),
+      'isLive': isItemLive(item),
+      'is_live': isItemLive(item),
+      'canContinueDraft': !isItemLive(item),
+      'isDraft': !isItemLive(item),
+      'draft': !isItemLive(item),
     };
   }
 

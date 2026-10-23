@@ -10,6 +10,8 @@ import 'package:artable_app/core/widgets/app_scaffold.dart';
 import 'package:artable_app/core/widgets/filter_pills.dart';
 import 'package:artable_app/features/home/presentation/bloc/home_cubit.dart';
 import 'package:artable_app/features/trending/presentation/bloc/trending_videos_cubit.dart';
+import 'package:artable_app/app/routes/app_routes.dart';
+import 'package:artable_app/core/utils/video_cache_manager.dart';
 import 'package:artable_app/features/trending/data/models/trending_videos_response.dart';
 
 class TrendingVideosScreen extends StatefulWidget {
@@ -33,9 +35,11 @@ class _TrendingVideosScreenState extends State<TrendingVideosScreen> {
   @override
   Widget build(BuildContext context) {
     final trendingProvider = context.watch<TrendingVideosCubit>();
-    final apiVideos = trendingProvider.videos;
+    final apiVideos = trendingProvider.videos.where((v) => v.isVideoLive && !v.isDraft).toList();
 
-    final hero = trendingProvider.hero ?? (apiVideos.isNotEmpty ? apiVideos.first : null);
+    final hero = (trendingProvider.hero != null && trendingProvider.hero!.isVideoLive && !trendingProvider.hero!.isDraft)
+        ? trendingProvider.hero
+        : (apiVideos.isNotEmpty ? apiVideos.first : null);
 
     final List<TrendingVideoItem> videos = [];
     final Set<String> seenIds = {};
@@ -45,13 +49,23 @@ class _TrendingVideosScreenState extends State<TrendingVideosScreen> {
     }
 
     for (final v in apiVideos) {
-      if (v.id.isNotEmpty && !seenIds.contains(v.id)) {
+      if (v.id.isNotEmpty && v.isVideoLive && !v.isDraft && !seenIds.contains(v.id)) {
         seenIds.add(v.id);
         videos.add(v);
       }
     }
 
     final isLoading = trendingProvider.isLoading && (apiVideos.isEmpty && hero == null);
+
+    // Pre-cache top trending videos locally in background for instant, smooth playback
+    final heroUrl = hero?.videoUrl;
+    final precacheUrls = [
+      if (heroUrl != null && heroUrl.isNotEmpty) heroUrl,
+      ...videos.map((v) => v.videoUrl),
+    ];
+    if (precacheUrls.isNotEmpty) {
+      VideoCacheManager.precacheBatch(precacheUrls, maxCount: 6);
+    }
 
     return AppScreen(
       child: Column(
@@ -323,18 +337,23 @@ class _FeaturedHeroCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    // Play circle icon
-                    Container(
-                      width: 28,
-                      height: 28,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.black.withValues(alpha: 0.45),
-                      ),
-                      child: const Icon(
-                        Icons.play_arrow_rounded,
-                        color: Colors.white,
-                        size: 18,
+                    // Direct Play Button (Launches Fullscreen Reels Feed instantly)
+                    GestureDetector(
+                      onTap: () {
+                        context.push('${AppRoutes.reelsFeed}?id=$id', extra: hero.toUiMap());
+                      },
+                      child: Container(
+                        width: 28,
+                        height: 28,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.black.withValues(alpha: 0.45),
+                        ),
+                        child: const Icon(
+                          Icons.play_arrow_rounded,
+                          color: Colors.white,
+                          size: 18,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 6),
@@ -545,17 +564,23 @@ class _TrendingVideoItemCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Container(
-                      width: 22,
-                      height: 22,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.black.withValues(alpha: 0.45),
-                      ),
-                      child: const Icon(
-                        Icons.play_arrow_rounded,
-                        color: Colors.white,
-                        size: 14,
+                    // Direct Play Button (Launches Fullscreen Reels Feed instantly)
+                    GestureDetector(
+                      onTap: () {
+                        context.push('${AppRoutes.reelsFeed}?id=${video.id}', extra: video.toUiMap());
+                      },
+                      child: Container(
+                        width: 22,
+                        height: 22,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.black.withValues(alpha: 0.45),
+                        ),
+                        child: const Icon(
+                          Icons.play_arrow_rounded,
+                          color: Colors.white,
+                          size: 14,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 5),

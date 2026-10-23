@@ -15,6 +15,7 @@ import 'package:artable_app/core/widgets/section_header.dart';
 import 'package:artable_app/features/studio/presentation/widgets/studio_header.dart';
 import 'package:artable_app/core/widgets/no_internet_dialog.dart';
 import 'package:artable_app/features/home/presentation/bloc/home_state.dart';
+import 'package:artable_app/features/home/data/models/home_ui_mapper.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -79,6 +80,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final Set<String> seenIds = {};
 
     for (final item in homeCubitTrendingReels) {
+      if (!HomeUiMapper.isItemLive(item)) continue;
       final id = item['id']?.toString() ?? '';
       if (id.isNotEmpty && !seenIds.contains(id)) {
         seenIds.add(id);
@@ -87,7 +89,9 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     for (final v in apiTrendingVideos) {
+      if (!v.isVideoLive || v.isDraft) continue;
       final item = v.toUiMap();
+      if (!HomeUiMapper.isItemLive(item)) continue;
       final id = item['id']?.toString() ?? '';
       if (id.isNotEmpty && !seenIds.contains(id)) {
         seenIds.add(id);

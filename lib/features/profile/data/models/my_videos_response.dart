@@ -306,6 +306,20 @@ class MyVideoItem {
       thumb = finalVideoUrl;
     }
 
+    final isDraftVal = isDraftStatus ||
+        json['canContinueDraft'] == true ||
+        json['isDraft'] == true ||
+        json['draft'] == true ||
+        (json['statusLabel']?.toString().toLowerCase().contains('draft') ?? false);
+
+    final isLiveVal = !isDraftVal && (
+        json['isLive'] == true ||
+        json['is_live'] == true ||
+        statusStr.toUpperCase() == 'APPROVED' ||
+        statusStr.toUpperCase() == 'LIVE' ||
+        statusStr.toUpperCase() == 'PUBLISHED' ||
+        statusStr.toUpperCase() == 'ACTIVE');
+
     return MyVideoItem(
       id: idStr,
       title: titleStr,
@@ -323,10 +337,10 @@ class MyVideoItem {
       likesLabel: json['likesLabel']?.toString() ?? json['likes']?.toString() ?? '0',
       talentScoreLabel: json['talentScoreLabel']?.toString() ?? json['talentScore']?.toString() ?? '0.0',
       dateLabel: dateStr,
-      isLive: json['isLive'] == true,
+      isLive: isLiveVal,
       canView: json['canView'] != false,
       canShare: json['canShare'] == true,
-      canContinueDraft: json['canContinueDraft'] == true || isDraftStatus,
+      canContinueDraft: isDraftVal,
       actions: actionsList,
       challenge: challengeObj,
       category: categoryObj,
@@ -338,6 +352,34 @@ class MyVideoItem {
       avatarUrl: avatarStr.isNotEmpty ? avatarStr : null,
       user: userObj,
     );
+  }
+
+  bool get isDraft {
+    if (canContinueDraft) return true;
+    final s = status.toLowerCase().trim();
+    if (s == 'draft' || s.contains('draft')) return true;
+    final sl = statusLabel?.toLowerCase().trim();
+    if (sl != null && (sl == 'draft' || sl.contains('draft'))) return true;
+    final sb = statusBadge?.label.toLowerCase().trim();
+    if (sb != null && (sb == 'draft' || sb.contains('draft'))) return true;
+    return false;
+  }
+
+  bool get isVideoLive {
+    if (isDraft) return false;
+    final s = status.toLowerCase().trim();
+    if (s == 'rejected' ||
+        s == 'deleted' ||
+        s == 'inactive' ||
+        s == 'under_review' ||
+        s == 'pending_review' ||
+        s == 'draft') {
+      return false;
+    }
+    if (isLive || s == 'live' || s == 'approved' || s == 'published' || s == 'active') {
+      return true;
+    }
+    return false;
   }
 
   Map<String, dynamic> toUiMap() {
@@ -373,10 +415,13 @@ class MyVideoItem {
       'talentScoreLabel': talentScoreLabel,
       'date': dateLabel,
       'dateLabel': dateLabel,
-      'isLive': isLive,
+      'isLive': isVideoLive,
+      'is_live': isVideoLive,
       'canView': canView,
       'canShare': canShare,
-      'canContinueDraft': canContinueDraft,
+      'canContinueDraft': isDraft,
+      'isDraft': isDraft,
+      'draft': isDraft,
       'actions': actions.map((a) => {'key': a.key, 'label': a.label}).toList(),
       if (userId != null && userId!.isNotEmpty) 'userId': userId,
       if (userId != null && userId!.isNotEmpty) 'user_id': userId,

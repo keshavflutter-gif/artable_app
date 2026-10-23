@@ -62,6 +62,32 @@ class ReelsCubit extends Cubit<ReelsState> {
       final nid = nv['id']?.toString() ?? nv['_id']?.toString() ?? '';
       if (nid.isEmpty) continue;
 
+      final statusStr = nv['status']?.toString().toLowerCase().trim();
+      final isDraftVal = nv['canContinueDraft'] == true ||
+          nv['isDraft'] == true ||
+          nv['draft'] == true ||
+          nv['type']?.toString().toLowerCase() == 'draft' ||
+          (statusStr != null && (statusStr == 'draft' || statusStr.contains('draft'))) ||
+          (nv['statusLabel']?.toString().toLowerCase().contains('draft') ?? false);
+
+      final isNonLive = isDraftVal ||
+          statusStr == 'rejected' ||
+          statusStr == 'deleted' ||
+          statusStr == 'inactive' ||
+          statusStr == 'under_review' ||
+          statusStr == 'pending_review' ||
+          statusStr == 'archived';
+
+      if (isNonLive) {
+        final existingIdx = currentVideos.indexWhere((v) =>
+            (v['id']?.toString() ?? v['_id']?.toString() ?? '') == nid);
+        if (existingIdx != -1) {
+          currentVideos.removeAt(existingIdx);
+          changed = true;
+        }
+        continue;
+      }
+
       final isSavedVal = nv['isSaved'] == true ||
           nv['saved'] == true ||
           nv['isBookmarked'] == true;
@@ -378,6 +404,65 @@ class ReelsCubit extends Cubit<ReelsState> {
       }
     } catch (e) {
       debugPrint('saveVideo API error: $e');
+    }
+  }
+
+  Future<Map<String, dynamic>> recordShare(String videoId) async {
+    final vId = videoId.trim();
+    if (vId.isEmpty) return {'success': false};
+
+    // Optimistically increment share count
+    final videos = List<Map<String, dynamic>>.from(
+      state.videos.map((v) => Map<String, dynamic>.from(v)),
+    );
+    for (final v in videos) {
+      final curId = v['id']?.toString() ?? v['_id']?.toString() ?? '';
+      if (curId == vId) {
+        final int currentShares = TrendingVideoItem.parseCount(
+          v['sharesCount'] ?? v['shareCount'] ?? v['shares'],
+        );
+        final int newShares = currentShares + 1;
+        v['shares'] = TrendingVideoItem.formatCount(newShares);
+        v['sharesCount'] = newShares;
+        v['shareCount'] = newShares;
+        break;
+      }
+    }
+    emit(state.copyWith(videos: videos));
+
+    try {
+      final token = _authCubit?.sessionToken;
+      final refresh = _authCubit?.refreshToken;
+      final res = await _videosRepository.shareVideo(
+        videoId: vId,
+        sessionToken: (token != null && token != 'design_preview') ? token : null,
+        refreshToken: (refresh != null && refresh != 'design_preview') ? refresh : null,
+      );
+
+      final data = res['data'];
+      if (data is Map<String, dynamic>) {
+        final updatedVideos = List<Map<String, dynamic>>.from(
+          state.videos.map((v) => Map<String, dynamic>.from(v)),
+        );
+        for (final v in updatedVideos) {
+          final curId = v['id']?.toString() ?? v['_id']?.toString() ?? '';
+          if (curId == vId) {
+            final rawS = data['shares'] ?? data['shareCount'] ?? data['sharesCount'];
+            if (rawS != null) {
+              final int sCount = TrendingVideoItem.parseCount(rawS);
+              v['shares'] = TrendingVideoItem.formatCount(sCount);
+              v['sharesCount'] = sCount;
+              v['shareCount'] = sCount;
+            }
+            break;
+          }
+        }
+        emit(state.copyWith(videos: updatedVideos));
+      }
+      return res;
+    } catch (e) {
+      debugPrint('recordShare API error: $e');
+      return {'success': false, 'error': e.toString()};
     }
   }
 

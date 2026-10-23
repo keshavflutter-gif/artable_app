@@ -1,10 +1,8 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:video_player/video_player.dart';
-import 'package:path_provider/path_provider.dart';
 
 import 'package:artable_app/app/theme/app_gradients.dart';
 import 'package:artable_app/features/reels/presentation/bloc/reels_cubit.dart';
@@ -19,6 +17,9 @@ import 'package:artable_app/core/widgets/app_network_image.dart';
 import 'package:artable_app/features/reels/presentation/widgets/creator_info_row.dart';
 import 'package:artable_app/features/reels/presentation/widgets/talent_rating_slider.dart';
 import 'package:artable_app/features/studio/data/services/studio_music_playback_service.dart';
+import 'package:artable_app/core/utils/video_share_helper.dart';
+import 'package:artable_app/core/utils/video_cache_manager.dart';
+import 'package:artable_app/core/utils/media_url_utils.dart';
 
 class ReelsFeedScreen extends StatefulWidget {
   const ReelsFeedScreen({super.key, this.initialReelId, this.initialReelData});
@@ -58,8 +59,54 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
     final Set<String> seenIds = {};
     final List<Map<String, dynamic>> rawList = [];
 
+    bool isReelLive(Map<String, dynamic> r) {
+      final status = r['status']?.toString().trim().toLowerCase();
+      if (status != null && (status == 'draft' || status.contains('draft'))) {
+        return false;
+      }
+      if (r['canContinueDraft'] == true ||
+          r['isDraft'] == true ||
+          r['draft'] == true ||
+          r['type']?.toString().trim().toLowerCase() == 'draft') {
+        return false;
+      }
+      final statusLabel = r['statusLabel']?.toString().trim().toLowerCase();
+      if (statusLabel != null && (statusLabel == 'draft' || statusLabel.contains('draft'))) {
+        return false;
+      }
+      final badgeLabel = (r['statusBadge'] is Map ? r['statusBadge']['label'] : null)?.toString().trim().toLowerCase();
+      if (badgeLabel != null && (badgeLabel == 'draft' || badgeLabel.contains('draft'))) {
+        return false;
+      }
+
+      if (status == 'rejected' ||
+          status == 'deleted' ||
+          status == 'inactive' ||
+          status == 'under_review' ||
+          status == 'pending_review' ||
+          status == 'archived') {
+        return false;
+      }
+
+      if (r['isLive'] == true || r['is_live'] == true) {
+        return true;
+      }
+      if (status == 'live' || status == 'approved' || status == 'published' || status == 'active') {
+        return true;
+      }
+
+      final vUrl = r['videoUrl']?.toString() ?? '';
+      final hasClips = r['mergedClipPaths'] is List && (r['mergedClipPaths'] as List).isNotEmpty;
+      if (vUrl.isEmpty && !hasClips) {
+        return false;
+      }
+
+      return true;
+    }
+
     void addReels(List<Map<String, dynamic>> list) {
       for (final r in list) {
+        if (!isReelLive(r)) continue;
         final id = r['id']?.toString() ?? r['_id']?.toString() ?? '';
         final vUrl = r['videoUrl']?.toString() ?? '';
         if (r['mergedClipPaths'] == null || (r['mergedClipPaths'] is List && (r['mergedClipPaths'] as List).isEmpty)) {
@@ -98,12 +145,12 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
     final targetId = widget.initialReelId?.trim();
     if (targetId != null && targetId.isNotEmpty && !seenIds.contains(targetId)) {
       final singleItem = trendingCubit.getVideoById(targetId);
-      if (singleItem != null) {
+      if (singleItem != null && singleItem.isVideoLive && !singleItem.isDraft) {
         rawList.insert(0, singleItem.toUiMap());
         seenIds.add(targetId);
       } else {
         final helperMatch = ReelHelpers.reelById(targetId, availableReels: rawList);
-        if (helperMatch != null) {
+        if (helperMatch != null && isReelLive(helperMatch)) {
           rawList.insert(0, helperMatch);
           seenIds.add(targetId);
         }
@@ -130,12 +177,27 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
     }
   }
 
+  void _precacheUpcomingReels(int page, List<_FeedItem> items) {
+    for (final nextIdx in [page + 1, page + 2]) {
+      if (nextIdx >= 0 && nextIdx < items.length) {
+        final nextItem = items[nextIdx];
+        if (!nextItem.isAd && nextItem.reel != null) {
+          final vUrl = nextItem.reel!['videoUrl']?.toString();
+          if (vUrl != null && vUrl.isNotEmpty) {
+            unawaited(VideoCacheManager.precacheVideo(vUrl));
+          }
+        }
+      }
+    }
+  }
+
   void _scrollToInitialIfNeeded(List<_FeedItem> items) {
     if (_hasScrolledToInitial) return;
     final targetId = widget.initialReelId?.trim();
     if (targetId == null || targetId.isEmpty) {
       _hasScrolledToInitial = true;
       _fetchCommentsForPage(_currentPage);
+      _precacheUpcomingReels(_currentPage, items);
       return;
     }
     final found = items.indexWhere(
@@ -147,6 +209,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
     if (found != -1) {
       _hasScrolledToInitial = true;
       _fetchCommentsForPage(found);
+      _precacheUpcomingReels(found, items);
       if (found != _currentPage) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted && _pageController.hasClients) {
@@ -170,6 +233,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
           trendingCubit.loadTrendingVideos();
         }
         _fetchCommentsForPage(_currentPage);
+        _precacheUpcomingReels(_currentPage, _getItems(context, listen: false));
       }
     });
 
@@ -430,6 +494,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
                 _currentPage = page;
               });
               _fetchCommentsForPage(page);
+              _precacheUpcomingReels(page, items);
             },
             scrollDirection: Axis.vertical,
             itemCount: items.length,
@@ -680,6 +745,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
                             final vUrl = (rawUrl is String && rawUrl.isNotEmpty && rawUrl != 'null')
                                 ? rawUrl
                                 : '';
+                            unawaited(VideoShareHelper.precacheVideo(vUrl, videoId: reelId));
                             context.push(
                               '${AppRoutes.shareReport}?id=$reelId',
                               extra: {
@@ -964,27 +1030,10 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
     if (clean.isEmpty || clean == 'null') {
       return null;
     }
-    final lower = clean.toLowerCase();
-    if (lower.endsWith('.jpg') ||
-        lower.endsWith('.jpeg') ||
-        lower.endsWith('.png') ||
-        lower.endsWith('.webp') ||
-        lower.endsWith('.gif')) {
+    if (MediaUrlUtils.looksLikeImageUrl(clean)) {
       return null;
     }
-
-    var cleanFilePath = clean.startsWith('file://') ? clean.replaceFirst('file://', '') : clean;
-    if (File(cleanFilePath).existsSync() || clean.startsWith('/data/') || clean.startsWith('/storage/')) {
-      return clean;
-    }
-
-    if (clean.startsWith('http://') || clean.startsWith('https://')) {
-      return clean;
-    } else if (clean.startsWith('/')) {
-      return 'http://server.keshavinfotechdemo2.com:3055$clean';
-    } else {
-      return 'http://server.keshavinfotechdemo2.com:3055/$clean';
-    }
+    return MediaUrlUtils.resolve(clean);
   }
 
   @override
@@ -1032,83 +1081,8 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
     }
   }
 
-  static final Set<String> _cachingUrls = {};
-
-  void _cacheRemoteVideoLocally(String remoteUrl) {
-    if (_cachingUrls.contains(remoteUrl)) return;
-    _cachingUrls.add(remoteUrl);
-
-    () async {
-      try {
-        final uri = Uri.parse(remoteUrl);
-        final fileName = uri.pathSegments.isNotEmpty ? uri.pathSegments.last : 'v_${remoteUrl.hashCode.abs()}.mp4';
-        final tempDir = await getTemporaryDirectory();
-        final cacheFile = File('${tempDir.path}/$fileName');
-        if (await cacheFile.exists() && await cacheFile.length() > 5000) {
-          return;
-        }
-
-        final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
-        final req = await client.getUrl(uri);
-        final resp = await req.close();
-        if (resp.statusCode >= 200 && resp.statusCode < 300) {
-          final tempFile = File('${cacheFile.path}.tmp');
-          final sink = tempFile.openWrite();
-          await resp.pipe(sink);
-          await sink.flush();
-          await sink.close();
-          if (await tempFile.exists() && await tempFile.length() > 5000) {
-            await tempFile.rename(cacheFile.path);
-            debugPrint('Cached reel video locally: ${cacheFile.path}');
-          }
-        }
-      } catch (e) {
-        debugPrint('Background video cache error: $e');
-      } finally {
-        _cachingUrls.remove(remoteUrl);
-      }
-    }();
-  }
-
   Future<VideoPlayerController?> _createAndInitController(String resolvedUrl) async {
-    VideoPlayerController controller;
-    var cleanFilePath = resolvedUrl.startsWith('file://')
-        ? resolvedUrl.replaceFirst('file://', '')
-        : resolvedUrl;
-    final localFile = File(cleanFilePath);
-
-    if (resolvedUrl.startsWith('file://') ||
-        localFile.existsSync() ||
-        resolvedUrl.startsWith('/data/') ||
-        resolvedUrl.startsWith('/storage/')) {
-      controller = VideoPlayerController.file(localFile);
-    } else {
-      File? localCandidate;
-      try {
-        final uri = Uri.parse(resolvedUrl);
-        final fileName = uri.pathSegments.isNotEmpty ? uri.pathSegments.last : 'v_${resolvedUrl.hashCode.abs()}.mp4';
-        if (fileName.isNotEmpty) {
-          final tempDir = await getTemporaryDirectory();
-          final candidate = File('${tempDir.path}/$fileName');
-          if (candidate.existsSync() && candidate.lengthSync() > 1024) {
-            localCandidate = candidate;
-          }
-        }
-      } catch (_) {}
-
-      if (localCandidate != null) {
-        controller = VideoPlayerController.file(localCandidate);
-      } else {
-        final uri = Uri.parse(resolvedUrl);
-        controller = VideoPlayerController.networkUrl(
-          uri,
-          videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
-        );
-        _cacheRemoteVideoLocally(resolvedUrl);
-      }
-    }
-    await controller.initialize().timeout(const Duration(seconds: 15));
-    return controller;
+    return VideoCacheManager.createAndInitController(resolvedUrl);
   }
 
   Future<void> _initVideo() async {
@@ -1227,12 +1201,18 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
       }
     }
 
-    // 2. Concurrently in background, PRELOAD ALL remaining clips!
-    for (int i = 1; i < clips.length; i++) {
-      final index = i;
-      final clipUrl = _resolvePlayableUrl(clips[index]);
+    // 2. Preload only the immediately next clip (clip 1) into VideoPlayerController to preserve hardware decoders
+    if (clips.length > 1) {
+      final nextUrl = _resolvePlayableUrl(clips[1]);
+      if (nextUrl != null && nextUrl.isNotEmpty) {
+        unawaited(_preloadClip(1, nextUrl));
+      }
+    }
+    // Pre-cache all subsequent clips to disk in background (zero decoder overhead!)
+    for (int i = 2; i < clips.length; i++) {
+      final clipUrl = _resolvePlayableUrl(clips[i]);
       if (clipUrl != null && clipUrl.isNotEmpty) {
-        unawaited(_preloadClip(index, clipUrl));
+        unawaited(VideoCacheManager.precacheVideo(clipUrl));
       }
     }
   }

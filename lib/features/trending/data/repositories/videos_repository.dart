@@ -131,7 +131,14 @@ class VideosRepository {
     final cleanCategory = category?.trim().toLowerCase();
 
     for (final raw in MockData.REELS) {
-      final item = TrendingVideoItem.fromJson(Map<String, dynamic>.from(raw));
+      final map = Map<String, dynamic>.from(raw);
+      map['status'] ??= 'APPROVED';
+      map['statusLabel'] ??= 'LIVE';
+      map['isLive'] ??= true;
+      map['canContinueDraft'] ??= false;
+      final item = TrendingVideoItem.fromJson(map);
+      if (!item.isVideoLive || item.isDraft) continue;
+
       if (cleanCategory != null &&
           cleanCategory.isNotEmpty &&
           cleanCategory != 'trending' &&
@@ -148,7 +155,15 @@ class VideosRepository {
 
     if (list.isEmpty) {
       for (final raw in MockData.REELS) {
-        list.add(TrendingVideoItem.fromJson(Map<String, dynamic>.from(raw)));
+        final map = Map<String, dynamic>.from(raw);
+        map['status'] ??= 'APPROVED';
+        map['statusLabel'] ??= 'LIVE';
+        map['isLive'] ??= true;
+        map['canContinueDraft'] ??= false;
+        final item = TrendingVideoItem.fromJson(map);
+        if (item.isVideoLive && !item.isDraft) {
+          list.add(item);
+        }
       }
     }
     return list;
@@ -490,7 +505,14 @@ class VideosRepository {
       'likes': '0',
       'comments': '0',
       'shares': '0',
-      'talentScore': 8.0,
+      'status': 'APPROVED',
+      'statusLabel': 'LIVE',
+      'isLive': true,
+      'is_live': true,
+      'canContinueDraft': false,
+      'isDraft': false,
+      'canView': true,
+      'canShare': true,
       if (videoTrimStartSeconds != null)
         'videoTrimStartSeconds': videoTrimStartSeconds,
       if (videoTrimEndSeconds != null)
@@ -551,6 +573,37 @@ class VideosRepository {
 
     return _apiClient.post(
       '/app/videos/$videoId/like',
+      headers: headers.isNotEmpty ? headers : null,
+    );
+  }
+
+  Future<Map<String, dynamic>> shareVideo({
+    required String videoId,
+    String? sessionToken,
+    String? refreshToken,
+  }) async {
+    final cleanId = videoId.trim();
+    if (cleanId.isEmpty) return {'success': false, 'message': 'Invalid video ID'};
+
+    final effectiveToken = (sessionToken != null && sessionToken.trim().isNotEmpty)
+        ? sessionToken.trim()
+        : await _storageService.getSessionToken();
+    final effectiveRefresh = (refreshToken != null && refreshToken.trim().isNotEmpty)
+        ? refreshToken.trim()
+        : await _storageService.getRefreshToken();
+
+    final headers = (effectiveToken != null &&
+            effectiveToken.isNotEmpty &&
+            effectiveRefresh != null &&
+            effectiveRefresh.isNotEmpty)
+        ? ApiAuthHeaders.authenticated(
+            sessionToken: effectiveToken,
+            refreshToken: effectiveRefresh,
+          )
+        : <String, String>{};
+
+    return _apiClient.post(
+      '/app/videos/$cleanId/share',
       headers: headers.isNotEmpty ? headers : null,
     );
   }

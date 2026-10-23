@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -5,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/core/utils/media_url_utils.dart';
+import 'package:artable_app/core/utils/video_share_helper.dart';
 import 'package:artable_app/core/widgets/app_back_header.dart';
 import 'package:artable_app/core/widgets/app_image.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
@@ -17,7 +19,12 @@ import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
 import 'package:artable_app/features/profile/presentation/bloc/profile_cubit.dart';
 
 class MyVideosScreen extends StatefulWidget {
-  const MyVideosScreen({super.key});
+  const MyVideosScreen({
+    super.key,
+    this.initialTab = 'ALL',
+  });
+
+  final String initialTab;
 
   @override
   State<MyVideosScreen> createState() => _MyVideosScreenState();
@@ -38,10 +45,10 @@ class _MyVideosScreenState extends State<MyVideosScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final cubit = context.read<MyVideosCubit>();
-      if (!cubit.hasLoaded && !cubit.isLoading) {
-        cubit.loadMyVideos();
-      }
+      context.read<MyVideosCubit>().loadMyVideos(
+            tab: widget.initialTab,
+            forceRefresh: true,
+          );
     });
   }
 
@@ -302,6 +309,17 @@ class _FigmaMyVideoCard extends StatelessWidget {
                 children: [
                   GestureDetector(
                     onTap: () {
+                      final isDraft = item.canContinueDraft || statusRaw == 'draft';
+                      if (isDraft) {
+                        final challengeObj = item.challenge;
+                        final challengeId = challengeObj?['id']?.toString() ?? '';
+                        if (challengeId.isNotEmpty) {
+                          context.push('/studio-drafts?id=$challengeId');
+                        } else {
+                          context.push('/studio-drafts');
+                        }
+                        return;
+                      }
                       final routeId = item.id.isNotEmpty ? item.id : challengeId;
                       final uiMap = _enrichUiMap(context, item);
                       context.read<ReelsCubit>().syncVideos([uiMap]);
@@ -511,6 +529,7 @@ class _FigmaMyVideoCard extends StatelessWidget {
                             icon: Icons.share_outlined,
                             label: 'Share',
                             onTap: () {
+                              unawaited(VideoShareHelper.precacheVideo(item.videoUrl, videoId: item.id));
                               context.push(
                                 '${AppRoutes.shareReport}?id=${item.id}',
                                 extra: {
@@ -547,6 +566,7 @@ class _FigmaMyVideoCard extends StatelessWidget {
                             icon: Icons.share_outlined,
                             label: 'Share',
                             onTap: () {
+                              unawaited(VideoShareHelper.precacheVideo(item.videoUrl, videoId: item.id));
                               context.push(
                                 '${AppRoutes.shareReport}?id=${item.id}',
                                 extra: {

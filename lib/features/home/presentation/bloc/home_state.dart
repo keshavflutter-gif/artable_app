@@ -47,10 +47,12 @@ class HomeState {
   List<Map<String, dynamic>> get trendingReels {
     if (dashboard != null) {
       return dashboard!.data.trendingVideos
+          .where((item) => HomeUiMapper.isItemLive(item))
           .map(HomeUiMapper.trendingVideoToUiMap)
           .where((reel) {
-            return (reel['title'] as String).isNotEmpty ||
-                (reel['imageUrl'] as String).isNotEmpty;
+            return HomeUiMapper.isItemLive(reel) &&
+                ((reel['title'] as String).isNotEmpty ||
+                    (reel['imageUrl'] as String).isNotEmpty);
           })
           .toList();
     }

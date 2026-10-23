@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -10,12 +11,16 @@ import 'package:artable_app/core/widgets/app_scaffold.dart';
 import 'package:artable_app/data/datasources/mock_data.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/core/utils/reel_helpers.dart';
+import 'package:artable_app/core/utils/video_share_helper.dart';
 import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
 import 'package:artable_app/features/home/presentation/bloc/home_cubit.dart';
 import 'package:artable_app/features/reels/presentation/bloc/reels_cubit.dart';
 import 'package:artable_app/features/profile/presentation/bloc/profile_cubit.dart';
 import 'package:artable_app/features/trending/presentation/bloc/trending_videos_cubit.dart';
 import 'package:artable_app/features/trending/data/models/trending_videos_response.dart';
+import 'package:video_player/video_player.dart';
+import 'package:artable_app/core/utils/video_cache_manager.dart';
+import 'package:artable_app/core/utils/media_url_utils.dart';
 import 'package:artable_app/features/trending/data/repositories/videos_repository.dart';
 
 class VideoDetailScreen extends StatefulWidget {
@@ -29,6 +34,11 @@ class VideoDetailScreen extends StatefulWidget {
 
 class _VideoDetailScreenState extends State<VideoDetailScreen> {
   Map<String, dynamic>? _apiReel;
+  VideoPlayerController? _stageController;
+  bool _isStageInitialized = false;
+  bool _isStageLoading = false;
+  bool _isStageUserPaused = false;
+  String? _currentLoadedVideoUrl;
 
   Map<String, dynamic> get _reel {
     if (_apiReel != null && _apiReel!.isNotEmpty) {
@@ -79,6 +89,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
   void initState() {
     super.initState();
     final reelMap = _reel;
+    _initStageVideo();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         final rId = reelMap['id']?.toString() ?? reelMap['_id']?.toString() ?? widget.reelId;
@@ -88,6 +99,64 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
         }
       }
     });
+  }
+
+  Future<void> _initStageVideo() async {
+    final reelMap = _reel;
+    final vUrl = (reelMap['videoUrl'] as String?) ?? (reelMap['videoPath'] as String?) ?? '';
+    final cleanUrl = MediaUrlUtils.resolve(vUrl).trim();
+
+    if (cleanUrl.isEmpty || cleanUrl == _currentLoadedVideoUrl) return;
+    _currentLoadedVideoUrl = cleanUrl;
+
+    if (mounted) {
+      setState(() {
+        _isStageLoading = true;
+      });
+    }
+
+    try {
+      final old = _stageController;
+      _stageController = null;
+      await old?.dispose();
+
+      final controller = await VideoCacheManager.createAndInitController(cleanUrl);
+      if (!mounted) {
+        controller?.dispose();
+        return;
+      }
+
+      if (controller != null && controller.value.isInitialized) {
+        _stageController = controller;
+        await controller.setLooping(true);
+        await controller.setVolume(1.0);
+        await controller.play();
+
+        if (mounted) {
+          setState(() {
+            _isStageInitialized = true;
+            _isStageLoading = false;
+            _isStageUserPaused = false;
+          });
+        }
+        return;
+      }
+    } catch (e) {
+      debugPrint('[VideoDetailScreen] Video stage init error: $e');
+    }
+
+    if (mounted) {
+      setState(() {
+        _isStageLoading = false;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _stageController?.dispose();
+    _stageController = null;
+    super.dispose();
   }
 
   Future<void> _fetchVideoDetail(String videoId) async {
@@ -108,6 +177,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
         setState(() {
           _apiReel = uiMap;
         });
+        _initStageVideo();
       }
     } catch (e) {
       debugPrint('Error fetching video detail: $e');
@@ -280,19 +350,40 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     final imageUrl = (reel['imageUrl'] as String?) ?? (reel['thumbnailUrl'] as String?) ?? '';
     final isSaved = context.watch<ReelsCubit>().isBookmarked(reelId);
 
+    void openReelsFeed() {
+      _stageController?.pause();
+      if (reelId.isNotEmpty) {
+        final effectiveClips = reel['mergedClipPaths'] is List
+            ? List<String>.from(reel['mergedClipPaths'] as List)
+            : ReelHelpers.getCachedMergedClips(reelId);
+        if (effectiveClips != null && effectiveClips.isNotEmpty) {
+          ReelHelpers.cacheMergedClips(reelId, effectiveClips);
+          context.read<ReelsCubit>().syncVideos([reel]);
+        }
+        context.push('${AppRoutes.reelsFeed}?id=$reelId', extra: reel).then((_) {
+          if (mounted && _stageController != null && !_isStageUserPaused) {
+            _stageController?.play();
+          }
+        });
+      }
+    }
+
     return AspectRatio(
       aspectRatio: 3 / 3.8,
       child: GestureDetector(
         onTap: () {
-          if (reelId.isNotEmpty) {
-            final effectiveClips = reel['mergedClipPaths'] is List
-                ? List<String>.from(reel['mergedClipPaths'] as List)
-                : ReelHelpers.getCachedMergedClips(reelId);
-            if (effectiveClips != null && effectiveClips.isNotEmpty) {
-              ReelHelpers.cacheMergedClips(reelId, effectiveClips);
-              context.read<ReelsCubit>().syncVideos([reel]);
-            }
-            context.push('${AppRoutes.reelsFeed}?id=$reelId', extra: reel);
+          if (_stageController != null && _isStageInitialized) {
+            setState(() {
+              if (_stageController!.value.isPlaying) {
+                _stageController!.pause();
+                _isStageUserPaused = true;
+              } else {
+                _stageController!.play();
+                _isStageUserPaused = false;
+              }
+            });
+          } else {
+            openReelsFeed();
           }
         },
         child: Container(
@@ -311,7 +402,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                // Video Thumbnail
+                // 1. Base Video Thumbnail Preview
                 AppImage(
                   url: imageUrl,
                   videoUrl: (reel['videoUrl'] as String?) ?? (reel['videoPath'] as String?),
@@ -319,7 +410,25 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                   isVideo: true,
                 ),
 
-                // Gradient Overlay
+                // 2. Smooth Inline Video Player
+                if (_isStageInitialized &&
+                    _stageController != null &&
+                    _stageController!.value.isInitialized)
+                  FittedBox(
+                    fit: BoxFit.cover,
+                    clipBehavior: Clip.hardEdge,
+                    child: SizedBox(
+                      width: _stageController!.value.size.width > 0
+                          ? _stageController!.value.size.width
+                          : 360,
+                      height: _stageController!.value.size.height > 0
+                          ? _stageController!.value.size.height
+                          : 640,
+                      child: VideoPlayer(_stageController!),
+                    ),
+                  ),
+
+                // 3. Subtle Gradient Overlay
                 Container(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
@@ -328,14 +437,27 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                       colors: [
                         Colors.black.withValues(alpha: 0.25),
                         Colors.transparent,
-                        Colors.black.withValues(alpha: 0.65),
+                        Colors.black.withValues(alpha: 0.55),
                       ],
                       stops: const [0.0, 0.4, 1.0],
                     ),
                   ),
                 ),
 
-                // Category Badge (Top-Left)
+                // 4. Loading indicator while video initializes
+                if (_isStageLoading && !_isStageInitialized)
+                  const Center(
+                    child: SizedBox(
+                      width: 32,
+                      height: 32,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.5,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    ),
+                  ),
+
+                // 5. Category Badge (Top-Left)
                 Positioned(
                   top: 12,
                   left: 12,
@@ -365,7 +487,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                   ),
                 ),
 
-                // Top-Right Save / Bookmark Icon
+                // 6. Top-Right Save / Bookmark Icon
                 Positioned(
                   top: 12,
                   right: 12,
@@ -392,30 +514,67 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                   ),
                 ),
 
-                // Center Frosted Glass Play Button Icon
-                Center(
-                  child: Container(
-                    width: 58,
-                    height: 58,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.white.withValues(alpha: 0.24),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.55),
-                        width: 1.5,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.2),
-                          blurRadius: 16,
-                          offset: const Offset(0, 4),
+                // 7. Center Play Button (Shown when paused or not initialized)
+                if (!_isStageInitialized ||
+                    (_stageController != null &&
+                        _isStageUserPaused &&
+                        !_stageController!.value.isPlaying))
+                  Center(
+                    child: Container(
+                      width: 58,
+                      height: 58,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.white.withValues(alpha: 0.24),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.55),
+                          width: 1.5,
                         ),
-                      ],
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.2),
+                            blurRadius: 16,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.play_arrow_rounded,
+                        color: Colors.white,
+                        size: 36,
+                      ),
                     ),
-                    child: const Icon(
-                      Icons.play_arrow_rounded,
-                      color: Colors.white,
-                      size: 36,
+                  ),
+
+                // 8. Bottom-Right "Full Reel" / Expand Feed Button
+                Positioned(
+                  bottom: 12,
+                  right: 12,
+                  child: GestureDetector(
+                    onTap: openReelsFeed,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.6),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: Colors.white24, width: 0.8),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.fullscreen_rounded, color: Colors.white, size: 16),
+                          SizedBox(width: 4),
+                          Text(
+                            'Full Reel',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w700,
+                              fontFamily: 'Inter',
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -646,6 +805,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
           label: 'Shares',
           onTap: () {
             final vUrl = _reel['videoUrl']?.toString() ?? _reel['video_url']?.toString() ?? '';
+            unawaited(VideoShareHelper.precacheVideo(vUrl, videoId: reelId));
             context.push(
               '${AppRoutes.shareReport}?id=$reelId',
               extra: {

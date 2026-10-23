@@ -91,60 +91,110 @@ class MyVideosCubit extends Cubit<MyVideosState> {
         refreshToken: (refresh != null && refresh != 'design_preview') ? refresh : null,
       );
 
+      final isAllTab = targetTab.toUpperCase() == 'ALL';
       final isDraftsTab = targetTab.toUpperCase() == 'DRAFTS' || targetTab.toUpperCase() == 'DRAFT';
       final isSavedTab = targetTab.toUpperCase() == 'SAVED' || targetTab.toUpperCase() == 'SAVED_VIDEOS';
+      final isLiveTab = targetTab.toUpperCase() == 'LIVE' || targetTab.toUpperCase() == 'APPROVED';
+      final isUnderReviewTab = targetTab.toUpperCase() == 'UNDER_REVIEW' ||
+          targetTab.toUpperCase() == 'PENDING' ||
+          targetTab.toUpperCase() == 'PENDING_REVIEW';
+      final isRejectedTab = targetTab.toUpperCase() == 'REJECTED';
 
-      if (isDraftsTab && response.data.isEmpty) {
+      List<MyVideoItem> items = List<MyVideoItem>.from(response.data);
+
+      if (isAllTab) {
+        // In "ALL" tab, show all videos (Live, Drafts, Under Review, Rejected).
+        // Also merge any local studio drafts not already in response.data so nothing is missed.
         try {
           final studioRes = await _studioRepository.getDraftsList(
             sessionToken: (token != null && token != 'design_preview') ? token : null,
             refreshToken: (refresh != null && refresh != 'design_preview') ? refresh : null,
           );
-
           if (studioRes.success && studioRes.data.isNotEmpty) {
-            final draftItems = studioRes.data.map((d) {
-              final challengeObj = d.challengeId != null
-                  ? {'id': d.challengeId, 'title': d.title}
-                  : null;
-              final formattedDate = (d.createdAt != null && d.createdAt!.isNotEmpty)
-                  ? AppFormatters.formatDate(d.createdAt!)
-                  : '';
-              return MyVideoItem(
-                id: d.id,
-                title: d.title.isNotEmpty ? d.title : 'Draft Entry',
-                description: d.description,
-                thumbnailUrl: d.thumbnailUrl,
-                videoUrl: d.videoUrl,
-                status: 'DRAFT',
-                statusLabel: 'DRAFT',
-                durationSeconds: d.durationSeconds,
-                viewsLabel: '${d.views}',
-                likesLabel: '${d.likes}',
-                talentScoreLabel: d.averageRating,
-                dateLabel: formattedDate,
-                isLive: false,
-                canContinueDraft: true,
-                challenge: challengeObj,
-              );
-            }).toList();
-
-            response = MyVideosResponse(
-              success: true,
-              message: 'Loaded drafts',
-              data: draftItems,
-              tabs: response.tabs,
-              activeTab: targetTab,
-              emptyState: response.emptyState,
-              pagination: response.pagination,
-            );
+            final existingIds = items.map((v) => v.id).toSet();
+            for (final d in studioRes.data) {
+              if (!existingIds.contains(d.id)) {
+                final challengeObj = d.challengeId != null
+                    ? {'id': d.challengeId, 'title': d.title}
+                    : null;
+                final formattedDate = (d.createdAt != null && d.createdAt!.isNotEmpty)
+                    ? AppFormatters.formatDate(d.createdAt!)
+                    : '';
+                items.add(MyVideoItem(
+                  id: d.id,
+                  title: d.title.isNotEmpty ? d.title : 'Draft Entry',
+                  description: d.description,
+                  thumbnailUrl: d.thumbnailUrl,
+                  videoUrl: d.videoUrl,
+                  status: 'DRAFT',
+                  statusLabel: 'DRAFT',
+                  durationSeconds: d.durationSeconds,
+                  viewsLabel: '${d.views}',
+                  likesLabel: '${d.likes}',
+                  talentScoreLabel: d.averageRating,
+                  dateLabel: formattedDate,
+                  isLive: false,
+                  canContinueDraft: true,
+                  challenge: challengeObj,
+                ));
+              }
+            }
           }
         } catch (e) {
-          debugPrint('[MY_VIDEOS_CUBIT] Error fetching studio drafts fallback: $e');
+          debugPrint('[MY_VIDEOS_CUBIT] Error merging studio drafts in ALL tab: $e');
         }
+      } else if (isLiveTab) {
+        items = items.where((v) => v.isVideoLive && !v.isDraft).toList();
+      } else if (isDraftsTab) {
+        items = items.where((v) => v.isDraft || v.status.toLowerCase().contains('draft') || v.canContinueDraft).toList();
+        if (items.isEmpty) {
+          try {
+            final studioRes = await _studioRepository.getDraftsList(
+              sessionToken: (token != null && token != 'design_preview') ? token : null,
+              refreshToken: (refresh != null && refresh != 'design_preview') ? refresh : null,
+            );
+            if (studioRes.success && studioRes.data.isNotEmpty) {
+              items = studioRes.data.map((d) {
+                final challengeObj = d.challengeId != null
+                    ? {'id': d.challengeId, 'title': d.title}
+                    : null;
+                final formattedDate = (d.createdAt != null && d.createdAt!.isNotEmpty)
+                    ? AppFormatters.formatDate(d.createdAt!)
+                    : '';
+                return MyVideoItem(
+                  id: d.id,
+                  title: d.title.isNotEmpty ? d.title : 'Draft Entry',
+                  description: d.description,
+                  thumbnailUrl: d.thumbnailUrl,
+                  videoUrl: d.videoUrl,
+                  status: 'DRAFT',
+                  statusLabel: 'DRAFT',
+                  durationSeconds: d.durationSeconds,
+                  viewsLabel: '${d.views}',
+                  likesLabel: '${d.likes}',
+                  talentScoreLabel: d.averageRating,
+                  dateLabel: formattedDate,
+                  isLive: false,
+                  canContinueDraft: true,
+                  challenge: challengeObj,
+                );
+              }).toList();
+            }
+          } catch (e) {
+            debugPrint('[MY_VIDEOS_CUBIT] Error fetching studio drafts fallback: $e');
+          }
+        }
+      } else if (isUnderReviewTab) {
+        items = items.where((v) =>
+            v.status.toLowerCase() == 'under_review' ||
+            v.status.toLowerCase() == 'pending_review' ||
+            v.status.toLowerCase() == 'pending').toList();
+      } else if (isRejectedTab) {
+        items = items.where((v) => v.status.toLowerCase() == 'rejected').toList();
       }
 
       final currentReelsCubit = _reelsCubit;
-      if (isSavedTab && response.data.isEmpty && currentReelsCubit != null) {
+      if (isSavedTab && items.isEmpty && currentReelsCubit != null) {
         final bookmarkedIds = currentReelsCubit.state.bookmarkedVideoIds;
         if (bookmarkedIds.isNotEmpty) {
           final fallbackItems = <MyVideoItem>[];
@@ -169,20 +219,21 @@ class MyVideosCubit extends Cubit<MyVideosState> {
               ));
             }
           }
-
           if (fallbackItems.isNotEmpty) {
-            response = MyVideosResponse(
-              success: true,
-              message: 'Loaded local saved videos',
-              data: fallbackItems,
-              tabs: response.tabs,
-              activeTab: targetTab,
-              emptyState: response.emptyState,
-              pagination: response.pagination,
-            );
+            items = fallbackItems;
           }
         }
       }
+
+      response = MyVideosResponse(
+        success: response.success,
+        message: response.message,
+        data: items,
+        tabs: response.tabs,
+        activeTab: targetTab,
+        emptyState: response.emptyState,
+        pagination: response.pagination,
+      );
 
       debugPrint('[MY_VIDEOS_CUBIT] Response Success: ${response.success}');
       debugPrint('[MY_VIDEOS_CUBIT] Active Tab: ${response.activeTab}');

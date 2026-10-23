@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -10,6 +11,7 @@ import 'package:artable_app/core/utils/reel_helpers.dart';
 import 'package:artable_app/core/widgets/app_screen_header.dart';
 import 'package:artable_app/core/widgets/secondary_outline_button.dart';
 import 'package:artable_app/features/reels/presentation/bloc/reels_cubit.dart';
+import 'package:artable_app/features/trending/presentation/bloc/trending_videos_cubit.dart';
 
 import 'package:artable_app/core/utils/media_url_utils.dart';
 import 'package:artable_app/core/utils/video_share_helper.dart';
@@ -44,6 +46,48 @@ class _ShareReportScreenState extends State<ShareReportScreen> {
   String? _sharedOptionId;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _precacheVideo();
+    });
+  }
+
+  void _precacheVideo() {
+    try {
+      String rawUrl = (widget.videoUrl != null && widget.videoUrl!.trim().isNotEmpty)
+          ? widget.videoUrl!.trim()
+          : '';
+
+      if (rawUrl.isEmpty && widget.reelId != null && widget.reelId!.trim().isNotEmpty) {
+        final reel = ReelHelpers.reelById(widget.reelId!);
+        rawUrl = reel?['videoUrl']?.toString() ??
+            reel?['video_url']?.toString() ??
+            reel?['video']?.toString() ??
+            '';
+      }
+
+      if (rawUrl.isEmpty && widget.reelId != null && widget.reelId!.trim().isNotEmpty) {
+        try {
+          final cubitReel = context.read<ReelsCubit>().getVideo(widget.reelId!);
+          rawUrl = cubitReel?['videoUrl']?.toString() ??
+              cubitReel?['video_url']?.toString() ??
+              '';
+        } catch (_) {}
+      }
+
+      if (rawUrl.isEmpty && widget.reelId != null && widget.reelId!.trim().isNotEmpty) {
+        try {
+          final item = context.read<TrendingVideosCubit>().getVideoById(widget.reelId!);
+          rawUrl = item?.videoUrl ?? '';
+        } catch (_) {}
+      }
+
+      unawaited(VideoShareHelper.precacheVideo(rawUrl, videoId: widget.reelId));
+    } catch (_) {}
+  }
+
+  @override
   Widget build(BuildContext context) {
     Map<String, dynamic>? reel = (widget.reelId != null && widget.reelId!.trim().isNotEmpty)
         ? ReelHelpers.reelById(widget.reelId!)
@@ -51,6 +95,19 @@ class _ShareReportScreenState extends State<ShareReportScreen> {
     if (reel == null && widget.reelId != null && widget.reelId!.trim().isNotEmpty) {
       try {
         reel = context.read<ReelsCubit>().getVideo(widget.reelId!);
+      } catch (_) {}
+    }
+    if (reel == null && widget.reelId != null && widget.reelId!.trim().isNotEmpty) {
+      try {
+        final trendingItem = context.read<TrendingVideosCubit>().getVideoById(widget.reelId!);
+        if (trendingItem != null) {
+          reel = {
+            'id': trendingItem.id,
+            'videoUrl': trendingItem.videoUrl,
+            'title': trendingItem.title,
+            'caption': trendingItem.description,
+          };
+        }
       } catch (_) {}
     }
 
@@ -69,6 +126,9 @@ class _ShareReportScreenState extends State<ShareReportScreen> {
             : '');
     final resolvedTitle = widget.title ?? reel?['title']?.toString();
     final resolvedCaption = widget.caption ?? reel?['caption']?.toString();
+    final effectiveVideoId = (widget.reelId != null && widget.reelId!.trim().isNotEmpty)
+        ? widget.reelId!.trim()
+        : (reel?['id']?.toString() ?? reel?['_id']?.toString() ?? '');
 
     return Scaffold(
       backgroundColor: AppColors.bg,
@@ -100,7 +160,7 @@ class _ShareReportScreenState extends State<ShareReportScreen> {
                         childAspectRatio: 0.65,
                       ),
                       itemCount: MockData.SHARE_OPTIONS.length,
-                      itemBuilder: (context, i) {
+                      itemBuilder: (itemCtx, i) {
                         final opt = MockData.SHARE_OPTIONS[i];
                         final id = opt['id'] as String;
                         final shared = _sharedOptionId == id;
@@ -109,23 +169,63 @@ class _ShareReportScreenState extends State<ShareReportScreen> {
                               ? null
                               : () async {
                                   if (id == 'social' && effectiveUrl.isEmpty) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
+                                    ScaffoldMessenger.of(this.context).showSnackBar(
                                       const SnackBar(
                                         content: Text('Video is not available to share.'),
                                       ),
                                     );
                                     return;
                                   }
+                                  final navigator = Navigator.of(this.context);
+                                  final reelsCubit = this.context.read<ReelsCubit>();
                                   setState(() => _sharedOptionId = id);
-                                  await VideoShareHelper.shareVideo(
-                                    context: context,
-                                    optionId: id,
-                                    videoUrl: effectiveUrl,
-                                    title: resolvedTitle,
-                                    caption: resolvedCaption,
-                                  );
-                                  if (mounted) {
-                                    setState(() => _sharedOptionId = null);
+                                  try {
+                                    String shareUrl = effectiveUrl;
+                                    String? shareTitle = resolvedTitle;
+                                    String? shareCaption = resolvedCaption;
+
+                                    if (effectiveVideoId.isNotEmpty) {
+                                      try {
+                                        final shareRes = await reelsCubit.recordShare(effectiveVideoId);
+                                        if (shareRes['success'] == true && shareRes['data'] is Map<String, dynamic>) {
+                                          final data = shareRes['data'] as Map<String, dynamic>;
+                                          final returnedUrl = data['videoUrl']?.toString();
+                                          if (returnedUrl != null && returnedUrl.trim().isNotEmpty) {
+                                            shareUrl = returnedUrl.trim();
+                                          }
+                                          final rTitle = data['title']?.toString().trim();
+                                          if (rTitle != null && rTitle.isNotEmpty) {
+                                            shareTitle = rTitle;
+                                          }
+                                          final rDesc = data['description']?.toString().trim();
+                                          if (rDesc != null && rDesc.isNotEmpty) {
+                                            shareCaption = rDesc;
+                                          }
+                                        }
+                                      } catch (e) {
+                                        debugPrint('Error recording share: $e');
+                                      }
+                                    }
+
+                                    if (!mounted) return;
+                                    final bool success = await VideoShareHelper.shareVideo(
+                                      context: this.context,
+                                      optionId: id,
+                                      videoUrl: shareUrl,
+                                      videoId: effectiveVideoId,
+                                      title: shareTitle,
+                                      caption: shareCaption,
+                                      isApiAlreadyRecorded: true,
+                                    );
+                                    if (success && (id == 'whatsapp' || id == 'social') && mounted) {
+                                      navigator.pop();
+                                    }
+                                  } catch (e) {
+                                    debugPrint('Share error: $e');
+                                  } finally {
+                                    if (mounted) {
+                                      setState(() => _sharedOptionId = null);
+                                    }
                                   }
                                 },
                           child: Column(
