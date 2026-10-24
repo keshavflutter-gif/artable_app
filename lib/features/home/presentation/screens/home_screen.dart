@@ -1218,7 +1218,7 @@ class _ReelGrid extends StatelessWidget {
         return GestureDetector(
           onTap: () {
             final reelId = reel['id']?.toString() ?? 'r1';
-            context.push('${AppRoutes.reelsFeed}?id=$reelId');
+            context.push('${AppRoutes.reelsFeed}?id=$reelId', extra: reel);
           },
           child: Container(
             decoration: BoxDecoration(

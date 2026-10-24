@@ -24,9 +24,10 @@ import 'package:artable_app/core/utils/media_url_utils.dart';
 import 'package:artable_app/features/trending/data/repositories/videos_repository.dart';
 
 class VideoDetailScreen extends StatefulWidget {
-  const VideoDetailScreen({super.key, this.reelId});
+  const VideoDetailScreen({super.key, this.reelId, this.initialReelData});
 
   final String? reelId;
+  final Map<String, dynamic>? initialReelData;
 
   @override
   State<VideoDetailScreen> createState() => _VideoDetailScreenState();
@@ -38,11 +39,16 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
   bool _isStageInitialized = false;
   bool _isStageLoading = false;
   bool _isStageUserPaused = false;
+  bool _hasStageError = false;
   String? _currentLoadedVideoUrl;
 
   Map<String, dynamic> get _reel {
     if (_apiReel != null && _apiReel!.isNotEmpty) {
       return _apiReel!;
+    }
+
+    if (widget.initialReelData != null && widget.initialReelData!.isNotEmpty) {
+      return widget.initialReelData!;
     }
 
     final targetId = widget.reelId?.trim() ?? '';
@@ -101,23 +107,34 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     });
   }
 
+  void _onStageControllerUpdate() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
   Future<void> _initStageVideo() async {
     final reelMap = _reel;
     final vUrl = (reelMap['videoUrl'] as String?) ?? (reelMap['videoPath'] as String?) ?? '';
     final cleanUrl = MediaUrlUtils.resolve(vUrl).trim();
 
-    if (cleanUrl.isEmpty || cleanUrl == _currentLoadedVideoUrl) return;
+    if (cleanUrl.isEmpty) return;
+    if (cleanUrl == _currentLoadedVideoUrl && _stageController != null && _stageController!.value.isInitialized) {
+      return;
+    }
     _currentLoadedVideoUrl = cleanUrl;
 
     if (mounted) {
       setState(() {
         _isStageLoading = true;
+        _hasStageError = false;
       });
     }
 
     try {
       final old = _stageController;
       _stageController = null;
+      old?.removeListener(_onStageControllerUpdate);
       await old?.dispose();
 
       final controller = await VideoCacheManager.createAndInitController(cleanUrl);
@@ -128,6 +145,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
 
       if (controller != null && controller.value.isInitialized) {
         _stageController = controller;
+        controller.addListener(_onStageControllerUpdate);
         await controller.setLooping(true);
         await controller.setVolume(1.0);
         await controller.play();
@@ -137,6 +155,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
             _isStageInitialized = true;
             _isStageLoading = false;
             _isStageUserPaused = false;
+            _hasStageError = false;
           });
         }
         return;
@@ -148,12 +167,14 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     if (mounted) {
       setState(() {
         _isStageLoading = false;
+        _hasStageError = true;
       });
     }
   }
 
   @override
   void dispose() {
+    _stageController?.removeListener(_onStageControllerUpdate);
     _stageController?.dispose();
     _stageController = null;
     super.dispose();
@@ -177,7 +198,10 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
         setState(() {
           _apiReel = uiMap;
         });
-        _initStageVideo();
+        final newUrl = MediaUrlUtils.resolve(uiMap['videoUrl']?.toString() ?? '').trim();
+        if (newUrl.isNotEmpty && newUrl != _currentLoadedVideoUrl) {
+          _initStageVideo();
+        }
       }
     } catch (e) {
       debugPrint('Error fetching video detail: $e');
@@ -457,6 +481,54 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                     ),
                   ),
 
+                // 4b. Buffering indicator
+                if (_isStageInitialized &&
+                    _stageController != null &&
+                    _stageController!.value.isBuffering &&
+                    !_isStageUserPaused)
+                  const Center(
+                    child: SizedBox(
+                      width: 28,
+                      height: 28,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.5,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white70),
+                      ),
+                    ),
+                  ),
+
+                // 4c. Error Retry Button
+                if (_hasStageError && !_isStageLoading && !_isStageInitialized)
+                  Center(
+                    child: GestureDetector(
+                      onTap: _initStageVideo,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.7),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: Colors.white30),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.refresh_rounded, color: Colors.white, size: 18),
+                            SizedBox(width: 6),
+                            Text(
+                              'Retry Video',
+                              style: TextStyle(
+                                fontFamily: 'Inter',
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+
                 // 5. Category Badge (Top-Left)
                 Positioned(
                   top: 12,
@@ -514,11 +586,13 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                   ),
                 ),
 
-                // 7. Center Play Button (Shown when paused or not initialized)
-                if (!_isStageInitialized ||
-                    (_stageController != null &&
-                        _isStageUserPaused &&
-                        !_stageController!.value.isPlaying))
+                // 7. Center Play Button (Shown when paused or not loading)
+                if (!_isStageLoading &&
+                    !_hasStageError &&
+                    ((!_isStageInitialized) ||
+                        (_stageController != null &&
+                            _isStageUserPaused &&
+                            !_stageController!.value.isPlaying)))
                   Center(
                     child: Container(
                       width: 58,

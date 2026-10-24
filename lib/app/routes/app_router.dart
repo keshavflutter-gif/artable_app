@@ -260,6 +260,7 @@ abstract final class AppRouter {
           path: AppRoutes.videoDetail,
           builder: (context, state) => VideoDetailScreen(
             reelId: state.uri.queryParameters['id'],
+            initialReelData: state.extra is Map ? Map<String, dynamic>.from(state.extra as Map) : null,
           ),
         ),
         GoRoute(

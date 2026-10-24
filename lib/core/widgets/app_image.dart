@@ -5,7 +5,6 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
-import 'package:video_player/video_player.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
 
 import 'package:artable_app/core/utils/media_url_utils.dart';
@@ -283,8 +282,6 @@ class _VideoThumbnailView extends StatefulWidget {
 
 class _VideoThumbnailViewState extends State<_VideoThumbnailView> {
   Uint8List? _bytes;
-  VideoPlayerController? _controller;
-  bool _isPlayerInitialized = false;
   bool _isDisposed = false;
   bool _hasFailed = false;
   Timer? _safetyTimer;
@@ -298,9 +295,9 @@ class _VideoThumbnailViewState extends State<_VideoThumbnailView> {
 
   void _startSafetyTimer() {
     _safetyTimer?.cancel();
-    // Maximum 3.0 seconds loading spinner before gracefully falling back
-    _safetyTimer = Timer(const Duration(milliseconds: 3000), () {
-      if (!_isDisposed && mounted && _bytes == null && !_isPlayerInitialized) {
+    // Maximum 2.0 seconds loading spinner before gracefully falling back
+    _safetyTimer = Timer(const Duration(milliseconds: 2000), () {
+      if (!_isDisposed && mounted && _bytes == null) {
         setState(() {
           _hasFailed = true;
         });
@@ -312,9 +309,6 @@ class _VideoThumbnailViewState extends State<_VideoThumbnailView> {
   void didUpdateWidget(covariant _VideoThumbnailView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.videoSource != widget.videoSource) {
-      _controller?.dispose();
-      _controller = null;
-      _isPlayerInitialized = false;
       _hasFailed = false;
       _startSafetyTimer();
       _loadThumbnail();
@@ -326,8 +320,6 @@ class _VideoThumbnailViewState extends State<_VideoThumbnailView> {
     _isDisposed = true;
     _safetyTimer?.cancel();
     _safetyTimer = null;
-    _controller?.dispose();
-    _controller = null;
     super.dispose();
   }
 
@@ -410,12 +402,7 @@ class _VideoThumbnailViewState extends State<_VideoThumbnailView> {
       }
     } catch (_) {}
 
-    // 3. Launch VideoPlayerController as instant visual fallback
-    if (_controller == null && !_isPlayerInitialized) {
-      _initVideoPlayer(src, isRemote);
-    }
-
-    // 4. Extract JPEG frame in background for fast caching
+    // 3. Extract JPEG frame in background for local video files
     final future = _VideoThumbnailView._inFlight.putIfAbsent(src, () async {
       Uint8List? data;
       try {
@@ -538,62 +525,11 @@ class _VideoThumbnailViewState extends State<_VideoThumbnailView> {
       setState(() {
         _bytes = resBytes;
         _hasFailed = false;
-        _controller?.dispose();
-        _controller = null;
-        _isPlayerInitialized = false;
       });
     } else {
-      if (!_isPlayerInitialized) {
-        setState(() {
-          _hasFailed = true;
-        });
-      }
-    }
-  }
-
-  void _initVideoPlayer(String src, bool isRemote) {
-    try {
-      final controller = isRemote
-          ? VideoPlayerController.networkUrl(Uri.parse(src))
-          : VideoPlayerController.file(File(src));
-      _controller = controller;
-      controller.initialize().then((_) {
-        if (_isDisposed || !mounted || _controller != controller) {
-          controller.dispose();
-          return;
-        }
-        controller.setVolume(0.0);
-        controller.seekTo(const Duration(milliseconds: 200)).then((_) {
-          if (_isDisposed || !mounted || _controller != controller) return;
-          controller.pause();
-          _safetyTimer?.cancel();
-          setState(() {
-            _isPlayerInitialized = true;
-            _hasFailed = false;
-          });
-        }).catchError((_) {
-          if (_isDisposed || !mounted || _controller != controller) return;
-          controller.pause();
-          _safetyTimer?.cancel();
-          setState(() {
-            _isPlayerInitialized = true;
-            _hasFailed = false;
-          });
-        });
-      }).catchError((e) {
-        debugPrint('VideoPlayer fallback init error for $src: $e');
-        if (!_isDisposed && mounted && _bytes == null) {
-          setState(() {
-            _hasFailed = true;
-          });
-        }
+      setState(() {
+        _hasFailed = true;
       });
-    } catch (_) {
-      if (!_isDisposed && mounted && _bytes == null) {
-        setState(() {
-          _hasFailed = true;
-        });
-      }
     }
   }
 
@@ -635,23 +571,6 @@ class _VideoThumbnailViewState extends State<_VideoThumbnailView> {
         height: widget.height,
         fit: widget.fit,
         errorBuilder: (context, error, stackTrace) => _buildFallback(),
-      );
-    }
-
-    if (_isPlayerInitialized && _controller != null && _controller!.value.isInitialized) {
-      return SizedBox(
-        width: widget.width,
-        height: widget.height,
-        child: ClipRect(
-          child: FittedBox(
-            fit: widget.fit,
-            child: SizedBox(
-              width: _controller!.value.size.width > 0 ? _controller!.value.size.width : 200,
-              height: _controller!.value.size.height > 0 ? _controller!.value.size.height : 200,
-              child: VideoPlayer(_controller!),
-            ),
-          ),
-        ),
       );
     }
 

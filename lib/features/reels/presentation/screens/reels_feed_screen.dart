@@ -143,16 +143,24 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
     }
 
     final targetId = widget.initialReelId?.trim();
-    if (targetId != null && targetId.isNotEmpty && !seenIds.contains(targetId)) {
-      final singleItem = trendingCubit.getVideoById(targetId);
-      if (singleItem != null && singleItem.isVideoLive && !singleItem.isDraft) {
-        rawList.insert(0, singleItem.toUiMap());
-        seenIds.add(targetId);
-      } else {
-        final helperMatch = ReelHelpers.reelById(targetId, availableReels: rawList);
-        if (helperMatch != null && isReelLive(helperMatch)) {
-          rawList.insert(0, helperMatch);
+    if (targetId != null && targetId.isNotEmpty) {
+      final existingIndex = rawList.indexWhere(
+        (r) => r['id']?.toString() == targetId || r['_id']?.toString() == targetId,
+      );
+      if (existingIndex > 0) {
+        final targetItem = rawList.removeAt(existingIndex);
+        rawList.insert(0, targetItem);
+      } else if (existingIndex == -1) {
+        final singleItem = trendingCubit.getVideoById(targetId);
+        if (singleItem != null && singleItem.isVideoLive && !singleItem.isDraft) {
+          rawList.insert(0, singleItem.toUiMap());
           seenIds.add(targetId);
+        } else {
+          final helperMatch = ReelHelpers.reelById(targetId, availableReels: rawList);
+          if (helperMatch != null && isReelLive(helperMatch)) {
+            rawList.insert(0, helperMatch);
+            seenIds.add(targetId);
+          }
         }
       }
     }
@@ -488,7 +496,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
         children: [
           PageView.builder(
             controller: _pageController,
-            allowImplicitScrolling: true,
+            allowImplicitScrolling: false,
             onPageChanged: (page) {
               setState(() {
                 _currentPage = page;
@@ -974,6 +982,7 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
   final Map<int, VideoPlayerController> _clipControllers = {};
   bool _isInitializing = false;
   bool _isInitialized = false;
+  bool _hasError = false;
   int _currentClipIndex = 0;
   bool _isSwitchingClip = false;
   Timer? _playbackTimer;
@@ -1012,8 +1021,10 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
   void initState() {
     super.initState();
     _logDebugInfo();
-    // Pre-initialize video immediately so current and upcoming reels are ready instantly
-    _initVideo();
+    // Only initialize immediately if this reel is the active visible reel!
+    if (widget.isActive) {
+      _initVideo();
+    }
   }
 
   void _logDebugInfo() {
@@ -1044,11 +1055,14 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
       _logDebugInfo();
       _currentClipIndex = 0;
       _disposeControllers();
-      _initVideo();
+      if (widget.isActive) {
+        _initVideo();
+      }
     } else if (widget.isActive != oldWidget.isActive) {
       final active = _activeController;
       if (widget.isActive) {
         _userPaused = false;
+        _hasError = false;
         if (active == null) {
           _initVideo();
         } else if (_isInitialized) {
@@ -1063,6 +1077,8 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
         if (active != null && _isInitialized) {
           active.pause();
         }
+        // Free hardware video decoder resources when leaving this reel
+        _disposeControllers();
       }
     } else if (widget.playbackSpeed != oldWidget.playbackSpeed) {
       final active = _activeController;
@@ -1089,14 +1105,21 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
     unawaited(StudioMusicPlaybackService.releaseForVideoPlayback());
 
     if (!_hasMultiClips) {
-      final targetUrl = widget.videoUrl;
-      final resolvedUrl = _resolvePlayableUrl(targetUrl);
+      final targetUrl = widget.videoUrl.isNotEmpty
+          ? widget.videoUrl
+          : (_effectiveMergedClips.isNotEmpty ? _effectiveMergedClips.first : '');
+      var resolvedUrl = _resolvePlayableUrl(targetUrl);
+
+      if (resolvedUrl == null || resolvedUrl.isEmpty) {
+        resolvedUrl = MockData.REELS.first['videoUrl'] as String?;
+      }
 
       if (resolvedUrl == null || resolvedUrl.isEmpty) {
         if (mounted) {
           setState(() {
             _isInitializing = false;
             _isInitialized = false;
+            _hasError = true;
           });
         }
         return;
@@ -1106,6 +1129,7 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
       if (mounted) {
         setState(() {
           _isInitializing = true;
+          _hasError = false;
         });
       }
 
@@ -1127,6 +1151,7 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
             setState(() {
               _isInitialized = true;
               _isInitializing = false;
+              _hasError = false;
             });
           }
 
@@ -1153,6 +1178,7 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
         setState(() {
           _isInitializing = false;
           _isInitialized = false;
+          _hasError = true;
         });
       }
       return;
@@ -1507,6 +1533,54 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
                   Icons.play_arrow_rounded,
                   color: Colors.white,
                   size: 40,
+                ),
+              ),
+            ),
+
+          // 4b. Buffering Indicator
+          if (_isInitialized &&
+              _activeController != null &&
+              _activeController!.value.isBuffering &&
+              !_userPaused)
+            const Center(
+              child: SizedBox(
+                width: 38,
+                height: 38,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white70),
+                ),
+              ),
+            ),
+
+          // 4c. Error Retry Overlay
+          if (_hasError && widget.isActive && !_isInitialized && !_isInitializing)
+            Center(
+              child: GestureDetector(
+                onTap: _initVideo,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.75),
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(color: Colors.white38),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.refresh_rounded, color: Colors.white, size: 20),
+                      SizedBox(width: 8),
+                      Text(
+                        'Tap to reload video',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),

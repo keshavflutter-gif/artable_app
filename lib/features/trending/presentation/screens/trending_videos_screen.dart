@@ -22,6 +22,8 @@ class TrendingVideosScreen extends StatefulWidget {
 }
 
 class _TrendingVideosScreenState extends State<TrendingVideosScreen> {
+  bool _hasTriggeredPrecache = false;
+
   @override
   void initState() {
     super.initState();
@@ -57,14 +59,17 @@ class _TrendingVideosScreenState extends State<TrendingVideosScreen> {
 
     final isLoading = trendingProvider.isLoading && (apiVideos.isEmpty && hero == null);
 
-    // Pre-cache top trending videos locally in background for instant, smooth playback
+    // Pre-cache top 2 trending videos locally in background without blocking network
     final heroUrl = hero?.videoUrl;
     final precacheUrls = [
       if (heroUrl != null && heroUrl.isNotEmpty) heroUrl,
       ...videos.map((v) => v.videoUrl),
     ];
-    if (precacheUrls.isNotEmpty) {
-      VideoCacheManager.precacheBatch(precacheUrls, maxCount: 6);
+    if (precacheUrls.isNotEmpty && !_hasTriggeredPrecache) {
+      _hasTriggeredPrecache = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        VideoCacheManager.precacheBatch(precacheUrls, maxCount: 2);
+      });
     }
 
     return AppScreen(
@@ -134,7 +139,7 @@ class _TrendingVideosScreenState extends State<TrendingVideosScreen> {
                               final item = videos[index];
                               return _TrendingVideoItemCard(
                                 video: item,
-                                onTap: () => _navigateToVideo(item.id),
+                                onTap: () => _navigateToVideo(item),
                               );
                             },
                           ),
@@ -192,9 +197,9 @@ class _TrendingVideosScreenState extends State<TrendingVideosScreen> {
     );
   }
 
-  void _navigateToVideo(String videoId) {
-    if (videoId.isNotEmpty) {
-      context.push('/video-detail?id=$videoId').then((_) {
+  void _navigateToVideo(TrendingVideoItem item) {
+    if (item.id.isNotEmpty) {
+      context.push('/video-detail?id=${item.id}', extra: item.toUiMap()).then((_) {
         if (mounted) {
           context.read<TrendingVideosCubit>().loadTrendingVideos(forceRefresh: true);
           context.read<HomeCubit>().loadHomeDashboard(forceRefresh: true);
@@ -251,7 +256,7 @@ class _FeaturedHeroCard extends StatelessWidget {
     return GestureDetector(
       onTap: () {
         if (id.isNotEmpty) {
-          context.push('/video-detail?id=$id').then((_) {
+          context.push('/video-detail?id=$id', extra: hero.toUiMap()).then((_) {
             if (context.mounted) {
               context.read<TrendingVideosCubit>().loadTrendingVideos(forceRefresh: true);
               context.read<HomeCubit>().loadHomeDashboard(forceRefresh: true);
