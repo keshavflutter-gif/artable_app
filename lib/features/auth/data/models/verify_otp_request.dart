@@ -1,3 +1,5 @@
+import 'otp_channel.dart';
+
 class VerifyOtpRequest {
   const VerifyOtpRequest({
     required this.verifyId,
@@ -12,6 +14,7 @@ class VerifyOtpRequest {
   Map<String, dynamic> toJson() => {
         'verifyId': verifyId,
         'otp': otp,
-        'channel': channel,
+        // Backend enum accepts only 'EMAIL' | 'PHONE'.
+        'channel': OtpChannel.toApi(channel),
       };
 }

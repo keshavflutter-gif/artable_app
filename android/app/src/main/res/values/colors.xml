@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ic_launcher_background">#FFFFFF</color>
+    <!-- image_cropper (uCrop) crop screen: matches toolbarColor passed from Dart -->
+    <color name="ucrop_app_toolbar">#8B3DFF</color>
+    <color name="ucrop_app_controls">#FFFFFF</color>
 </resources>

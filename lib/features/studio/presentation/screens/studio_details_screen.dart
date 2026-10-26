@@ -951,12 +951,16 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
                           children: [
                             const Icon(Icons.music_note, size: 13, color: AppColors.purple),
                             const SizedBox(width: 7),
-                            Text(
-                              music,
-                              style: const TextStyle(
-                                fontSize: 11.5,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.text,
+                            Flexible(
+                              child: Text(
+                                music,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.text,
+                                ),
                               ),
                             ),
                           ],

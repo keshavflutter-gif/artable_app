@@ -219,6 +219,7 @@ abstract final class VideoCacheManager {
   static Future<VideoPlayerController?> createAndInitController(
     String rawUrl, {
     Duration timeout = const Duration(seconds: 12),
+    Duration waitForInFlightDownload = Duration.zero,
   }) async {
     final clean = rawUrl.trim();
     if (clean.isEmpty || clean == 'null') return null;
@@ -227,7 +228,22 @@ abstract final class VideoCacheManager {
     if (resolved.isEmpty) return null;
 
     // 1. Try local cache first for instant 0ms playback
-    final cached = await findCachedVideoFile(resolved);
+    var cached = await findCachedVideoFile(resolved);
+
+    // 1b. If a background precache of this exact video is already running,
+    // optionally wait for it instead of opening a second network stream that
+    // would compete with it for bandwidth.
+    if (cached == null && waitForInFlightDownload > Duration.zero) {
+      final inFlight = _inFlightDownloads[computeHash(resolved.trim())];
+      if (inFlight != null) {
+        debugPrint('[VideoCacheManager] Waiting for in-flight precache: $resolved');
+        cached = await inFlight.timeout(
+          waitForInFlightDownload,
+          onTimeout: () => null,
+        ).catchError((_) => null);
+      }
+    }
+
     VideoPlayerController controller;
 
     if (cached != null) {

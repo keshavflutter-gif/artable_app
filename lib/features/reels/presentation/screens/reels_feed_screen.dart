@@ -186,7 +186,9 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
   }
 
   void _precacheUpcomingReels(int page, List<_FeedItem> items) {
-    for (final nextIdx in [page + 1, page + 2]) {
+    // page + 1 is pre-initialized by its own live player (see _ReelVideoPlayer
+    // preloadNext), so only download the ones after it to disk.
+    for (final nextIdx in [page + 2, page + 3]) {
       if (nextIdx >= 0 && nextIdx < items.length) {
         final nextItem = items[nextIdx];
         if (!nextItem.isAd && nextItem.reel != null) {
@@ -496,7 +498,9 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
         children: [
           PageView.builder(
             controller: _pageController,
-            allowImplicitScrolling: false,
+            // Keep the adjacent pages built so the next reel can pre-initialize
+            // its player while the current one is being watched.
+            allowImplicitScrolling: true,
             onPageChanged: (page) {
               setState(() {
                 _currentPage = page;
@@ -520,6 +524,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
                   : '';
               final imageUrl = reel['imageUrl'] as String? ?? reel['thumbnailUrl'] as String? ?? '';
               final isActive = index == _currentPage;
+              final preloadNext = index == _currentPage + 1;
 
               final int rawLikes = TrendingVideoItem.parseCount(reel['likesCount'] ?? reel['likes']);
               final String likesText = TrendingVideoItem.formatCount(rawLikes);
@@ -559,6 +564,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
                     videoUrl: videoUrl,
                     thumbnailUrl: imageUrl,
                     isActive: isActive,
+                    preloadNext: preloadNext,
                     playbackSpeed: _playbackSpeed,
                     reelId: reel['id']?.toString() ?? reel['_id']?.toString(),
                     caption: (reel['caption'] ?? reel['description'])?.toString(),
@@ -951,6 +957,7 @@ class _ReelVideoPlayer extends StatefulWidget {
     required this.videoUrl,
     required this.thumbnailUrl,
     required this.isActive,
+    this.preloadNext = false,
     this.playbackSpeed = 1.0,
     this.reelId,
     this.caption,
@@ -962,6 +969,9 @@ class _ReelVideoPlayer extends StatefulWidget {
   final String videoUrl;
   final String thumbnailUrl;
   final bool isActive;
+  /// True when this reel is the one directly after the active reel. Its player
+  /// is initialized (paused) ahead of time so that swiping to it plays instantly.
+  final bool preloadNext;
   final double playbackSpeed;
   final String? reelId;
   final String? caption;
@@ -988,6 +998,12 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
   Timer? _playbackTimer;
   bool _userPaused = false;
   bool _isSeekingToStart = false;
+  /// Incremented whenever controllers are disposed; lets an in-flight
+  /// _initVideo detect that its result is stale and discard it.
+  int _initGeneration = 0;
+
+  /// Whether this reel should hold an initialized player right now.
+  bool get _shouldHoldPlayer => widget.isActive || widget.preloadNext;
 
   VideoPlayerController? get _activeController =>
       _hasMultiClips ? _clipControllers[_currentClipIndex] : _controller;
@@ -1021,8 +1037,8 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
   void initState() {
     super.initState();
     _logDebugInfo();
-    // Only initialize immediately if this reel is the active visible reel!
-    if (widget.isActive) {
+    // Initialize if this reel is visible, or is the next one up (pre-warm).
+    if (_shouldHoldPlayer) {
       _initVideo();
     }
   }
@@ -1055,23 +1071,34 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
       _logDebugInfo();
       _currentClipIndex = 0;
       _disposeControllers();
-      if (widget.isActive) {
+      if (_shouldHoldPlayer) {
         _initVideo();
       }
-    } else if (widget.isActive != oldWidget.isActive) {
+    } else if (widget.isActive != oldWidget.isActive ||
+        widget.preloadNext != oldWidget.preloadNext) {
       final active = _activeController;
       if (widget.isActive) {
         _userPaused = false;
         _hasError = false;
         if (active == null) {
-          _initVideo();
+          // If a pre-warm init is still running it will play on completion.
+          if (!_isInitializing) _initVideo();
         } else if (_isInitialized) {
+          // Pre-warmed player: start instantly.
           active.play();
           if (widget.playbackSpeed != 1.0) {
             try {
               active.setPlaybackSpeed(widget.playbackSpeed);
             } catch (_) {}
           }
+        }
+      } else if (widget.preloadNext) {
+        // Next-up reel: keep a paused, ready player (user may have swiped back
+        // from it, or it just became the next one in line).
+        if (active != null && _isInitialized) {
+          active.pause();
+        } else if (active == null && !_isInitializing) {
+          _initVideo();
         }
       } else {
         if (active != null && _isInitialized) {
@@ -1098,11 +1125,30 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
   }
 
   Future<VideoPlayerController?> _createAndInitController(String resolvedUrl) async {
-    return VideoCacheManager.createAndInitController(resolvedUrl);
+    // If this video is already being precached, reuse that download rather than
+    // opening a competing network stream. A pre-warm (not yet visible) can afford
+    // to wait for it; a visible reel only waits briefly before streaming.
+    return VideoCacheManager.createAndInitController(
+      resolvedUrl,
+      waitForInFlightDownload: widget.isActive
+          ? const Duration(milliseconds: 700)
+          : const Duration(seconds: 20),
+    );
+  }
+
+  /// Disposes [controller] if the player state was reset while it was being
+  /// created, returning true when the caller should bail out.
+  bool _discardIfStale(int generation, VideoPlayerController? controller) {
+    if (generation == _initGeneration && mounted) return false;
+    controller?.dispose();
+    return true;
   }
 
   Future<void> _initVideo() async {
-    unawaited(StudioMusicPlaybackService.releaseForVideoPlayback());
+    final generation = _initGeneration;
+    if (widget.isActive) {
+      unawaited(StudioMusicPlaybackService.releaseForVideoPlayback());
+    }
 
     if (!_hasMultiClips) {
       final targetUrl = widget.videoUrl.isNotEmpty
@@ -1135,10 +1181,7 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
 
       try {
         final controller = await _createAndInitController(resolvedUrl);
-        if (!mounted) {
-          controller?.dispose();
-          return;
-        }
+        if (_discardIfStale(generation, controller)) return;
 
         if (controller != null && controller.value.isInitialized) {
           _controller = controller;
@@ -1174,7 +1217,8 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
         debugPrint('=== VIDEO PLAYBACK === Single player error: $e');
       }
 
-      if (mounted) {
+      // Only report the failure if this init is still the current one.
+      if (mounted && generation == _initGeneration) {
         setState(() {
           _isInitializing = false;
           _isInitialized = false;
@@ -1198,7 +1242,8 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
     if (firstUrl != null && firstUrl.isNotEmpty) {
       try {
         final c0 = await _createAndInitController(firstUrl);
-        if (c0 != null && c0.value.isInitialized && mounted) {
+        if (_discardIfStale(generation, c0)) return;
+        if (c0 != null && c0.value.isInitialized) {
           _clipControllers[0] = c0;
           c0.addListener(_onVideoControllerUpdate);
           c0.setLooping(false);
@@ -1221,11 +1266,30 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
             unawaited(c0.pause());
           }
           _startPlaybackTimer();
+        } else if (mounted) {
+          // Don't leave the spinner up forever; offer the retry button.
+          setState(() {
+            _isInitializing = false;
+            _isInitialized = false;
+            _hasError = true;
+          });
+          return;
         }
       } catch (e) {
         debugPrint('Error initializing first clip: $e');
+        if (mounted && generation == _initGeneration) {
+          setState(() {
+            _isInitializing = false;
+            _isInitialized = false;
+            _hasError = true;
+          });
+        }
+        return;
       }
     }
+
+    // Bail if this reel was reset (scrolled away) while clip 0 was loading.
+    if (!mounted || generation != _initGeneration) return;
 
     // 2. Preload only the immediately next clip (clip 1) into VideoPlayerController to preserve hardware decoders
     if (clips.length > 1) {
@@ -1244,9 +1308,11 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
   }
 
   Future<void> _preloadClip(int index, String url) async {
+    final generation = _initGeneration;
     try {
       final c = await _createAndInitController(url);
-      if (c != null && c.value.isInitialized && mounted) {
+      if (_discardIfStale(generation, c)) return;
+      if (c != null && c.value.isInitialized) {
         c.setLooping(false);
         c.setVolume(1.0);
         if (widget.playbackSpeed != 1.0) {
@@ -1256,12 +1322,9 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
         }
         await c.pause();
         await c.seekTo(Duration.zero);
-        if (mounted) {
-          _clipControllers[index] = c;
-          debugPrint('Preloaded clip #$index successfully: $url');
-        } else {
-          c.dispose();
-        }
+        if (_discardIfStale(generation, c)) return;
+        _clipControllers[index] = c;
+        debugPrint('Preloaded clip #$index successfully: $url');
       }
     } catch (e) {
       debugPrint('Error preloading clip #$index ($url): $e');
@@ -1409,6 +1472,7 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
   }
 
   void _disposeControllers() {
+    _initGeneration++;
     _playbackTimer?.cancel();
     _playbackTimer = null;
     _controller?.removeListener(_onVideoControllerUpdate);

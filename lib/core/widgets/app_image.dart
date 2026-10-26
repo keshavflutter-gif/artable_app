@@ -161,6 +161,15 @@ class AppImage extends StatelessWidget {
         ? fallbackUrl!.trim()
         : (hasValidThumbnail ? cleanUrl : null);
 
+    // Safe helper: convert dimension to cache int, guarding against infinity/NaN
+    int? _safeCacheInt(double? v) {
+      if (v == null || !v.isFinite || v <= 0) return null;
+      return (v * 2).toInt();
+    }
+
+    final memW = _safeCacheInt(width) ?? 300;
+    final memH = _safeCacheInt(height) ?? _safeCacheInt(width) ?? 300;
+
     // 1. If we already have a real valid image thumbnail URL (remote or local), load it directly
     if (hasValidThumbnail && (cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://'))) {
       img = CachedNetworkImage(
@@ -168,8 +177,8 @@ class AppImage extends StatelessWidget {
         width: width,
         height: height,
         fit: fit,
-        memCacheWidth: width != null ? (width! * 2).toInt() : 150,
-        memCacheHeight: height != null ? (height! * 2).toInt() : 200,
+        memCacheWidth: memW,
+        memCacheHeight: memH,
         maxWidthDiskCache: 600,
         maxHeightDiskCache: 800,
         fadeInDuration: const Duration(milliseconds: 150),
@@ -195,8 +204,8 @@ class AppImage extends StatelessWidget {
         width: width,
         height: height,
         fit: fit,
-        cacheWidth: width != null ? (width! * 2).toInt() : 150,
-        cacheHeight: height != null ? (height! * 2).toInt() : 200,
+        cacheWidth: _safeCacheInt(width) ?? 300,
+        cacheHeight: _safeCacheInt(height) ?? _safeCacheInt(width) ?? 300,
         frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
           if (wasSynchronouslyLoaded || frame != null) {
             return child;

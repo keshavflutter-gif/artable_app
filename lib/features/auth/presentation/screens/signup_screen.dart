@@ -124,8 +124,10 @@ class _SignupScreenState extends State<SignupScreen> {
         ),
       );
 
-      final verifyId = response.verifyId.isNotEmpty
-          ? response.verifyId
+      // Verify OTP screen uses the PHONE channel -> pass phoneVerifyId.
+      final phoneVerifyId = response.phoneOrDefaultVerifyId;
+      final verifyId = phoneVerifyId.isNotEmpty
+          ? phoneVerifyId
           : (auth.pendingVerifyId ?? '');
       final userId = response.userId.isNotEmpty
           ? response.userId

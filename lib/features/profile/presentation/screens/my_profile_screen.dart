@@ -462,12 +462,18 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
                   ],
                   border: Border.all(color: Colors.white, width: 4.5),
                 ),
-                child: AppImage(
-                  url: avatarUrl,
-                  width: 90,
-                  height: 90,
-                  borderRadius: BorderRadius.circular(45),
-                  placeholderIcon: Icons.person_rounded,
+                child: ClipOval(
+                  child: SizedBox(
+                    width: 90,
+                    height: 90,
+                    child: AppImage(
+                      url: avatarUrl,
+                      width: 90,
+                      height: 90,
+                      fit: BoxFit.cover,
+                      placeholderIcon: Icons.person_rounded,
+                    ),
+                  ),
                 ),
               ),
             ),

@@ -16,6 +16,7 @@ import 'package:artable_app/features/auth/data/models/forgot_password_request.da
 import 'package:artable_app/features/auth/data/models/forgot_password_response.dart';
 import 'package:artable_app/features/auth/data/models/login_request.dart';
 import 'package:artable_app/features/auth/data/models/logout_response.dart';
+import 'package:artable_app/features/auth/data/models/otp_channel.dart';
 import 'package:artable_app/features/auth/data/models/register_request.dart';
 import 'package:artable_app/features/auth/data/models/register_response.dart';
 import 'package:artable_app/features/auth/data/models/resend_otp_request.dart';
@@ -310,8 +311,10 @@ class AuthCubit extends Cubit<AuthState> {
 
     final userId = pick(['userId', 'user_id', '_id', 'id']);
     var verifyId = pick(['verifyId', 'verify_id']);
-    final channel =
-        pick(['channel']).isNotEmpty ? pick(['channel']).toUpperCase() : 'SMS';
+    // Backend returns 'PHONE' | 'EMAIL'; app uses 'SMS' | 'EMAIL' internally.
+    final channel = pick(['channel']).isNotEmpty
+        ? OtpChannel.fromApi(pick(['channel']))
+        : 'SMS';
     final phone = pick(['phoneNumber', 'phone', 'mobile']);
 
     emit(state.copyWith(
@@ -660,15 +663,20 @@ class AuthCubit extends Cubit<AuthState> {
       debugPrint('Message: ${response.message}');
       debugPrint('User ID: ${response.userId}');
       debugPrint('Verify ID: ${response.verifyId}');
+      debugPrint('Phone Verify ID: ${response.phoneVerifyId}');
       if (response.otp != null) {
         debugPrint('OTP: ${response.otp}');
+      }
+      if (response.phoneOtp != null) {
+        debugPrint('Phone OTP: ${response.phoneOtp}');
       }
 
       emit(state.copyWith(
         isLoading: false,
         pendingEmail: email.trim(),
         pendingPassword: password,
-        pendingVerifyId: response.verifyId,
+        // OTP screen verifies via PHONE channel, so hold the phone verify id.
+        pendingVerifyId: response.phoneOrDefaultVerifyId,
         pendingUserId: response.userId,
         lastRegisteredFullName: fullName.trim(),
       ));

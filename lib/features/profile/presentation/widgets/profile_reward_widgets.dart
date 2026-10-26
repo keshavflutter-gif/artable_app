@@ -78,11 +78,17 @@ class ProfileCoverHeader extends StatelessWidget {
                   ],
                   border: Border.all(color: Colors.white, width: 5),
                 ),
-                child: AppImage(
-                  url: avatarUrl,
-                  width: 92,
-                  height: 92,
-                  borderRadius: BorderRadius.circular(46),
+                child: ClipOval(
+                  child: SizedBox(
+                    width: 92,
+                    height: 92,
+                    child: AppImage(
+                      url: avatarUrl,
+                      width: 92,
+                      height: 92,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
                 ),
               ),
             ),

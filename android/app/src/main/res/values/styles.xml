@@ -15,4 +15,17 @@
     <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
         <item name="android:windowBackground">?android:colorBackground</item>
     </style>
+
+    <!-- Theme for the image_cropper (uCrop) crop screen.
+         uCrop's layout does not handle window insets, so on edge-to-edge Android
+         (15+/16) its toolbar is drawn under the status bar and its controls under
+         the navigation bar. fitsSystemWindows makes the window pad for the system
+         bars; the window background colours those strips to match the uCrop UI. -->
+    <style name="UCropTheme.Base" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="android:fitsSystemWindows">true</item>
+        <item name="android:windowBackground">@drawable/ucrop_window_background</item>
+        <!-- White status-bar icons on the purple strip -->
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+    <style name="UCropTheme" parent="UCropTheme.Base" />
 </resources>

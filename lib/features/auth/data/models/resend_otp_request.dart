@@ -1,3 +1,5 @@
+import 'otp_channel.dart';
+
 class ResendOtpRequest {
   const ResendOtpRequest({
     required this.userId,
@@ -12,6 +14,7 @@ class ResendOtpRequest {
   Map<String, dynamic> toJson() => {
         'userId': userId,
         'email': email,
-        'channel': channel,
+        // Backend enum accepts only 'EMAIL' | 'PHONE'.
+        'channel': OtpChannel.toApi(channel),
       };
 }

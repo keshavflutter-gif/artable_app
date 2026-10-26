@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_cropper/image_cropper.dart';
 import 'package:image_picker/image_picker.dart';
 
 import 'package:artable_app/app/theme/app_colors.dart';
@@ -66,13 +67,31 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       final picker = ImagePicker();
       final picked = await picker.pickImage(
         source: ImageSource.gallery,
-        maxWidth: 1920,
-        maxHeight: 1080,
-        imageQuality: 85,
+        imageQuality: 90,
       );
-      if (picked != null) {
+      if (picked == null) return;
+      final cropped = await ImageCropper().cropImage(
+        sourcePath: picked.path,
+        aspectRatio: const CropAspectRatio(ratioX: 16, ratioY: 9),
+        uiSettings: [
+          AndroidUiSettings(
+            toolbarTitle: 'Crop Cover Photo',
+            toolbarColor: const Color(0xFF8B3DFF),
+            toolbarWidgetColor: Colors.white,
+            statusBarLight: false,
+            activeControlsWidgetColor: const Color(0xFF8B3DFF),
+            lockAspectRatio: true,
+            hideBottomControls: false,
+          ),
+          IOSUiSettings(
+            title: 'Crop Cover Photo',
+            aspectRatioLockEnabled: true,
+          ),
+        ],
+      );
+      if (cropped != null) {
         setState(() {
-          _localCoverPath = picked.path;
+          _localCoverPath = cropped.path;
         });
       }
     } catch (e) {
@@ -85,13 +104,33 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       final picker = ImagePicker();
       final picked = await picker.pickImage(
         source: ImageSource.gallery,
-        maxWidth: 1024,
-        maxHeight: 1024,
-        imageQuality: 85,
+        imageQuality: 90,
       );
-      if (picked != null) {
+      if (picked == null) return;
+      final cropped = await ImageCropper().cropImage(
+        sourcePath: picked.path,
+        aspectRatio: const CropAspectRatio(ratioX: 1, ratioY: 1),
+        uiSettings: [
+          AndroidUiSettings(
+            toolbarTitle: 'Crop Profile Photo',
+            toolbarColor: const Color(0xFF8B3DFF),
+            toolbarWidgetColor: Colors.white,
+            statusBarLight: false,
+            activeControlsWidgetColor: const Color(0xFF8B3DFF),
+            cropStyle: CropStyle.circle,
+            lockAspectRatio: true,
+            hideBottomControls: false,
+          ),
+          IOSUiSettings(
+            title: 'Crop Profile Photo',
+            aspectRatioLockEnabled: true,
+            resetAspectRatioEnabled: false,
+          ),
+        ],
+      );
+      if (cropped != null) {
         setState(() {
-          _localAvatarPath = picked.path;
+          _localAvatarPath = cropped.path;
         });
       }
     } catch (e) {
@@ -432,18 +471,18 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 child: Stack(
                   children: [
                     if (hasLocalCover)
-                      Image.file(
-                        File(_localCoverPath!),
-                        height: 125,
-                        width: double.infinity,
-                        fit: BoxFit.cover,
+                      Positioned.fill(
+                        child: Image.file(
+                          File(_localCoverPath!),
+                          fit: BoxFit.cover,
+                        ),
                       )
                     else
-                      AppImage(
-                        url: coverUrl,
-                        height: 125,
-                        width: double.infinity,
-                        fit: BoxFit.cover,
+                      Positioned.fill(
+                        child: AppImage(
+                          url: coverUrl,
+                          fit: BoxFit.cover,
+                        ),
                       ),
                     Positioned(
                       right: 12,
@@ -499,21 +538,24 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         ),
                       ],
                     ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(40),
-                      child: hasLocalAvatar
-                          ? Image.file(
-                              File(_localAvatarPath!),
-                              width: 80,
-                              height: 80,
-                              fit: BoxFit.cover,
-                            )
-                          : AppImage(
-                              url: avatarUrl,
-                              width: 80,
-                              height: 80,
-                              fit: BoxFit.cover,
-                            ),
+                    child: ClipOval(
+                      child: SizedBox(
+                        width: 80,
+                        height: 80,
+                        child: hasLocalAvatar
+                            ? Image.file(
+                                File(_localAvatarPath!),
+                                width: 80,
+                                height: 80,
+                                fit: BoxFit.cover,
+                              )
+                            : AppImage(
+                                url: avatarUrl,
+                                width: 80,
+                                height: 80,
+                                fit: BoxFit.cover,
+                              ),
+                      ),
                     ),
                   ),
 
