@@ -1,16 +1,20 @@
 import 'dart:async';
-
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
-
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_gradients.dart';
 import 'package:artable_app/app/theme/app_text_styles.dart';
+import 'package:artable_app/core/network/api_exception.dart';
 import 'package:artable_app/core/widgets/app_back_header.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
 import 'package:artable_app/core/widgets/gradient_button.dart';
 import 'package:artable_app/data/datasources/mock_data.dart';
+import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
 import 'package:artable_app/features/bonus/data/daily_bonus_rewarded_ad.dart';
+import 'package:artable_app/features/bonus/data/models/daily_bonus_calendar_response.dart';
+import 'package:artable_app/features/bonus/data/repositories/daily_bonus_repository.dart';
+import 'package:artable_app/features/rewards/presentation/bloc/rewards_cubit.dart';
 
 class DailyBonusScreen extends StatefulWidget {
   const DailyBonusScreen({super.key});
@@ -20,21 +24,32 @@ class DailyBonusScreen extends StatefulWidget {
 }
 
 class _DailyBonusScreenState extends State<DailyBonusScreen> {
-  late Map<String, dynamic> _bonus;
-  late bool _claimedToday;
-  late int _effectiveStreak;
+  DailyBonusRepository? _repo;
+  DailyBonusCalendarResponse? _bonus;
+  bool _loading = true;
+  String? _error;
   bool _isClaiming = false;
+
+  bool get _claimedToday => _bonus?.claimedToday ?? false;
+
+  int get _streak => _bonus?.currentStreak ?? 0;
+
+  int get _coins => _bonus?.todayCoins ?? 0;
+
+  DailyBonusRepository _repository() {
+    final auth = context.read<AuthCubit>();
+    return _repo ??= DailyBonusRepository(
+      onTokensRefreshed: auth.applyRefreshedTokens,
+      onSessionRefreshFailed: auth.handleSessionRefreshFailed,
+    );
+  }
 
   @override
   void initState() {
     super.initState();
-    _bonus = Map<String, dynamic>.from(MockData.DAILY_BONUS);
-    _claimedToday = _bonus['claimedToday'] as bool? ?? false;
-    final streak = _bonus['currentStreak'] as int? ?? 5;
-    _effectiveStreak = streak + (_claimedToday ? 1 : 0);
-    if (!_claimedToday) {
-      unawaited(DailyBonusRewardedAd.instance.load());
-    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_loadCalendar());
+    });
   }
 
   @override
@@ -43,15 +58,53 @@ class _DailyBonusScreenState extends State<DailyBonusScreen> {
     super.dispose();
   }
 
-  Future<void> _claim() async {
+  Future<void> _loadCalendar({bool showLoader = true}) async {
+    if (showLoader) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
+
+    try {
+      final auth = context.read<AuthCubit>();
+      final res = await _repository().getCalendar(
+        sessionToken: auth.sessionToken,
+        refreshToken: auth.refreshToken,
+      );
+      if (!mounted) return;
+      setState(() {
+        _bonus = res;
+        _loading = false;
+        _error = null;
+      });
+      if (!res.claimedToday) {
+        unawaited(DailyBonusRewardedAd.instance.load());
+      }
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = e.message;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = 'Unable to load daily bonus.';
+      });
+    }
+  }
+
+  Future<void> _onClaimTap() async {
     if (_claimedToday || _isClaiming) return;
     setState(() => _isClaiming = true);
 
     final earned = await DailyBonusRewardedAd.instance.show();
     if (!mounted) return;
-    setState(() => _isClaiming = false);
 
     if (!earned) {
+      setState(() => _isClaiming = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Watch the ad to claim your daily bonus.'),
@@ -60,33 +113,65 @@ class _DailyBonusScreenState extends State<DailyBonusScreen> {
       return;
     }
 
-    setState(() {
-      _claimedToday = true;
-      _effectiveStreak++;
-      _bonus['claimedToday'] = true;
-      _bonus['currentStreak'] = _effectiveStreak;
-    });
+    try {
+      final auth = context.read<AuthCubit>();
+      final streakDay = _streak > 0 ? _streak + (_claimedToday ? 0 : 1) : 1;
+      final coins = _coins > 0 ? _coins : 10;
+      final claim = await _repository().claim(
+        coins: coins,
+        points: coins,
+        streakDay: streakDay,
+        sessionToken: auth.sessionToken,
+        refreshToken: auth.refreshToken,
+      );
+      if (!mounted) return;
+
+      if (claim.success) {
+        try {
+          context.read<RewardsCubit>().claimDailyBonus(
+            claim.coins > 0 ? claim.coins : coins,
+          );
+        } catch (_) {}
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            claim.message.isNotEmpty
+                ? claim.message
+                : (claim.success
+                      ? 'Daily bonus claimed successfully'
+                      : 'Unable to claim daily bonus.'),
+          ),
+        ),
+      );
+      await _loadCalendar(showLoader: false);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to claim daily bonus.')),
+      );
+    } finally {
+      if (mounted) setState(() => _isClaiming = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final today = _bonus['todayReward'] is Map<String, dynamic>
-        ? _bonus['todayReward'] as Map<String, dynamic>
-        : <String, dynamic>{};
-    final next = _bonus['nextMilestone'] is Map<String, dynamic>
-        ? _bonus['nextMilestone'] as Map<String, dynamic>
-        : <String, dynamic>{};
-    final weekly = _bonus['weeklyRewards'] is List
-        ? _bonus['weeklyRewards'] as List
-        : const [];
-    final milestones = _bonus['milestones'] is List
-        ? _bonus['milestones'] as List
-        : const [];
-
-    final todayLabel = (today['label'] ?? today['title'] ?? 'Day $_effectiveStreak Reward').toString();
-    final todayAmount = (today['amount'] ?? '').toString();
-    final nextDays = (next['day'] ?? next['days'] ?? 7).toString();
-    final nextReward = (next['reward'] ?? 'Bonus Coins').toString();
+    final todayLabel = _bonus?.todayLabel ?? '';
+    final coinsLabel = _coins > 0 ? '$_coins Coins' : '';
+    final subtitle = [
+      if (todayLabel.isNotEmpty) todayLabel,
+      if (coinsLabel.isNotEmpty) coinsLabel,
+    ].join(' · ');
+    final next = _bonus?.nextMilestone;
+    final week = _bonus?.weekDays ?? const [];
+    final milestones = _bonus?.milestones ?? const [];
 
     return AppScreen(
       child: Column(
@@ -94,116 +179,231 @@ class _DailyBonusScreenState extends State<DailyBonusScreen> {
         children: [
           const AppBackHeader(title: 'Daily Bonus'),
           Expanded(
-            child: SingleChildScrollView(
-              child: AppContent(
-                noBottomPad: true,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        gradient: AppGradients.button,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _error != null && _bonus == null
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
                       child: Column(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(Icons.stars, size: 48, color: Colors.white),
+                          Text(_error!, textAlign: TextAlign.center),
                           const SizedBox(height: 12),
-                          Text('$_effectiveStreak-Day Streak', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white)),
-                          const SizedBox(height: 4),
-                          Text('$todayLabel${todayAmount.isNotEmpty ? ' · $todayAmount' : ''}', style: TextStyle(color: Colors.white.withValues(alpha: 0.9))),
-                          const SizedBox(height: 16),
                           ElevatedButton(
-                            onPressed: (_claimedToday || _isClaiming) ? null : _claim,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.white,
-                              foregroundColor: AppColors.purple,
-                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                            ),
-                            child: Text(
-                              _claimedToday
-                                  ? 'Claimed Today'
-                                  : (_isClaiming ? 'Loading Ad…' : 'Claim Daily Bonus'),
-                            ),
+                            onPressed: _loadCalendar,
+                            child: const Text('Retry'),
                           ),
                         ],
                       ),
                     ),
-                    const SizedBox(height: 24),
-                    Text('Next Milestone', style: AppTextStyles.sectionTitle),
-                    const SizedBox(height: 8),
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: AppColors.inputBg,
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.emoji_events, color: AppColors.purple),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('$nextDays-Day Milestone', style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w700)),
-                                Text(nextReward, style: AppTextStyles.bodySoft.copyWith(fontSize: 12)),
-                              ],
+                  )
+                : RefreshIndicator(
+                    onRefresh: _loadCalendar,
+                    child: SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      child: AppContent(
+                        noBottomPad: true,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(20),
+                              decoration: BoxDecoration(
+                                gradient: AppGradients.button,
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Column(
+                                children: [
+                                  const Icon(
+                                    Icons.stars,
+                                    size: 48,
+                                    color: Colors.white,
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    '$_streak-Day Streak',
+                                    style: const TextStyle(
+                                      fontSize: 22,
+                                      fontWeight: FontWeight.w800,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                  if (subtitle.isNotEmpty) ...[
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      subtitle,
+                                      style: TextStyle(
+                                        color: Colors.white.withValues(
+                                          alpha: 0.9,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                  const SizedBox(height: 16),
+                                  ElevatedButton(
+                                    onPressed: (_claimedToday || _isClaiming)
+                                        ? null
+                                        : _onClaimTap,
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.white,
+                                      foregroundColor: AppColors.purple,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 24,
+                                        vertical: 12,
+                                      ),
+                                    ),
+                                    child: Text(
+                                      _claimedToday
+                                          ? 'Claimed Today'
+                                          : (_isClaiming
+                                                ? 'Loading Ad…'
+                                                : 'Claim Daily Bonus'),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    Text('Weekly Calendar', style: AppTextStyles.sectionTitle),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: weekly.map((w) {
-                        final map = w as Map<String, dynamic>;
-                        final d = map['day'] as int? ?? 1;
-                        final done = d <= _effectiveStreak;
-                        return Expanded(
-                          child: Container(
-                            margin: const EdgeInsets.symmetric(horizontal: 2),
-                            padding: const EdgeInsets.symmetric(vertical: 10),
-                            decoration: BoxDecoration(
-                              color: done ? AppColors.purple : AppColors.inputBg,
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Column(
-                              children: [
-                                Text('D$d', style: TextStyle(color: done ? Colors.white : AppColors.text, fontWeight: FontWeight.w700, fontSize: 11)),
-                                const SizedBox(height: 4),
-                                Icon(Icons.star, size: 14, color: done ? Colors.white : AppColors.textFaint),
-                              ],
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                    const SizedBox(height: 24),
-                    Text('Streak Milestones', style: AppTextStyles.sectionTitle),
-                    const SizedBox(height: 8),
-                    ...milestones.map((m) {
-                      final map = m as Map<String, dynamic>;
-                      final days = map['days'] as int? ?? (map['day'] as int? ?? 0);
-                      final rewardStr = (map['reward'] ?? '').toString();
-                      final achieved = _effectiveStreak >= days;
-                      return ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: Icon(
-                          achieved ? Icons.check_circle : Icons.lock_outline,
-                          color: achieved ? AppColors.success : AppColors.textFaint,
+                            if (next != null) ...[
+                              const SizedBox(height: 24),
+                              Text(
+                                'Next Milestone',
+                                style: AppTextStyles.sectionTitle,
+                              ),
+                              const SizedBox(height: 8),
+                              Container(
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: AppColors.inputBg,
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.emoji_events,
+                                      color: AppColors.purple,
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            next.title.isNotEmpty
+                                                ? next.title
+                                                : '${next.day}-Day Milestone',
+                                            style: AppTextStyles.body.copyWith(
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                          if (next.reward.isNotEmpty)
+                                            Text(
+                                              next.reward,
+                                              style: AppTextStyles.bodySoft
+                                                  .copyWith(fontSize: 12),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                            if (week.isNotEmpty) ...[
+                              const SizedBox(height: 24),
+                              Text(
+                                'Weekly Calendar',
+                                style: AppTextStyles.sectionTitle,
+                              ),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: week.map((day) {
+                                  final done =
+                                      day.claimed ||
+                                      (_streak > 0 && day.day <= _streak);
+                                  return Expanded(
+                                    child: Container(
+                                      margin: const EdgeInsets.symmetric(
+                                        horizontal: 2,
+                                      ),
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 10,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: done
+                                            ? AppColors.purple
+                                            : AppColors.inputBg,
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      child: Column(
+                                        children: [
+                                          Text(
+                                            'D${day.day}',
+                                            style: TextStyle(
+                                              color: done
+                                                  ? Colors.white
+                                                  : AppColors.text,
+                                              fontWeight: FontWeight.w700,
+                                              fontSize: 11,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Icon(
+                                            Icons.star,
+                                            size: 14,
+                                            color: done
+                                                ? Colors.white
+                                                : AppColors.textFaint,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                            ],
+                            if (milestones.isNotEmpty) ...[
+                              const SizedBox(height: 24),
+                              Text(
+                                'Streak Milestones',
+                                style: AppTextStyles.sectionTitle,
+                              ),
+                              const SizedBox(height: 8),
+                              ...milestones.map((m) {
+                                return ListTile(
+                                  contentPadding: EdgeInsets.zero,
+                                  leading: Icon(
+                                    m.unlocked
+                                        ? Icons.check_circle
+                                        : Icons.lock_outline,
+                                    color: m.unlocked
+                                        ? AppColors.success
+                                        : AppColors.textFaint,
+                                  ),
+                                  title: Text(
+                                    m.title.isNotEmpty
+                                        ? m.title
+                                        : '${m.day}-Day Streak',
+                                    style: AppTextStyles.body.copyWith(
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  subtitle: m.reward.isNotEmpty
+                                      ? Text(
+                                          m.reward,
+                                          style: AppTextStyles.bodySoft
+                                              .copyWith(fontSize: 12),
+                                        )
+                                      : null,
+                                );
+                              }),
+                            ],
+                          ],
                         ),
-                        title: Text('$days-Day Streak', style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w700)),
-                        subtitle: Text(rewardStr, style: AppTextStyles.bodySoft.copyWith(fontSize: 12)),
-                      );
-                    }),
-                  ],
-                ),
-              ),
-            ),
+                      ),
+                    ),
+                  ),
           ),
         ],
       ),
@@ -235,18 +435,28 @@ class RewardCalendarScreen extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('$effectiveStreak / $totalDays days ($pct%)', style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w700)),
+                    Text(
+                      '$effectiveStreak / $totalDays days ($pct%)',
+                      style: AppTextStyles.body.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                     const SizedBox(height: 8),
-                    LinearProgressIndicator(value: pct / 100, color: AppColors.purple, backgroundColor: AppColors.inputBg),
+                    LinearProgressIndicator(
+                      value: pct / 100,
+                      color: AppColors.purple,
+                      backgroundColor: AppColors.inputBg,
+                    ),
                     const SizedBox(height: 20),
                     GridView.builder(
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
-                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 7,
-                        crossAxisSpacing: 6,
-                        mainAxisSpacing: 6,
-                      ),
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 7,
+                            crossAxisSpacing: 6,
+                            mainAxisSpacing: 6,
+                          ),
                       itemCount: totalDays,
                       itemBuilder: (_, i) {
                         final day = i + 1;
@@ -255,7 +465,11 @@ class RewardCalendarScreen extends StatelessWidget {
                         return Container(
                           alignment: Alignment.center,
                           decoration: BoxDecoration(
-                            color: isToday ? AppColors.purple : isClaimed ? AppColors.success.withValues(alpha: 0.15) : AppColors.inputBg,
+                            color: isToday
+                                ? AppColors.purple
+                                : isClaimed
+                                ? AppColors.success.withValues(alpha: 0.15)
+                                : AppColors.inputBg,
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Text(

@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:artable_app/core/services/video_interstitial_ad.dart';
 
 import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/app/theme/app_colors.dart';
@@ -22,6 +25,8 @@ class ChallengeDetailScreen extends StatefulWidget {
 }
 
 class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
+  bool _exitingWithAd = false;
+
   @override
   void initState() {
     super.initState();
@@ -29,7 +34,20 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
       if (mounted && widget.challengeId.isNotEmpty) {
         context.read<ChallengesCubit>().loadChallengeDetail(widget.challengeId);
       }
+      unawaited(VideoInterstitialAd.instance.load());
     });
+  }
+
+  Future<void> _exitWithAd() async {
+    if (_exitingWithAd) return;
+    _exitingWithAd = true;
+    await VideoInterstitialAd.instance.show();
+    if (!mounted) return;
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go('/challenges');
+    }
   }
 
   @override
@@ -72,7 +90,13 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
     final prizeBreakdown = liveDetail?.prizeBreakdown.map((p) => p.toUiMap()).toList() ?? const <Map<String, dynamic>>[];
     final topParticipants = liveDetail?.topParticipants.map((p) => p.toUiMap()).toList() ?? const <Map<String, dynamic>>[];
 
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        unawaited(_exitWithAd());
+      },
+      child: Scaffold(
       backgroundColor: Colors.white,
       body: RefreshIndicator(
         onRefresh: () => context
@@ -111,13 +135,7 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                       top: 16 + MediaQuery.paddingOf(context).top,
                       left: 20,
                       child: _BackButton(
-                        onTap: () {
-                          if (context.canPop()) {
-                            context.pop();
-                          } else {
-                            context.go('/challenges');
-                          }
-                        },
+                        onTap: () => unawaited(_exitWithAd()),
                       ),
                     ),
                     Positioned(
@@ -621,6 +639,7 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
           ),
         ),
       ),
+    ),
     );
   }
 }

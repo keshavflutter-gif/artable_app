@@ -21,6 +21,7 @@ import 'package:artable_app/features/trending/data/models/trending_videos_respon
 import 'package:video_player/video_player.dart';
 import 'package:artable_app/core/utils/video_cache_manager.dart';
 import 'package:artable_app/core/utils/media_url_utils.dart';
+import 'package:artable_app/core/services/video_interstitial_ad.dart';
 import 'package:artable_app/features/trending/data/repositories/videos_repository.dart';
 
 class VideoDetailScreen extends StatefulWidget {
@@ -35,6 +36,7 @@ class VideoDetailScreen extends StatefulWidget {
 
 class _VideoDetailScreenState extends State<VideoDetailScreen> {
   Map<String, dynamic>? _apiReel;
+  bool _exitingWithAd = false;
   VideoPlayerController? _stageController;
   bool _isStageInitialized = false;
   bool _isStageLoading = false;
@@ -103,6 +105,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
           context.read<ReelsCubit>().fetchComments(rId);
           _fetchVideoDetail(rId);
         }
+        unawaited(VideoInterstitialAd.instance.load());
       }
     });
   }
@@ -242,7 +245,11 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     }
   }
 
-  void _onBackRefresh() {
+  Future<void> _onBackRefresh() async {
+    if (_exitingWithAd) return;
+    _exitingWithAd = true;
+    await VideoInterstitialAd.instance.show();
+    if (!mounted) return;
     context.read<TrendingVideosCubit>().loadTrendingVideos(forceRefresh: true);
     context.read<HomeCubit>().loadHomeDashboard(forceRefresh: true);
     if (context.canPop()) {
@@ -262,11 +269,10 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     );
 
     return PopScope(
+      canPop: false,
       onPopInvokedWithResult: (didPop, result) {
-        if (didPop) {
-          context.read<TrendingVideosCubit>().loadTrendingVideos(forceRefresh: true);
-          context.read<HomeCubit>().loadHomeDashboard(forceRefresh: true);
-        }
+        if (didPop) return;
+        unawaited(_onBackRefresh());
       },
       child: AppScreen(
         child: Column(

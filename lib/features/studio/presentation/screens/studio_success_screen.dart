@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:artable_app/core/services/video_interstitial_ad.dart';
 
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_gradients.dart';
@@ -13,14 +16,31 @@ import 'package:artable_app/features/home/presentation/bloc/home_cubit.dart';
 import 'package:artable_app/features/trending/presentation/bloc/trending_videos_cubit.dart';
 import 'package:artable_app/features/studio/presentation/widgets/studio_shared_widgets.dart';
 
-class StudioSuccessScreen extends StatelessWidget {
+class StudioSuccessScreen extends StatefulWidget {
   const StudioSuccessScreen({super.key, this.challengeId});
 
   final String? challengeId;
 
   @override
+  State<StudioSuccessScreen> createState() => _StudioSuccessScreenState();
+}
+
+class _StudioSuccessScreenState extends State<StudioSuccessScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await VideoInterstitialAd.instance.load();
+      if (!mounted) return;
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      if (!mounted) return;
+      await VideoInterstitialAd.instance.show();
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final challenge = ReelHelpers.challengeById(challengeId ?? 'c1')!;
+    final challenge = ReelHelpers.challengeById(widget.challengeId ?? 'c1')!;
 
     return Scaffold(
       backgroundColor: AppColors.bg,
