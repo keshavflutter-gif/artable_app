@@ -16,6 +16,8 @@ import 'package:artable_app/features/studio/presentation/widgets/studio_header.d
 import 'package:artable_app/core/widgets/no_internet_dialog.dart';
 import 'package:artable_app/features/home/presentation/bloc/home_state.dart';
 import 'package:artable_app/features/home/data/models/home_ui_mapper.dart';
+import 'package:artable_app/features/home/presentation/widgets/home_banner_ad.dart';
+import 'package:artable_app/core/services/app_open_ad_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -37,6 +39,8 @@ class _HomeScreenState extends State<HomeScreen> {
       context.read<HomeCubit>().loadHomeDashboard(forceRefresh: true);
       final trendingCubit = context.read<TrendingVideosCubit>();
       trendingCubit.loadTrendingVideos(forceRefresh: true);
+      // Splash → Home: show App Open only after Home is on screen.
+      AppOpenAdService.instance.showWhenHomeReady();
     });
   }
 
@@ -145,7 +149,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   const StudioHeader(),
-                  const _SponsoredBanner(),
+                  const HomeBannerAd(fallback: _SponsoredBanner()),
                   _HeroSlider(
                     controller: _heroController,
                     index: _heroIndex,

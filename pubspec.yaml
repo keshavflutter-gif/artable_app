@@ -60,6 +60,7 @@ dependencies:
   url_launcher: ^6.3.3
   wakelock_plus: ^1.2.1
   image_cropper: ^9.1.0
+  google_mobile_ads: ^9.2.0
 
 dev_dependencies:
   flutter_test:

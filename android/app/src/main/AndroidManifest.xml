@@ -17,6 +17,11 @@
             android:name="com.google.firebase.messaging.default_notification_icon"
             android:resource="@mipmap/ic_launcher" />
 
+        <!-- Google AdMob App ID -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-8377462640468284~3296460099" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

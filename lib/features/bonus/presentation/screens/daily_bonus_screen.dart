@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -8,6 +10,7 @@ import 'package:artable_app/core/widgets/app_back_header.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
 import 'package:artable_app/core/widgets/gradient_button.dart';
 import 'package:artable_app/data/datasources/mock_data.dart';
+import 'package:artable_app/features/bonus/data/daily_bonus_rewarded_ad.dart';
 
 class DailyBonusScreen extends StatefulWidget {
   const DailyBonusScreen({super.key});
@@ -20,6 +23,7 @@ class _DailyBonusScreenState extends State<DailyBonusScreen> {
   late Map<String, dynamic> _bonus;
   late bool _claimedToday;
   late int _effectiveStreak;
+  bool _isClaiming = false;
 
   @override
   void initState() {
@@ -28,10 +32,34 @@ class _DailyBonusScreenState extends State<DailyBonusScreen> {
     _claimedToday = _bonus['claimedToday'] as bool? ?? false;
     final streak = _bonus['currentStreak'] as int? ?? 5;
     _effectiveStreak = streak + (_claimedToday ? 1 : 0);
+    if (!_claimedToday) {
+      unawaited(DailyBonusRewardedAd.instance.load());
+    }
   }
 
-  void _claim() {
-    if (_claimedToday) return;
+  @override
+  void dispose() {
+    DailyBonusRewardedAd.instance.dispose();
+    super.dispose();
+  }
+
+  Future<void> _claim() async {
+    if (_claimedToday || _isClaiming) return;
+    setState(() => _isClaiming = true);
+
+    final earned = await DailyBonusRewardedAd.instance.show();
+    if (!mounted) return;
+    setState(() => _isClaiming = false);
+
+    if (!earned) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Watch the ad to claim your daily bonus.'),
+        ),
+      );
+      return;
+    }
+
     setState(() {
       _claimedToday = true;
       _effectiveStreak++;
@@ -87,13 +115,17 @@ class _DailyBonusScreenState extends State<DailyBonusScreen> {
                           Text('$todayLabel${todayAmount.isNotEmpty ? ' · $todayAmount' : ''}', style: TextStyle(color: Colors.white.withValues(alpha: 0.9))),
                           const SizedBox(height: 16),
                           ElevatedButton(
-                            onPressed: _claimedToday ? null : _claim,
+                            onPressed: (_claimedToday || _isClaiming) ? null : _claim,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.white,
                               foregroundColor: AppColors.purple,
                               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                             ),
-                            child: Text(_claimedToday ? 'Claimed Today' : 'Claim Daily Bonus'),
+                            child: Text(
+                              _claimedToday
+                                  ? 'Claimed Today'
+                                  : (_isClaiming ? 'Loading Ad…' : 'Claim Daily Bonus'),
+                            ),
                           ),
                         ],
                       ),

@@ -15,6 +15,8 @@ import 'package:artable_app/core/utils/reel_helpers.dart';
 import 'package:artable_app/core/widgets/app_image.dart';
 import 'package:artable_app/core/widgets/app_network_image.dart';
 import 'package:artable_app/features/reels/presentation/widgets/creator_info_row.dart';
+import 'package:artable_app/features/reels/presentation/widgets/feed_banner_ad.dart';
+import 'package:artable_app/features/reels/presentation/widgets/feed_native_ad.dart';
 import 'package:artable_app/features/reels/presentation/widgets/talent_rating_slider.dart';
 import 'package:artable_app/features/studio/data/services/studio_music_playback_service.dart';
 import 'package:artable_app/core/utils/video_share_helper.dart';
@@ -165,9 +167,19 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
       }
     }
 
-    final cards = rawList.map(_FeedItem.reel).toList();
-    if (cards.length > 3) {
-      cards.insert(3, const _FeedItem.ad());
+    final cards = <_FeedItem>[];
+    var sinceAd = 0;
+    var nextNative = true;
+    for (final reel in rawList) {
+      cards.add(_FeedItem.reel(reel));
+      sinceAd++;
+      if (sinceAd == 3) {
+        cards.add(
+          nextNative ? const _FeedItem.nativeAd() : const _FeedItem.bannerAd(),
+        );
+        nextNative = !nextNative;
+        sinceAd = 0;
+      }
     }
     return cards;
   }
@@ -512,7 +524,12 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
             itemCount: items.length,
             itemBuilder: (context, index) {
               final item = items[index];
-              if (item.isAd) return const _AdReelCard();
+              if (item.isNativeAd) {
+                return const FeedNativeAd(fallback: _AdReelCard());
+              }
+              if (item.isBannerAd) {
+                return const FeedBannerAd(fallback: _AdReelCard());
+              }
               final rawReel = item.reel!;
               final reelId = rawReel['id']?.toString() ?? rawReel['_id']?.toString() ?? '';
               final reel = reelsProvider.getVideo(reelId) ?? rawReel;
@@ -1657,13 +1674,27 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
 }
 
 class _FeedItem {
-  const _FeedItem.reel(this.reel) : isAd = false;
-  const _FeedItem.ad()
+  const _FeedItem.reel(this.reel)
+      : isAd = false,
+        isBannerAd = false,
+        isNativeAd = false;
+
+  const _FeedItem.bannerAd()
       : reel = null,
-        isAd = true;
+        isAd = true,
+        isBannerAd = true,
+        isNativeAd = false;
+
+  const _FeedItem.nativeAd()
+      : reel = null,
+        isAd = true,
+        isBannerAd = false,
+        isNativeAd = true;
 
   final Map<String, dynamic>? reel;
   final bool isAd;
+  final bool isBannerAd;
+  final bool isNativeAd;
 }
 
 class _ActionBtn extends StatelessWidget {
