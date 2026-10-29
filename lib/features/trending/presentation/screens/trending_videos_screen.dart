@@ -13,6 +13,7 @@ import 'package:artable_app/features/trending/presentation/bloc/trending_videos_
 import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/core/utils/video_cache_manager.dart';
 import 'package:artable_app/features/trending/data/models/trending_videos_response.dart';
+import 'package:artable_app/core/utils/app_filter_utils.dart';
 
 class TrendingVideosScreen extends StatefulWidget {
   const TrendingVideosScreen({super.key});
@@ -68,7 +69,7 @@ class _TrendingVideosScreenState extends State<TrendingVideosScreen> {
     if (precacheUrls.isNotEmpty && !_hasTriggeredPrecache) {
       _hasTriggeredPrecache = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        VideoCacheManager.precacheBatch(precacheUrls, maxCount: 2);
+        VideoCacheManager.precacheBatch(precacheUrls, maxCount: 5);
       });
     }
 
@@ -164,20 +165,6 @@ class _TrendingVideosScreenState extends State<TrendingVideosScreen> {
                                     fontFamily: 'Inter',
                                     color: Color(0xFF8B849C),
                                     fontSize: 14,
-                                  ),
-                                ),
-                                const SizedBox(height: 16),
-                                ElevatedButton.icon(
-                                  onPressed: () => trendingProvider.loadTrendingVideos(forceRefresh: true),
-                                  icon: const Icon(Icons.refresh, size: 18),
-                                  label: const Text('Refresh Data'),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: AppColors.purple,
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
                                   ),
                                 ),
                               ],
@@ -282,11 +269,16 @@ class _FeaturedHeroCard extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              AppImage(
-                url: imageUrl,
-                videoUrl: hero.videoUrl,
-                fit: BoxFit.cover,
-                isVideo: true,
+              AppFilterUtils.wrap(
+                filterId: hero.filterId,
+                beautyOn: hero.beautyOn,
+                beautyIntensity: hero.beautyIntensity,
+                child: AppImage(
+                  url: imageUrl,
+                  videoUrl: hero.videoUrl,
+                  fit: BoxFit.cover,
+                  isVideo: true,
+                ),
               ),
 
               // Gradient Overlay
@@ -509,11 +501,16 @@ class _TrendingVideoItemCard extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              AppImage(
-                url: video.displayThumbnail,
-                videoUrl: video.videoUrl,
-                fit: BoxFit.cover,
-                isVideo: true,
+              AppFilterUtils.wrap(
+                filterId: video.filterId,
+                beautyOn: video.beautyOn,
+                beautyIntensity: video.beautyIntensity,
+                child: AppImage(
+                  url: video.displayThumbnail,
+                  videoUrl: video.videoUrl,
+                  fit: BoxFit.cover,
+                  isVideo: true,
+                ),
               ),
 
               // Gradient Overlay

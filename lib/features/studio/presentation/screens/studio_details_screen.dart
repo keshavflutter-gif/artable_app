@@ -53,6 +53,7 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
   Timer? _playbackTimer;
   int _lastVideoPosMs = 0;
   bool _isLooping = false;
+  bool _saveDraftBusy = false;
 
   Map<String, dynamic>? get _draft {
     if (widget.draftId == null) return null;
@@ -495,6 +496,9 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
   }
 
   Future<void> _handleSaveDraft(StudioCubit studio) async {
+    if (_saveDraftBusy || studio.state.isSavingDraft) return;
+    setState(() => _saveDraftBusy = true);
+
     final title = _titleController.text.trim();
     final description = _descriptionController.text.trim();
     final rawHashtags = _hashtagsController.text.trim();
@@ -552,6 +556,7 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
       );
       context.push('${AppRoutes.studioDrafts}?id=$_challengeId');
     } else {
+      if (mounted) setState(() => _saveDraftBusy = false);
       final errorMsg = studio.state.saveDraftError ?? 'Failed to save draft';
       if (errorMsg.contains('Draft limit') || studio.state.drafts.length >= StudioCubit.maxDraftsLimit) {
         _showDraftLimitDialog(context, _challengeId);
@@ -1170,8 +1175,10 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
                       children: [
                         Expanded(
                           child: SecondaryOutlineButton(
-                            label: studio.state.isSavingDraft ? 'Saving...' : 'Save Draft',
-                            onPressed: studio.state.isSavingDraft ? null : () => _handleSaveDraft(studio),
+                            label: (_saveDraftBusy || studio.state.isSavingDraft) ? 'Saving...' : 'Save Draft',
+                            onPressed: (_saveDraftBusy || studio.state.isSavingDraft)
+                                ? null
+                                : () => _handleSaveDraft(studio),
                           ),
                         ),
                         const SizedBox(width: 12),

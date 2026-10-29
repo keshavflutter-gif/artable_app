@@ -68,6 +68,7 @@ class TrendingVideosState {
     List<String>? tabs,
     List<TrendingCategoryItem>? categories,
     bool clearError = false,
+    bool clearHero = false,
   }) {
     return TrendingVideosState(
       selectedTab: selectedTab ?? this.selectedTab,
@@ -77,7 +78,7 @@ class TrendingVideosState {
       hasLoaded: hasLoaded ?? this.hasLoaded,
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
       response: response ?? this.response,
-      hero: hero ?? this.hero,
+      hero: clearHero ? null : (hero ?? this.hero),
       videos: videos ?? this.videos,
       tabs: tabs ?? this.tabs,
       categories: categories ?? this.categories,

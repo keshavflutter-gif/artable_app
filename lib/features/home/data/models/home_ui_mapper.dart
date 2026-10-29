@@ -225,7 +225,20 @@ class HomeUiMapper {
     }
 
     final parsedClipsDesc = ReelHelpers.parseDescriptionClips(rawDescription);
-    final cleanRawDesc = (parsedClipsDesc.cleanDescription.isNotEmpty ? parsedClipsDesc.cleanDescription : rawDescription).replaceAll(RegExp(r'#+'), '#');
+    final cleanRawDesc = ReelHelpers.cleanDescription(
+      parsedClipsDesc.cleanDescription.isNotEmpty
+          ? parsedClipsDesc.cleanDescription
+          : rawDescription,
+    ).replaceAll(RegExp(r'#+'), '#');
+    final filterMeta = ReelHelpers.resolveFilter(
+      filterId: item['filterId']?.toString() ?? item['filter_id']?.toString(),
+      beautyOn: item['beautyOn'] == true || item['beauty_on'] == true,
+      beautyIntensity: (item['beautyIntensity'] as num?)?.toDouble() ??
+          (item['beauty_intensity'] as num?)?.toDouble(),
+      description: item['description']?.toString() ?? rawDescription,
+      videoId: _stringValue(item['id']),
+      videoUrl: videoUrl,
+    );
 
     String finalCaption = '';
     if (cleanRawDesc.isNotEmpty && formattedHashtags.isNotEmpty) {
@@ -293,6 +306,7 @@ class HomeUiMapper {
       'creatorId': resolvedUserId,
       'user': user,
       'title': _stringValue(item['title']),
+      'description': item['description']?.toString() ?? rawDescription,
       'caption': finalCaption,
       'category': categoryStr,
       'imageUrl': thumb,
@@ -324,9 +338,24 @@ class HomeUiMapper {
           ? item['sharesLabel'].toString()
           : _formatCompactNumber(rawShares),
       'sharesCount': rawShares,
-      'musicName': _firstNonEmptyString([item['musicName'], item['music']]).isNotEmpty
-          ? _firstNonEmptyString([item['musicName'], item['music']])
-          : (creator.isNotEmpty ? 'Original Sound — $creator' : (handle.isNotEmpty ? 'Original Sound — $handle' : 'Original Sound')),
+      'musicName': () {
+        final embedded = ReelHelpers.parseDescriptionMusic(item['description']?.toString());
+        final named = _firstNonEmptyString([embedded?.name, item['musicName'], item['music']]);
+        if (named.isNotEmpty && !named.startsWith('Original Sound')) return named;
+        if (named.isNotEmpty) return named;
+        return creator.isNotEmpty
+            ? 'Original Sound — $creator'
+            : (handle.isNotEmpty ? 'Original Sound — $handle' : 'Original Sound');
+      }(),
+      'musicUrl': ReelHelpers.parseDescriptionMusic(item['description']?.toString())?.url ??
+          _firstNonEmptyString([item['musicUrl'], item['music_url'], item['audioUrl']]),
+      'filterId': filterMeta?.filterId,
+      'beautyOn': filterMeta?.beautyOn ?? false,
+      'beautyIntensity': filterMeta?.beautyIntensity ?? 0,
+      'musicStartSeconds': ReelHelpers.parseDescriptionMusic(item['description']?.toString())?.startSeconds ??
+          (item['musicStartSeconds'] is num ? (item['musicStartSeconds'] as num).toDouble() : null),
+      'musicCropDuration': ReelHelpers.parseDescriptionMusic(item['description']?.toString())?.durationSeconds ??
+          (item['musicCropDuration'] is num ? (item['musicCropDuration'] as num).toDouble() : null),
       'avatarUrl': avatarUrl,
       'handle': handle,
       'creator': creator.isNotEmpty ? creator : handle,

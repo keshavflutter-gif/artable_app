@@ -76,7 +76,7 @@ class _StudioMusicScreenState extends State<StudioMusicScreen> {
     final hasVisibleTracks = _tracks.isNotEmpty;
     if (mounted) {
       setState(() {
-        _isRefreshing = !hasVisibleTracks || forceRefresh;
+        _isRefreshing = !hasVisibleTracks;
         _loadError = null;
       });
     }
@@ -198,18 +198,8 @@ class _StudioMusicScreenState extends State<StudioMusicScreen> {
           children: [
             Column(
               children: [
-                AppScreenHeader(
+                const AppScreenHeader(
                   title: 'Add Music',
-                  trailing: _isRefreshing
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: AppColors.purple,
-                          ),
-                        )
-                      : null,
                 ),
                 Expanded(
                   child: RefreshIndicator(

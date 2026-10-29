@@ -165,6 +165,53 @@ class ApiClient {
     }
   }
 
+  Future<bool> uploadStreamToPresignedUrl({
+    required String uploadUrl,
+    required Stream<List<int>> byteStream,
+    required int contentLength,
+    required String contentType,
+    void Function(int sent, int total)? onProgress,
+  }) async {
+    try {
+      final request = http.StreamedRequest('PUT', Uri.parse(uploadUrl));
+      request.headers['Content-Type'] = contentType;
+      request.contentLength = contentLength;
+
+      var sent = 0;
+      final sub = byteStream.listen(
+        (chunk) {
+          sent += chunk.length;
+          request.sink.add(chunk);
+          final reported = sent > contentLength ? contentLength : sent;
+          onProgress?.call(reported, contentLength);
+        },
+        onError: (Object e, StackTrace st) {
+          request.sink.addError(e, st);
+        },
+        onDone: () {
+          request.sink.close();
+        },
+        cancelOnError: true,
+      );
+
+      final response = await _client.send(request);
+      await sub.cancel();
+      await response.stream.drain<void>();
+      final isSuccess = response.statusCode >= 200 && response.statusCode < 300;
+      if (!isSuccess) {
+        debugPrint(
+            '=== STORAGE UPLOAD === Video PUT status: ${response.statusCode}');
+      } else {
+        debugPrint(
+            '=== STORAGE UPLOAD === Video PUT status: ${response.statusCode} completed');
+      }
+      return isSuccess;
+    } catch (e) {
+      debugPrint('=== STORAGE UPLOAD === Video PUT upload error: $e');
+      return false;
+    }
+  }
+
 
   Future<Map<String, dynamic>> _executeWithAuthRetry({
     required String path,
@@ -173,10 +220,24 @@ class ApiClient {
     Map<String, String>? headers,
     bool hasRetried = false,
   }) async {
-    final requestHeaders = {
+    var requestHeaders = {
       'Content-Type': 'application/json',
       ...?headers,
     };
+
+    if (!hasRetried &&
+        sessionCallbacks != null &&
+        !_isAuthPublicPath(path) &&
+        _hasAuthorization(requestHeaders)) {
+      final currentToken = _bearerFromHeaders(requestHeaders);
+      if (_isJwtExpired(currentToken)) {
+        debugPrint('[SESSION_REFRESH] Access token expired. Refreshing before $path');
+        final newSessionToken = await _refreshSessionToken();
+        if (newSessionToken != null && newSessionToken.isNotEmpty) {
+          requestHeaders = await _headersWithRefreshedTokens(requestHeaders, newSessionToken);
+        }
+      }
+    }
 
     _logRequest(
       method: _methodForPath(path, body),
@@ -194,6 +255,7 @@ class ApiClient {
         statusCode: response.statusCode,
         headers: requestHeaders,
         hasRetried: hasRetried,
+        responseBody: response.body,
       )) {
         final newSessionToken = await _refreshSessionToken();
         if (newSessionToken == null || newSessionToken.isEmpty) {
@@ -201,13 +263,10 @@ class ApiClient {
           return _decodeResponse(response);
         }
 
-        final refreshedRefreshToken = await sessionCallbacks!.getRefreshToken();
-        final retryHeaders = {
-          ...requestHeaders,
-          'Authorization': 'Bearer $newSessionToken',
-          if (refreshedRefreshToken != null && refreshedRefreshToken.isNotEmpty)
-            'Refresh-Token': refreshedRefreshToken,
-        };
+        final retryHeaders = await _headersWithRefreshedTokens(
+          requestHeaders,
+          newSessionToken,
+        );
 
         final retryResponse = await send(retryHeaders);
         _logResponse(path, retryResponse);
@@ -224,17 +283,87 @@ class ApiClient {
     }
   }
 
+  bool _isAuthPublicPath(String path) {
+    return path == '/auth/login' ||
+        path == '/auth/register' ||
+        path == '/auth/verify-otp' ||
+        path == '/auth/resend-otp' ||
+        path == '/auth/forgot-password' ||
+        path == '/auth/social-login' ||
+        path == '/auth/generate-session' ||
+        path.startsWith('/auth/reset-password');
+  }
+
+  bool _hasAuthorization(Map<String, String> headers) {
+    return headers.keys.any((k) => k.toLowerCase() == 'authorization');
+  }
+
+  String? _bearerFromHeaders(Map<String, String> headers) {
+    for (final entry in headers.entries) {
+      if (entry.key.toLowerCase() != 'authorization') continue;
+      final value = entry.value.trim();
+      if (value.toLowerCase().startsWith('bearer ')) {
+        return value.substring(7).trim();
+      }
+      return value;
+    }
+    return null;
+  }
+
+  bool _isJwtExpired(String? token, {Duration skew = const Duration(seconds: 30)}) {
+    if (token == null || token.isEmpty) return false;
+    try {
+      final parts = token.split('.');
+      if (parts.length < 2) return false;
+      final payloadString = utf8.decode(base64Url.decode(base64Url.normalize(parts[1])));
+      final payload = jsonDecode(payloadString);
+      if (payload is! Map || payload['exp'] is! num) return false;
+      final expiry = DateTime.fromMillisecondsSinceEpoch(
+        (payload['exp'] as num).toInt() * 1000,
+        isUtc: true,
+      );
+      return DateTime.now().toUtc().isAfter(expiry.subtract(skew));
+    } catch (_) {
+      return false;
+    }
+  }
+
+  bool _isInvalidTokenResponse(int statusCode, String? responseBody) {
+    if (statusCode == 401) return true;
+    if (statusCode != 403) return false;
+    final body = (responseBody ?? '').toLowerCase();
+    return body.contains('invalid token') ||
+        body.contains('token expired') ||
+        body.contains('expired token') ||
+        body.contains('jwt expired') ||
+        body.contains('jwt malformed') ||
+        body.contains('unauthorized');
+  }
+
+  Future<Map<String, String>> _headersWithRefreshedTokens(
+    Map<String, String> current,
+    String newSessionToken,
+  ) async {
+    final refreshedRefreshToken = await sessionCallbacks?.getRefreshToken();
+    return {
+      ...current,
+      'Authorization': 'Bearer $newSessionToken',
+      if (refreshedRefreshToken != null && refreshedRefreshToken.isNotEmpty)
+        'Refresh-Token': refreshedRefreshToken,
+    };
+  }
+
   bool _shouldRefreshSession({
     required String path,
     required int statusCode,
     required Map<String, String> headers,
     required bool hasRetried,
+    String? responseBody,
   }) {
-    if (statusCode != 401 || hasRetried || sessionCallbacks == null) {
-      return false;
-    }
-    if (path == '/auth/generate-session') return false;
-    return headers.keys.any((k) => k.toLowerCase() == 'authorization');
+    if (hasRetried || sessionCallbacks == null) return false;
+    if (_isAuthPublicPath(path)) return false;
+    if (!_hasAuthorization(headers)) return false;
+    return _isInvalidTokenResponse(statusCode, responseBody);
   }
 
   Future<String?> _refreshSessionToken() {
@@ -255,10 +384,14 @@ class ApiClient {
     }
 
     final uri = Uri.parse('$_baseUrl/auth/generate-session');
+    final accessToken = sessionToken?.trim();
     final refreshHeaders = {
       'Content-Type': 'application/json',
-      if (sessionToken != null && sessionToken.trim().isNotEmpty)
-        'Authorization': 'Bearer ${sessionToken.trim()}',
+      // Do not send an expired access token — backend returns 403 Invalid token.
+      if (accessToken != null &&
+          accessToken.isNotEmpty &&
+          !_isJwtExpired(accessToken))
+        'Authorization': 'Bearer $accessToken',
       'Refresh-Token': refreshToken,
       'x-refresh-token': refreshToken,
     };

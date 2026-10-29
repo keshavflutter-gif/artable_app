@@ -15,6 +15,7 @@ import 'package:artable_app/core/widgets/app_screen_header.dart';
 import 'package:artable_app/core/widgets/gradient_button.dart';
 import 'package:artable_app/features/studio/data/services/studio_music_playback_service.dart';
 import 'package:artable_app/core/utils/reel_helpers.dart';
+import 'package:artable_app/core/utils/app_filter_utils.dart';
 
 class StudioDraftsScreen extends StatefulWidget {
   const StudioDraftsScreen({
@@ -43,11 +44,11 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
     }
     unawaited(StudioMusicPlaybackService.stop());
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        context.read<StudioCubit>().fetchDraftsList(
-              forceRefresh: true,
-            );
-      }
+      if (!mounted) return;
+      final studio = context.read<StudioCubit>();
+      studio.fetchDraftsList(
+        forceRefresh: studio.state.drafts.isEmpty,
+      );
     });
   }
 
@@ -473,9 +474,25 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
                                       );
                                     }
                                   },
-                                  onContinue: () => context.push(
-                                    '${AppRoutes.studioEditVideo}?draft=${draft['id']}&id=${draft['challengeId']}',
-                                  ),
+                                  onContinue: () {
+                                    final studio = context.read<StudioCubit>();
+                                    studio.setActiveDraftId(draftId);
+                                    studio.applyDraftFilterToSession(draft);
+                                    final path = (draft['videoPath'] ?? draft['videoUrl'])?.toString();
+                                    if (path != null && path.trim().isNotEmpty) {
+                                      final clips = draft['mergedClipPaths'] is List
+                                          ? List<String>.from(draft['mergedClipPaths'] as List)
+                                          : null;
+                                      studio.setRecordedVideoPath(
+                                        path,
+                                        mergedClipPaths: clips,
+                                        clearMergedClips: clips == null || clips.isEmpty,
+                                      );
+                                    }
+                                    context.push(
+                                      '${AppRoutes.studioEditVideo}?draft=${draft['id']}&id=${draft['challengeId']}',
+                                    );
+                                  },
                                 ),
                               );
                             },
@@ -731,14 +748,27 @@ class _DraftCard extends StatelessWidget {
                     : null,
               ),
             ),
-          AppImage(
-            url: thumbnailUrl,
-            videoUrl: (draft['videoPath'] as String?) ?? (draft['videoUrl'] as String?),
-            width: 58,
-            height: 78,
-            fit: BoxFit.cover,
-            borderRadius: BorderRadius.circular(12),
-            isVideo: true,
+          AppFilterUtils.wrap(
+            filterId: ReelHelpers.resolveFilter(
+                  filterId: draft['filterId']?.toString(),
+                  beautyOn: draft['beautyOn'] == true,
+                  beautyIntensity: (draft['beautyIntensity'] as num?)?.toDouble(),
+                  description: draft['description']?.toString(),
+                  videoId: draft['id']?.toString(),
+                  videoUrl: (draft['videoUrl'] ?? draft['videoPath'])?.toString(),
+                )?.filterId ??
+                draft['filterId']?.toString(),
+            beautyOn: draft['beautyOn'] == true,
+            beautyIntensity: (draft['beautyIntensity'] as num?)?.toDouble() ?? 0,
+            child: AppImage(
+              url: thumbnailUrl,
+              videoUrl: (draft['videoPath'] as String?) ?? (draft['videoUrl'] as String?),
+              width: 58,
+              height: 78,
+              fit: BoxFit.cover,
+              borderRadius: BorderRadius.circular(12),
+              isVideo: true,
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(

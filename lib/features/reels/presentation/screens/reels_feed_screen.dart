@@ -9,7 +9,6 @@ import 'package:artable_app/features/reels/presentation/bloc/reels_cubit.dart';
 import 'package:artable_app/features/trending/data/models/trending_videos_response.dart';
 import 'package:artable_app/features/trending/presentation/bloc/trending_videos_cubit.dart';
 import 'package:artable_app/features/home/presentation/bloc/home_cubit.dart';
-import 'package:artable_app/data/datasources/mock_data.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/core/utils/reel_helpers.dart';
 import 'package:artable_app/core/widgets/app_image.dart';
@@ -19,9 +18,12 @@ import 'package:artable_app/features/reels/presentation/widgets/feed_banner_ad.d
 import 'package:artable_app/features/reels/presentation/widgets/feed_native_ad.dart';
 import 'package:artable_app/features/reels/presentation/widgets/talent_rating_slider.dart';
 import 'package:artable_app/features/studio/data/services/studio_music_playback_service.dart';
+import 'package:artable_app/features/reels/data/services/reel_bgm_playback_service.dart';
 import 'package:artable_app/core/utils/video_share_helper.dart';
 import 'package:artable_app/core/utils/video_cache_manager.dart';
 import 'package:artable_app/core/utils/media_url_utils.dart';
+import 'package:artable_app/core/utils/app_filter_utils.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 class ReelsFeedScreen extends StatefulWidget {
   const ReelsFeedScreen({super.key, this.initialReelId, this.initialReelData});
@@ -33,13 +35,19 @@ class ReelsFeedScreen extends StatefulWidget {
   State<ReelsFeedScreen> createState() => _ReelsFeedScreenState();
 }
 
-class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
+class _ReelsFeedScreenState extends State<ReelsFeedScreen>
+    with WidgetsBindingObserver {
   late final PageController _pageController;
   int _currentPage = 0;
   String? _ratingReelId;
   bool _ratingSuccess = false;
   double _ratingValue = 5;
   double _playbackSpeed = 1.0;
+  final Set<String> _pausedReelIds = {};
+  bool _appInBackground = false;
+  Timer? _precacheDelayTimer;
+  final ValueNotifier<VideoPlayerController?> _seekController =
+      ValueNotifier<VideoPlayerController?>(null);
 
   bool _hasScrolledToInitial = false;
 
@@ -140,9 +148,6 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
     if (reelsCubit.videos.isNotEmpty) {
       addReels(reelsCubit.videos);
     }
-    if (rawList.isEmpty) {
-      addReels(List<Map<String, dynamic>>.from(MockData.REELS));
-    }
 
     final targetId = widget.initialReelId?.trim();
     if (targetId != null && targetId.isNotEmpty) {
@@ -198,19 +203,25 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
   }
 
   void _precacheUpcomingReels(int page, List<_FeedItem> items) {
-    // page + 1 is pre-initialized by its own live player (see _ReelVideoPlayer
-    // preloadNext), so only download the ones after it to disk.
-    for (final nextIdx in [page + 2, page + 3]) {
-      if (nextIdx >= 0 && nextIdx < items.length) {
-        final nextItem = items[nextIdx];
-        if (!nextItem.isAd && nextItem.reel != null) {
-          final vUrl = nextItem.reel!['videoUrl']?.toString();
-          if (vUrl != null && vUrl.isNotEmpty) {
-            unawaited(VideoCacheManager.precacheVideo(vUrl));
+    // Delay so the visible reel can stream without competing downloads.
+    _precacheDelayTimer?.cancel();
+    _precacheDelayTimer = Timer(const Duration(seconds: 4), () {
+      if (!mounted) return;
+      unawaited(() async {
+        for (final nextIdx in [page + 2, page + 3]) {
+          if (!mounted) return;
+          if (nextIdx >= 0 && nextIdx < items.length) {
+            final nextItem = items[nextIdx];
+            if (!nextItem.isAd && nextItem.reel != null) {
+              final vUrl = nextItem.reel!['videoUrl']?.toString();
+              if (vUrl != null && vUrl.isNotEmpty) {
+                await VideoCacheManager.precacheVideo(vUrl);
+              }
+            }
           }
         }
-      }
-    }
+      }());
+    });
   }
 
   void _scrollToInitialIfNeeded(List<_FeedItem> items) {
@@ -248,6 +259,9 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    unawaited(WakelockPlus.enable());
+    unawaited(StudioMusicPlaybackService.releaseForVideoPlayback());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         final trendingCubit = context.read<TrendingVideosCubit>();
@@ -279,8 +293,83 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _precacheDelayTimer?.cancel();
+    _seekController.value = null;
+    _seekController.dispose();
     _pageController.dispose();
+    unawaited(ReelBgmPlaybackService.stop());
+    unawaited(WakelockPlus.disable());
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final background = state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden;
+    if (background) {
+      unawaited(WakelockPlus.disable());
+      if (mounted) setState(() => _appInBackground = true);
+    } else if (state == AppLifecycleState.resumed) {
+      unawaited(WakelockPlus.enable());
+      if (mounted) setState(() => _appInBackground = false);
+    }
+  }
+
+  String? _currentReelIdFrom(List<_FeedItem> items) {
+    if (_currentPage < 0 || _currentPage >= items.length) return null;
+    final reel = items[_currentPage].reel;
+    return reel?['id']?.toString() ?? reel?['_id']?.toString();
+  }
+
+  void _onSeekScrubStart() {
+    _seekController.value?.pause();
+    unawaited(ReelBgmPlaybackService.pause());
+  }
+
+  void _onSeekScrubEnd(List<_FeedItem> items) {
+    final controller = _seekController.value;
+    if (controller == null) return;
+    final reelId = _currentReelIdFrom(items);
+    final paused =
+        _appInBackground || (reelId != null && _pausedReelIds.contains(reelId));
+    if (!paused) {
+      unawaited(controller.play());
+    }
+    final reel = (_currentPage >= 0 && _currentPage < items.length)
+        ? items[_currentPage].reel
+        : null;
+    if (reel == null || paused) return;
+    final direct = (reel['musicUrl'] as String?)?.trim();
+    final parsed = ReelHelpers.parseDescriptionMusic(
+      (reel['caption'] ?? reel['description'])?.toString(),
+    );
+    final url = (direct != null && direct.isNotEmpty && direct != 'null')
+        ? direct
+        : parsed?.url;
+    if (url == null || url.isEmpty) return;
+    final start = (reel['musicStartSeconds'] as num?)?.toDouble() ??
+        parsed?.startSeconds ??
+        0;
+    unawaited(ReelBgmPlaybackService.sync(
+      reelId: reelId ?? url,
+      url: url,
+      startMs: (start * 1000).round(),
+      videoPositionMs: controller.value.position.inMilliseconds,
+      shouldPlay: true,
+      speed: _playbackSpeed,
+    ));
+  }
+
+  void _toggleReelPause(String reelId) {
+    if (reelId.isEmpty) return;
+    setState(() {
+      if (_pausedReelIds.contains(reelId)) {
+        _pausedReelIds.remove(reelId);
+      } else {
+        _pausedReelIds.add(reelId);
+      }
+    });
   }
 
   void _openRating(String reelId, [Map<String, dynamic>? reelMap]) {
@@ -503,11 +592,45 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
     final reelsProvider = context.watch<ReelsCubit>();
     final items = _getItems(context);
     _scrollToInitialIfNeeded(items);
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
+    const sliderHitHeight = 20.0;
+    const viewsSliderGap = 18.0;
+    final sliderBottom = bottomInset;
+    final captionBottom = sliderBottom + sliderHitHeight + viewsSliderGap;
+    final actionsBottom = captionBottom + 78;
 
     return Scaffold(
       backgroundColor: const Color(0xFF0B0714),
       body: Stack(
         children: [
+          if (items.isEmpty)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.movie_filter_outlined,
+                      size: 52,
+                      color: Color(0xFF8B849C),
+                    ),
+                    SizedBox(height: 12),
+                    Text(
+                      'No trending videos available right now.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else
           PageView.builder(
             controller: _pageController,
             // Keep the adjacent pages built so the next reel can pre-initialize
@@ -516,6 +639,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
             onPageChanged: (page) {
               setState(() {
                 _currentPage = page;
+                _pausedReelIds.clear();
               });
               _fetchCommentsForPage(page);
               _precacheUpcomingReels(page, items);
@@ -542,6 +666,9 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
               final imageUrl = reel['imageUrl'] as String? ?? reel['thumbnailUrl'] as String? ?? '';
               final isActive = index == _currentPage;
               final preloadNext = index == _currentPage + 1;
+              final preloadPrev = index == _currentPage - 1;
+              final forcePaused =
+                  _appInBackground || _pausedReelIds.contains(reelId);
 
               final int rawLikes = TrendingVideoItem.parseCount(reel['likesCount'] ?? reel['likes']);
               final String likesText = TrendingVideoItem.formatCount(rawLikes);
@@ -567,11 +694,15 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
               final String? challengeTitle = (reel['challengeTitle'] as String?)?.trim() ??
                   (challenge?['title'] as String?)?.trim();
               final String? musicName = (reel['musicName'] as String?)?.trim();
+              final String? embeddedMusicName =
+                  ReelHelpers.parseDescriptionMusic((reel['caption'] ?? reel['description'])?.toString())?.name;
               final String creatorName = (reel['creator'] as String?)?.trim() ??
                   (reel['handle'] as String?)?.trim() ?? '';
-              final String soundText = (musicName != null && musicName.isNotEmpty)
-                  ? musicName
-                  : (creatorName.isNotEmpty ? 'Original Sound — $creatorName' : 'Original Sound');
+              final String soundText = (embeddedMusicName != null && embeddedMusicName.isNotEmpty)
+                  ? embeddedMusicName
+                  : ((musicName != null && musicName.isNotEmpty)
+                      ? musicName
+                      : (creatorName.isNotEmpty ? 'Original Sound — $creatorName' : 'Original Sound'));
 
               return Stack(
                 fit: StackFit.expand,
@@ -582,28 +713,49 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
                     thumbnailUrl: imageUrl,
                     isActive: isActive,
                     preloadNext: preloadNext,
+                    preloadPrev: preloadPrev,
+                    forcePaused: forcePaused,
+                    userPaused: _pausedReelIds.contains(reelId),
                     playbackSpeed: _playbackSpeed,
                     reelId: reel['id']?.toString() ?? reel['_id']?.toString(),
-                    caption: (reel['caption'] ?? reel['description'])?.toString(),
+                    caption: (reel['description'] ?? reel['caption'])?.toString(),
+                    filterId: reel['filterId']?.toString(),
+                    beautyOn: reel['beautyOn'] == true,
+                    beautyIntensity: (reel['beautyIntensity'] as num?)?.toDouble() ?? 0,
                     trimStart: (reel['videoTrimStartSeconds'] as num?)?.toDouble(),
                     trimEnd: (reel['videoTrimEndSeconds'] as num?)?.toDouble(),
                     mergedClipPaths: (reel['mergedClipPaths'] is List)
                         ? List<String>.from(reel['mergedClipPaths'] as List)
                         : null,
+                    musicUrl: (reel['musicUrl'] as String?)?.trim(),
+                    musicStartSeconds: (reel['musicStartSeconds'] as num?)?.toDouble(),
+                    seekController: _seekController,
                   ),
-                  DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          const Color(0x590A0514),
-                          const Color(0x0D0A0514),
-                          const Color(0x330A0514),
-                          const Color(0xEB06030E),
-                        ],
-                        stops: const [0, 0.22, 0.55, 1],
+                  const IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Color(0x590A0514),
+                            Color(0x0D0A0514),
+                            Color(0x330A0514),
+                            Color(0xEB06030E),
+                          ],
+                          stops: [0, 0.22, 0.55, 1],
+                        ),
                       ),
+                    ),
+                  ),
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 24,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.translucent,
+                      onTap: () => _toggleReelPause(reelId),
                     ),
                   ),
                   Positioned(
@@ -732,7 +884,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
                     ),
                   Positioned(
                     right: 14,
-                    bottom: 108,
+                    bottom: actionsBottom,
                     child: Column(
                       children: [
                         _ActionBtn(
@@ -803,7 +955,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
                   Positioned(
                     left: 16,
                     right: 78,
-                    bottom: 26,
+                    bottom: captionBottom,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -847,6 +999,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
                                 text: '$viewsText views',
                                 muted: true,
                               ),
+                              const SizedBox(height: 6),
                             ],
                           ),
                         ),
@@ -857,6 +1010,51 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
               );
             },
           ),
+          if (items.isNotEmpty)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: sliderBottom,
+              child: ValueListenableBuilder<VideoPlayerController?>(
+                valueListenable: _seekController,
+                builder: (context, controller, _) {
+                  if (controller == null || !controller.value.isInitialized) {
+                    return const IgnorePointer(
+                      child: SizedBox(
+                        height: sliderHitHeight,
+                        width: double.infinity,
+                        child: Align(
+                          alignment: Alignment.topCenter,
+                          child: SizedBox(
+                            height: 3,
+                            width: double.infinity,
+                            child: ColoredBox(color: Color(0x47FFFFFF)),
+                          ),
+                        ),
+                      ),
+                    );
+                  }
+                  final reel = items[_currentPage.clamp(0, items.length - 1)].reel;
+                  final trimStart =
+                      (reel?['videoTrimStartSeconds'] as num?)?.toDouble() ?? 0;
+                  final trimEnd =
+                      (reel?['videoTrimEndSeconds'] as num?)?.toDouble();
+                  return _InstagramSeekBar(
+                    key: ObjectKey(controller),
+                    controller: controller,
+                    enabled: !_appInBackground,
+                    trimStart: trimStart > 0
+                        ? Duration(milliseconds: (trimStart * 1000).round())
+                        : Duration.zero,
+                    trimEnd: trimEnd != null
+                        ? Duration(milliseconds: (trimEnd * 1000).round())
+                        : null,
+                    onScrubStart: _onSeekScrubStart,
+                    onScrubEnd: () => _onSeekScrubEnd(items),
+                  );
+                },
+              ),
+            ),
           if (_ratingReelId != null) ...[
             GestureDetector(
               onTap: _closeRating,
@@ -975,12 +1173,21 @@ class _ReelVideoPlayer extends StatefulWidget {
     required this.thumbnailUrl,
     required this.isActive,
     this.preloadNext = false,
+    this.preloadPrev = false,
+    this.forcePaused = false,
+    this.userPaused = false,
     this.playbackSpeed = 1.0,
     this.reelId,
     this.caption,
     this.trimStart,
     this.trimEnd,
     this.mergedClipPaths,
+    this.musicUrl,
+    this.musicStartSeconds,
+    this.seekController,
+    this.filterId,
+    this.beautyOn = false,
+    this.beautyIntensity = 0,
   });
 
   final String videoUrl;
@@ -989,12 +1196,21 @@ class _ReelVideoPlayer extends StatefulWidget {
   /// True when this reel is the one directly after the active reel. Its player
   /// is initialized (paused) ahead of time so that swiping to it plays instantly.
   final bool preloadNext;
+  final bool preloadPrev;
+  final bool forcePaused;
+  final bool userPaused;
   final double playbackSpeed;
   final String? reelId;
   final String? caption;
   final double? trimStart;
   final double? trimEnd;
   final List<String>? mergedClipPaths;
+  final String? musicUrl;
+  final double? musicStartSeconds;
+  final ValueNotifier<VideoPlayerController?>? seekController;
+  final String? filterId;
+  final bool beautyOn;
+  final double beautyIntensity;
 
   @override
   State<_ReelVideoPlayer> createState() => _ReelVideoPlayerState();
@@ -1003,7 +1219,8 @@ class _ReelVideoPlayer extends StatefulWidget {
 class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
     with AutomaticKeepAliveClientMixin {
   @override
-  bool get wantKeepAlive => widget.isActive;
+  bool get wantKeepAlive =>
+      widget.isActive || widget.preloadNext || widget.preloadPrev;
 
   VideoPlayerController? _controller;
   final Map<int, VideoPlayerController> _clipControllers = {};
@@ -1013,17 +1230,38 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
   int _currentClipIndex = 0;
   bool _isSwitchingClip = false;
   Timer? _playbackTimer;
-  bool _userPaused = false;
+  Timer? _loadingHintTimer;
+  bool _showSlowLoading = false;
   bool _isSeekingToStart = false;
   /// Incremented whenever controllers are disposed; lets an in-flight
   /// _initVideo detect that its result is stale and discard it.
   int _initGeneration = 0;
 
   /// Whether this reel should hold an initialized player right now.
-  bool get _shouldHoldPlayer => widget.isActive || widget.preloadNext;
+  bool get _shouldHoldPlayer =>
+      widget.isActive || widget.preloadNext || widget.preloadPrev;
 
   VideoPlayerController? get _activeController =>
       _hasMultiClips ? _clipControllers[_currentClipIndex] : _controller;
+
+  void _publishSeekController() {
+    final notifier = widget.seekController;
+    if (notifier == null) return;
+    if (widget.isActive && _isInitialized) {
+      final active = _activeController;
+      if (active != null && active.value.isInitialized) {
+        if (!identical(notifier.value, active)) {
+          notifier.value = active;
+        }
+        return;
+      }
+    }
+    if (identical(notifier.value, _controller) ||
+        identical(notifier.value, _activeController) ||
+        _clipControllers.values.any((c) => identical(notifier.value, c))) {
+      notifier.value = null;
+    }
+  }
 
   List<String> get _effectiveMergedClips {
     if (widget.mergedClipPaths != null && widget.mergedClipPaths!.length > 1) {
@@ -1050,9 +1288,75 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
 
   bool get _hasMultiClips => _effectiveMergedClips.length > 1;
 
+  String? get _bgmUrl {
+    final direct = widget.musicUrl?.trim();
+    if (direct != null && direct.isNotEmpty && direct != 'null') return direct;
+    return ReelHelpers.parseDescriptionMusic(widget.caption)?.url;
+  }
+
+  double get _bgmStartSeconds =>
+      widget.musicStartSeconds ??
+      ReelHelpers.parseDescriptionMusic(widget.caption)?.startSeconds ??
+      0;
+
+  bool get _hasBgm => _bgmUrl != null && _bgmUrl!.isNotEmpty;
+
+  double get _videoVolume => _hasBgm ? 0.0 : 1.0;
+
+  ({String filterId, bool beautyOn, double beautyIntensity})? _filterMeta;
+
+  void _refreshFilterMeta() {
+    _filterMeta = ReelHelpers.resolveFilter(
+      filterId: widget.filterId,
+      beautyOn: widget.beautyOn,
+      beautyIntensity: widget.beautyIntensity,
+      description: widget.caption,
+      videoId: widget.reelId,
+      videoUrl: widget.videoUrl,
+    );
+  }
+
+  Widget _withRecordingFilter(Widget child) {
+    final meta = _filterMeta;
+    if (meta == null) return child;
+    return RepaintBoundary(
+      child: AppFilterUtils.buildFilteredView(
+        filterId: meta.filterId,
+        beautyOn: meta.beautyOn,
+        beautyIntensity: meta.beautyIntensity,
+        performanceMode: true,
+        child: child,
+      ),
+    );
+  }
+
+  String get _bgmReelKey =>
+      (widget.reelId != null && widget.reelId!.isNotEmpty)
+          ? widget.reelId!
+          : widget.videoUrl;
+
+  void _syncBgm({bool play = true}) {
+    final url = _bgmUrl;
+    if (url == null || url.isEmpty) return;
+    if (!widget.isActive || !play || widget.forcePaused) {
+      unawaited(ReelBgmPlaybackService.pause());
+      return;
+    }
+    final pos = _activeController?.value.position.inMilliseconds ?? 0;
+    unawaited(ReelBgmPlaybackService.sync(
+      reelId: _bgmReelKey,
+      url: url,
+      startMs: (_bgmStartSeconds * 1000).round(),
+      videoPositionMs: pos,
+      shouldPlay: true,
+      speed: widget.playbackSpeed,
+    ));
+  }
+
   @override
   void initState() {
     super.initState();
+    _refreshFilterMeta();
     _logDebugInfo();
     // Initialize if this reel is visible, or is the next one up (pre-warm).
     if (_shouldHoldPlayer) {
@@ -1066,6 +1370,46 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
     debugPrint('Thumbnail URL: ${widget.thumbnailUrl}');
     if (widget.mergedClipPaths != null) {
       debugPrint('Merged Clips: ${widget.mergedClipPaths!.length}');
+    }
+  }
+
+  Duration get _playbackStart {
+    if (_hasMultiClips) return Duration.zero;
+    final trimStart = widget.trimStart ?? 0.0;
+    if (trimStart > 0) {
+      return Duration(milliseconds: (trimStart * 1000).round());
+    }
+    return Duration.zero;
+  }
+
+  /// Rewind to clip/trim start so a swipe-back always plays from the beginning.
+  Future<void> _resetToStart({required bool thenPlay}) async {
+    if (_hasMultiClips && _currentClipIndex != 0) {
+      final old = _clipControllers[_currentClipIndex];
+      old?.removeListener(_onVideoControllerUpdate);
+      unawaited(old?.pause());
+      unawaited(old?.seekTo(Duration.zero));
+      _currentClipIndex = 0;
+      final first = _clipControllers[0];
+      if (first != null && first.value.isInitialized) {
+        first.removeListener(_onVideoControllerUpdate);
+        first.addListener(_onVideoControllerUpdate);
+      }
+      if (mounted) setState(() {});
+    }
+
+    final active = _activeController;
+    if (active == null || !active.value.isInitialized) return;
+    try {
+      await active.seekTo(_playbackStart);
+    } catch (_) {}
+    if (!mounted) return;
+    if (thenPlay && widget.isActive && !widget.forcePaused) {
+      unawaited(active.play());
+      _syncBgm(play: true);
+    } else {
+      unawaited(active.pause());
+      _syncBgm(play: false);
     }
   }
 
@@ -1083,6 +1427,13 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
   @override
   void didUpdateWidget(covariant _ReelVideoPlayer oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.filterId != oldWidget.filterId ||
+        widget.beautyOn != oldWidget.beautyOn ||
+        widget.beautyIntensity != oldWidget.beautyIntensity ||
+        widget.caption != oldWidget.caption ||
+        widget.videoUrl != oldWidget.videoUrl) {
+      _refreshFilterMeta();
+    }
     if (widget.videoUrl != oldWidget.videoUrl ||
         widget.mergedClipPaths != oldWidget.mergedClipPaths) {
       _logDebugInfo();
@@ -1092,52 +1443,78 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
         _initVideo();
       }
     } else if (widget.isActive != oldWidget.isActive ||
-        widget.preloadNext != oldWidget.preloadNext) {
+        widget.preloadNext != oldWidget.preloadNext ||
+        widget.preloadPrev != oldWidget.preloadPrev ||
+        widget.forcePaused != oldWidget.forcePaused) {
       final active = _activeController;
       if (widget.isActive) {
-        _userPaused = false;
         _hasError = false;
         if (active == null) {
           // If a pre-warm init is still running it will play on completion.
           if (!_isInitializing) _initVideo();
         } else if (_isInitialized) {
-          // Pre-warmed player: start instantly.
-          active.play();
-          if (widget.playbackSpeed != 1.0) {
-            try {
-              active.setPlaybackSpeed(widget.playbackSpeed);
-            } catch (_) {}
+          if (widget.forcePaused) {
+            active.pause();
+            _syncBgm(play: false);
+          } else if (!oldWidget.isActive) {
+            // Swiped onto this reel — always start from the beginning.
+            unawaited(active.setVolume(_videoVolume));
+            unawaited(_resetToStart(thenPlay: true));
+          } else {
+            unawaited(active.play());
+            unawaited(active.setVolume(_videoVolume));
+            if (widget.playbackSpeed != 1.0) {
+              try {
+                active.setPlaybackSpeed(widget.playbackSpeed);
+              } catch (_) {}
+            }
+            _syncBgm(play: true);
           }
         }
-      } else if (widget.preloadNext) {
-        // Next-up reel: keep a paused, ready player (user may have swiped back
-        // from it, or it just became the next one in line).
+      } else if (widget.preloadNext || widget.preloadPrev) {
+        _syncBgm(play: false);
         if (active != null && _isInitialized) {
-          active.pause();
+          if (oldWidget.isActive) {
+            unawaited(_resetToStart(thenPlay: false));
+          } else {
+            unawaited(active.pause());
+          }
         } else if (active == null && !_isInitializing) {
           _initVideo();
         }
       } else {
+        _syncBgm(play: false);
         if (active != null && _isInitialized) {
           active.pause();
         }
-        // Free hardware video decoder resources when leaving this reel
         _disposeControllers();
       }
     } else if (widget.playbackSpeed != oldWidget.playbackSpeed) {
-      final active = _activeController;
-      if (active != null && _isInitialized) {
-        try {
-          active.setPlaybackSpeed(widget.playbackSpeed);
-        } catch (_) {}
+      unawaited(_applyPlaybackSpeed(widget.playbackSpeed));
+    }
+    updateKeepAlive();
+    _publishSeekController();
+  }
+
+  Future<void> _applyPlaybackSpeed(double speed) async {
+    Future<void> applyTo(VideoPlayerController c) async {
+      try {
+        await c.setPlaybackSpeed(speed);
+      } catch (_) {}
+    }
+
+    final active = _activeController;
+    if (active != null && active.value.isInitialized) {
+      await applyTo(active);
+      if (!mounted) return;
+      if (widget.isActive && !widget.forcePaused) {
+        unawaited(active.play());
+        _syncBgm(play: true);
       }
-      for (final c in _clipControllers.values) {
-        if (c.value.isInitialized) {
-          try {
-            c.setPlaybackSpeed(widget.playbackSpeed);
-          } catch (_) {}
-        }
-      }
+    }
+    for (final c in _clipControllers.values) {
+      if (identical(c, active) || !c.value.isInitialized) continue;
+      unawaited(applyTo(c));
     }
   }
 
@@ -1147,9 +1524,7 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
     // to wait for it; a visible reel only waits briefly before streaming.
     return VideoCacheManager.createAndInitController(
       resolvedUrl,
-      waitForInFlightDownload: widget.isActive
-          ? const Duration(milliseconds: 700)
-          : const Duration(seconds: 20),
+      waitForInFlightDownload: Duration.zero,
     );
   }
 
@@ -1163,19 +1538,12 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
 
   Future<void> _initVideo() async {
     final generation = _initGeneration;
-    if (widget.isActive) {
-      unawaited(StudioMusicPlaybackService.releaseForVideoPlayback());
-    }
 
     if (!_hasMultiClips) {
       final targetUrl = widget.videoUrl.isNotEmpty
           ? widget.videoUrl
           : (_effectiveMergedClips.isNotEmpty ? _effectiveMergedClips.first : '');
       var resolvedUrl = _resolvePlayableUrl(targetUrl);
-
-      if (resolvedUrl == null || resolvedUrl.isEmpty) {
-        resolvedUrl = MockData.REELS.first['videoUrl'] as String?;
-      }
 
       if (resolvedUrl == null || resolvedUrl.isEmpty) {
         if (mounted) {
@@ -1193,6 +1561,13 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
         setState(() {
           _isInitializing = true;
           _hasError = false;
+          _showSlowLoading = false;
+        });
+        _loadingHintTimer?.cancel();
+        _loadingHintTimer = Timer(const Duration(milliseconds: 1800), () {
+          if (mounted && _isInitializing && !_isInitialized) {
+            setState(() => _showSlowLoading = true);
+          }
         });
       }
 
@@ -1203,17 +1578,8 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
         if (controller != null && controller.value.isInitialized) {
           _controller = controller;
           controller.addListener(_onVideoControllerUpdate);
-          controller.setLooping(true);
-          controller.setVolume(1.0);
-
-          // Mount VideoPlayer immediately on screen without sequential await delays!
-          if (mounted) {
-            setState(() {
-              _isInitialized = true;
-              _isInitializing = false;
-              _hasError = false;
-            });
-          }
+          unawaited(controller.setLooping(true));
+          unawaited(controller.setVolume(_videoVolume));
 
           final trimStart = widget.trimStart ?? 0.0;
           if (trimStart > 0) {
@@ -1222,10 +1588,29 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
           if (widget.playbackSpeed != 1.0) {
             unawaited(controller.setPlaybackSpeed(widget.playbackSpeed));
           }
-          if (widget.isActive) {
-            unawaited(controller.play());
-          } else {
-            unawaited(controller.pause());
+          unawaited(controller.setVolume(_videoVolume));
+          unawaited(controller.pause());
+
+          _loadingHintTimer?.cancel();
+          if (mounted) {
+            setState(() {
+              _isInitialized = true;
+              _isInitializing = false;
+              _hasError = false;
+              _showSlowLoading = false;
+            });
+            _publishSeekController();
+          }
+          if (widget.isActive && !widget.forcePaused) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted || generation != _initGeneration) return;
+              if (!widget.isActive || widget.forcePaused) return;
+              final ready = _controller;
+              if (ready == null || !ready.value.isInitialized) return;
+              unawaited(ready.setVolume(_videoVolume));
+              unawaited(ready.play());
+              _syncBgm(play: true);
+            });
           }
           debugPrint('=== VIDEO PLAYBACK === Single player initialized: true');
           return;
@@ -1264,7 +1649,7 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
           _clipControllers[0] = c0;
           c0.addListener(_onVideoControllerUpdate);
           c0.setLooping(false);
-          c0.setVolume(1.0);
+          c0.setVolume(_videoVolume);
 
           // Mount VideoPlayer immediately on screen!
           if (mounted) {
@@ -1272,15 +1657,23 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
               _isInitialized = true;
               _isInitializing = false;
             });
+            _publishSeekController();
           }
 
           if (widget.playbackSpeed != 1.0) {
             unawaited(c0.setPlaybackSpeed(widget.playbackSpeed));
           }
-          if (widget.isActive) {
-            unawaited(c0.play());
-          } else {
-            unawaited(c0.pause());
+          unawaited(c0.pause());
+          if (widget.isActive && !widget.forcePaused) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted || generation != _initGeneration) return;
+              if (!widget.isActive || widget.forcePaused) return;
+              final ready = _clipControllers[0];
+              if (ready == null || !ready.value.isInitialized) return;
+              unawaited(ready.setVolume(_videoVolume));
+              unawaited(ready.play());
+              _syncBgm(play: true);
+            });
           }
           _startPlaybackTimer();
         } else if (mounted) {
@@ -1331,7 +1724,7 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
       if (_discardIfStale(generation, c)) return;
       if (c != null && c.value.isInitialized) {
         c.setLooping(false);
-        c.setVolume(1.0);
+        c.setVolume(_videoVolume);
         if (widget.playbackSpeed != 1.0) {
           try {
             await c.setPlaybackSpeed(widget.playbackSpeed);
@@ -1352,7 +1745,9 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
     _playbackTimer?.cancel();
     if (!_hasMultiClips) return;
     _playbackTimer = Timer.periodic(const Duration(milliseconds: 50), (_) {
-      if (!mounted || _isSwitchingClip || !_hasMultiClips) return;
+      if (!mounted || _isSwitchingClip || !_hasMultiClips || !widget.isActive) {
+        return;
+      }
       final controller = _activeController;
       if (controller != null && controller.value.isInitialized) {
         final posMs = controller.value.position.inMilliseconds;
@@ -1399,7 +1794,7 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
       }
     }
 
-    if (_hasMultiClips) {
+    if (_hasMultiClips && widget.isActive && !widget.forcePaused) {
       final durMs = controller.value.duration.inMilliseconds;
       final posMs = controller.value.position.inMilliseconds;
       final isPlaying = controller.value.isPlaying;
@@ -1438,7 +1833,7 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
         nextController.removeListener(_onVideoControllerUpdate);
         nextController.addListener(_onVideoControllerUpdate);
         nextController.setLooping(false);
-        nextController.setVolume(1.0);
+        nextController.setVolume(_videoVolume);
         if (widget.playbackSpeed != 1.0) {
           try {
             unawaited(nextController.setPlaybackSpeed(widget.playbackSpeed));
@@ -1446,8 +1841,9 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
         }
 
         // Start playing immediately before awaiting background seeks!
-        if (widget.isActive) {
+        if (widget.isActive && !widget.forcePaused) {
           unawaited(nextController.play());
+          _syncBgm(play: true);
         }
 
         _currentClipIndex = nextIndex;
@@ -1455,6 +1851,7 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
           setState(() {
             _isInitialized = true;
           });
+          _publishSeekController();
         }
 
         // Background maintenance on old controller
@@ -1489,7 +1886,18 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
   }
 
   void _disposeControllers() {
+    final notifier = widget.seekController;
+    if (notifier != null &&
+        (identical(notifier.value, _controller) ||
+            identical(notifier.value, _activeController) ||
+            _clipControllers.values.any((c) => identical(notifier.value, c)))) {
+      notifier.value = null;
+    }
+    _syncBgm(play: false);
     _initGeneration++;
+    _loadingHintTimer?.cancel();
+    _loadingHintTimer = null;
+    _showSlowLoading = false;
     _playbackTimer?.cancel();
     _playbackTimer = null;
     _controller?.removeListener(_onVideoControllerUpdate);
@@ -1514,63 +1922,36 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
     super.dispose();
   }
 
-  void _togglePlayPause() {
-    final active = _activeController;
-    if (active != null && _isInitialized) {
-      setState(() {
-        if (active.value.isPlaying) {
-          active.pause();
-          _userPaused = true;
-        } else {
-          active.play();
-          _userPaused = false;
-        }
-      });
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: _togglePlayPause,
-      child: Stack(
+    return Stack(
         fit: StackFit.expand,
         children: [
           // 1. Thumbnail Image Preview (shown initially as background/preview)
           if (widget.thumbnailUrl.trim().isNotEmpty &&
               widget.thumbnailUrl.trim() != 'null')
-            AppImage(
-              url: widget.thumbnailUrl,
-              videoUrl: widget.videoUrl,
-              fit: BoxFit.cover,
-              isVideo: true,
+            _withRecordingFilter(
+              AppImage(
+                url: widget.thumbnailUrl,
+                videoUrl: widget.videoUrl,
+                fit: BoxFit.cover,
+                isVideo: true,
+              ),
             )
           else
             const ColoredBox(color: Color(0xFF140A28)),
 
-          // 2. Loading Indicator Overlay (Before Video Initialization)
-          if (_isInitializing && !_isInitialized)
-            Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const CircularProgressIndicator(
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                    strokeWidth: 2.5,
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'Loading...',
-                    style: TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white.withValues(alpha: 0.9),
-                    ),
-                  ),
-                ],
+          // 2. Loading overlay only if init is actually slow (thumbnail stays visible).
+          if (_showSlowLoading && _isInitializing && !_isInitialized)
+            const Center(
+              child: SizedBox(
+                width: 28,
+                height: 28,
+                child: CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white70),
+                  strokeWidth: 2.2,
+                ),
               ),
             ),
 
@@ -1578,19 +1959,23 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
           if (_isInitialized &&
               _activeController != null &&
               _activeController!.value.isInitialized)
-            FittedBox(
-              fit: BoxFit.cover,
-              clipBehavior: Clip.hardEdge,
-              child: SizedBox(
-                width: _activeController!.value.size.width > 0
-                    ? _activeController!.value.size.width
-                    : 360,
-                height: _activeController!.value.size.height > 0
-                    ? _activeController!.value.size.height
-                    : 640,
-                child: VideoPlayer(
-                  key: ValueKey(_activeController),
-                  _activeController!,
+            _withRecordingFilter(
+              FittedBox(
+                fit: BoxFit.cover,
+                clipBehavior: Clip.hardEdge,
+                child: SizedBox(
+                  width: _activeController!.value.size.width > 0
+                      ? _activeController!.value.size.width
+                      : 360,
+                  height: _activeController!.value.size.height > 0
+                      ? _activeController!.value.size.height
+                      : 640,
+                  child: RepaintBoundary(
+                    child: VideoPlayer(
+                      key: ValueKey(_activeController),
+                      _activeController!,
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -1598,7 +1983,7 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
           // 4. Play / Pause Overlay Icon (Only when user explicitly paused)
           if (_isInitialized &&
               _activeController != null &&
-              _userPaused &&
+              widget.userPaused &&
               !_activeController!.value.isPlaying)
             Center(
               child: Container(
@@ -1614,22 +1999,6 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
                   Icons.play_arrow_rounded,
                   color: Colors.white,
                   size: 40,
-                ),
-              ),
-            ),
-
-          // 4b. Buffering Indicator
-          if (_isInitialized &&
-              _activeController != null &&
-              _activeController!.value.isBuffering &&
-              !_userPaused)
-            const Center(
-              child: SizedBox(
-                width: 38,
-                height: 38,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.5,
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white70),
                 ),
               ),
             ),
@@ -1665,10 +2034,142 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
                 ),
               ),
             ),
-
-
         ],
-      ),
+    );
+  }
+}
+
+class _InstagramSeekBar extends StatefulWidget {
+  const _InstagramSeekBar({
+    super.key,
+    required this.controller,
+    required this.enabled,
+    this.trimStart = Duration.zero,
+    this.trimEnd,
+    this.onScrubStart,
+    this.onScrubEnd,
+  });
+
+  final VideoPlayerController controller;
+  final bool enabled;
+  final Duration trimStart;
+  final Duration? trimEnd;
+  final VoidCallback? onScrubStart;
+  final VoidCallback? onScrubEnd;
+
+  @override
+  State<_InstagramSeekBar> createState() => _InstagramSeekBarState();
+}
+
+class _InstagramSeekBarState extends State<_InstagramSeekBar> {
+  bool _dragging = false;
+  double? _dragValue;
+
+  Duration get _start => widget.trimStart;
+  Duration get _end {
+    final trim = widget.trimEnd;
+    final dur = widget.controller.value.duration;
+    if (trim != null && trim > _start) return trim;
+    return dur;
+  }
+
+  double _progressFromController() {
+    final range = _end.inMilliseconds - _start.inMilliseconds;
+    if (range <= 0) return 0;
+    final pos = widget.controller.value.position.inMilliseconds - _start.inMilliseconds;
+    return (pos / range).clamp(0.0, 1.0);
+  }
+
+  Future<void> _seekTo(double t) async {
+    final range = _end.inMilliseconds - _start.inMilliseconds;
+    if (range <= 0) return;
+    final ms = _start.inMilliseconds + (t.clamp(0.0, 1.0) * range).round();
+    try {
+      await widget.controller.seekTo(Duration(milliseconds: ms));
+    } catch (_) {}
+  }
+
+  void _handleDragStart(DragStartDetails details, double width) {
+    if (!widget.enabled || width <= 0) return;
+    setState(() {
+      _dragging = true;
+      _dragValue = (details.localPosition.dx / width).clamp(0.0, 1.0);
+    });
+    widget.onScrubStart?.call();
+    unawaited(_seekTo(_dragValue!));
+  }
+
+  void _handleDragUpdate(DragUpdateDetails details, double width) {
+    if (!_dragging || width <= 0) return;
+    setState(() {
+      _dragValue = (details.localPosition.dx / width).clamp(0.0, 1.0);
+    });
+    unawaited(_seekTo(_dragValue!));
+  }
+
+  void _handleDragEnd(DragEndDetails details) {
+    if (!_dragging) return;
+    final value = _dragValue ?? _progressFromController();
+    setState(() {
+      _dragging = false;
+      _dragValue = null;
+    });
+    unawaited(() async {
+      await _seekTo(value);
+      widget.onScrubEnd?.call();
+    }());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onHorizontalDragStart: (d) => _handleDragStart(d, width),
+          onHorizontalDragUpdate: (d) => _handleDragUpdate(d, width),
+          onHorizontalDragEnd: _handleDragEnd,
+          onTapUp: widget.enabled
+              ? (d) {
+                  final t = (d.localPosition.dx / width).clamp(0.0, 1.0);
+                  unawaited(() async {
+                    await _seekTo(t);
+                    widget.onScrubEnd?.call();
+                  }());
+                }
+              : null,
+          child: SizedBox(
+            height: 20,
+            width: double.infinity,
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: ValueListenableBuilder<VideoPlayerValue>(
+                valueListenable: widget.controller,
+                builder: (context, value, _) {
+                  final progress = _dragging
+                      ? (_dragValue ?? 0)
+                      : _progressFromController();
+                  final barHeight = _dragging ? 6.0 : 3.5;
+                  return AnimatedContainer(
+                    duration: const Duration(milliseconds: 80),
+                    height: barHeight,
+                    width: double.infinity,
+                    color: Colors.white.withValues(alpha: 0.28),
+                    alignment: Alignment.centerLeft,
+                    child: FractionallySizedBox(
+                      widthFactor: progress,
+                      child: Container(
+                        color: Colors.white.withValues(alpha: 0.92),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

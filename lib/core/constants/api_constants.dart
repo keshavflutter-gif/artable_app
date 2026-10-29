@@ -28,4 +28,7 @@ class ApiConstants {
   static const String rewards = '/app/rewards';
   static const String dailyBonusCalendar = '/app/daily-bonus/calendar';
   static const String dailyBonusClaim = '/app/daily-bonus/claim';
+  static const String referralsInvite = '/app/referrals/invite';
+  static const String referralsTracking = '/app/referrals/tracking';
+  static const String referralsApply = '/app/referrals/apply';
 }

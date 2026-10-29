@@ -1,5 +1,6 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:artable_app/core/utils/video_cache_manager.dart';
 import 'package:artable_app/features/trending/data/models/trending_videos_response.dart';
 import 'package:artable_app/features/trending/data/repositories/videos_repository.dart';
 import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
@@ -68,6 +69,8 @@ class TrendingVideosCubit extends Cubit<TrendingVideosState> {
       selectedCategory: apiCategory,
       selectedCategoryId: apiCategoryId,
       clearError: true,
+      videos: forceRefresh ? const [] : null,
+      clearHero: forceRefresh,
     ));
 
     final token = _authCubit?.sessionToken;
@@ -101,7 +104,17 @@ class TrendingVideosCubit extends Cubit<TrendingVideosState> {
         isLoading: false,
         hasLoaded: true,
         clearError: true,
+        clearHero: res.data?.hero == null,
       ));
+
+      final heroUrl = res.data?.hero?.playableVideoUrl;
+      VideoCacheManager.precacheBatch(
+        [
+          if (heroUrl != null && heroUrl.isNotEmpty) heroUrl,
+          ...?res.data?.gridVideos.map((v) => v.playableVideoUrl),
+        ],
+        maxCount: 5,
+      );
     } catch (e) {
       emit(state.copyWith(
         isLoading: false,

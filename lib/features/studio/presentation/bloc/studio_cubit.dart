@@ -11,6 +11,7 @@ import 'package:artable_app/features/studio/data/repositories/studio_repository.
 import 'package:artable_app/features/studio/data/services/studio_music_playback_service.dart';
 import 'package:artable_app/features/studio/data/services/video_thumbnail_generator.dart';
 import 'package:artable_app/core/utils/media_url_utils.dart';
+import 'package:artable_app/core/utils/reel_helpers.dart';
 import 'studio_state.dart';
 
 class StudioCubit extends Cubit<StudioState> {
@@ -27,6 +28,8 @@ class StudioCubit extends Cubit<StudioState> {
 
   AuthCubit? _authCubit;
   final StudioRepository _repository;
+  bool _draftWriteLock = false;
+  bool _draftsFetchInFlight = false;
 
   void updateAuth(AuthCubit authCubit) {
     _authCubit = authCubit;
@@ -270,7 +273,7 @@ class StudioCubit extends Cubit<StudioState> {
       'challengeId': cleanChallengeId,
       'challengeTitle': mergedTitle,
       'title': mergedTitle,
-      'description': 'Merged video from ${selectedDrafts.length} drafts',
+      'description': _descriptionWithFilter('Merged video from ${selectedDrafts.length} drafts'),
       'duration': formattedDur,
       'durationSeconds': totalSecsInt,
       'recordedAt': DateTime.now().toIso8601String(),
@@ -286,6 +289,7 @@ class StudioCubit extends Cubit<StudioState> {
       'videoTrimEndSeconds': totalSecs,
       ...state.recordingEffectsPayload,
     };
+    _attachFilterToDraftMap(mergedDraft, videoUrl: finalVideoPath);
 
     addDraft(mergedDraft);
     setActiveDraftId(mergedDraftId);
@@ -300,11 +304,14 @@ class StudioCubit extends Cubit<StudioState> {
             body: {
               'challengeId': cleanChallengeId,
               'title': mergedTitle,
-              'description': 'Merged video from ${selectedDrafts.length} drafts',
+              'description': _descriptionWithFilter(
+                'Merged video from ${selectedDrafts.length} drafts',
+              ),
               'videoUrl': finalVideoPath,
               'thumbnailUrl': resolvedThumb,
               'hashtags': ['dance', 'talent', 'artable'],
               'durationSeconds': totalSecsInt,
+              ..._filterPersistFields(),
             },
             sessionToken: token,
             refreshToken: _authCubit?.refreshToken,
@@ -316,6 +323,345 @@ class StudioCubit extends Cubit<StudioState> {
     }());
 
     return mergedDraft;
+  }
+
+  bool _isLocalDraftId(String? id) {
+    final v = (id ?? '').trim();
+    if (v.isEmpty) return true;
+    if (v.startsWith('merged_') || v.startsWith('local_')) return true;
+    return RegExp(r'^d\d+$').hasMatch(v);
+  }
+
+  bool _isRemoteUrl(String path) {
+    final p = path.trim();
+    return p.startsWith('http://') || p.startsWith('https://');
+  }
+
+  bool _isUsableThumb(String path) {
+    final p = path.trim();
+    if (p.isEmpty) return false;
+    if (p.contains('storage.example')) return false;
+    if (MediaUrlUtils.isDummyThumbnail(p)) return false;
+    if (_isRemoteUrl(p)) return true;
+    try {
+      final f = File(p.replaceFirst('file://', ''));
+      return f.existsSync() && f.lengthSync() > 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  int _parseDurationSeconds(int? durationSeconds) {
+    if (durationSeconds != null && durationSeconds > 0) return durationSeconds;
+    final durParts = state.recordedDuration.split(':');
+    if (durParts.length == 2) {
+      final m = int.tryParse(durParts[0]) ?? 0;
+      final s = int.tryParse(durParts[1]) ?? 0;
+      final total = m * 60 + s;
+      if (total > 0) return total;
+    }
+    return 42;
+  }
+
+  String? _sessionToken() {
+    final token = _authCubit?.sessionToken;
+    if (token == null || token.isEmpty || token == 'design_preview') return null;
+    return token;
+  }
+
+  String? _refreshTokenOrNull() {
+    final refresh = _authCubit?.refreshToken;
+    if (refresh == null || refresh.isEmpty || refresh == 'design_preview') return null;
+    return refresh;
+  }
+
+  String _fallbackThumb({
+    required String recVideoPath,
+    required String currentThumb,
+    Map<String, dynamic>? challenge,
+  }) {
+    if (_isUsableThumb(currentThumb)) return currentThumb.trim();
+    final banner = (challenge?['bannerUrl']?.toString() ??
+            challenge?['imageUrl']?.toString() ??
+            '')
+        .trim();
+    if (banner.isNotEmpty) return banner;
+    return recVideoPath;
+  }
+
+  void _replaceDraftById(String oldId, Map<String, dynamic> next) {
+    var found = false;
+    final updated = state.drafts.map((d) {
+      if (d['id'] == oldId) {
+        found = true;
+        return next;
+      }
+      return d;
+    }).toList();
+    if (!found) updated.insert(0, next);
+    emit(state.copyWith(
+      drafts: updated,
+      activeDraftId: state.activeDraftId == oldId
+          ? next['id']?.toString()
+          : state.activeDraftId,
+    ));
+  }
+
+  List<Map<String, dynamic>> _mergeIncomingDrafts(List<Map<String, dynamic>> remote) {
+    final remoteIds = <String>{};
+    final remoteUrls = <String>{};
+    for (final d in remote) {
+      final id = d['id']?.toString();
+      if (id != null && id.isNotEmpty) remoteIds.add(id);
+      final url = (d['videoUrl'] ?? d['videoPath'])?.toString() ?? '';
+      if (url.isNotEmpty) remoteUrls.add(url);
+    }
+
+    final localById = <String, Map<String, dynamic>>{};
+    final localsToKeep = <Map<String, dynamic>>[];
+    for (final d in state.drafts) {
+      final id = d['id']?.toString() ?? '';
+      if (id.isNotEmpty) localById[id] = d;
+      if (!_isLocalDraftId(id) || remoteIds.contains(id)) continue;
+      final url = (d['videoUrl'] ?? d['videoPath'])?.toString() ?? '';
+      if (url.isNotEmpty && remoteUrls.contains(url) && _isRemoteUrl(url)) continue;
+      localsToKeep.add(d);
+    }
+
+    final mergedRemote = remote.map((d) {
+      final id = d['id']?.toString();
+      final local = id != null ? localById[id] : null;
+      if (local == null) return d;
+      final out = {...d};
+      if (local['mergedClipPaths'] != null) {
+        out['mergedClipPaths'] = local['mergedClipPaths'];
+      }
+      if (local['mergedClipDurations'] != null) {
+        out['mergedClipDurations'] = local['mergedClipDurations'];
+      }
+      if (local['mergedClipThumbnails'] != null) {
+        out['mergedClipThumbnails'] = local['mergedClipThumbnails'];
+      }
+      final localPath = local['videoPath']?.toString() ?? '';
+      if (localPath.isNotEmpty && !_isRemoteUrl(localPath)) {
+        out['videoPath'] = localPath;
+      }
+      final localFilter = local['filterId']?.toString();
+      if ((out['filterId'] == null || out['filterId'].toString() == 'natural') &&
+          localFilter != null &&
+          localFilter.isNotEmpty) {
+        out['filterId'] = localFilter;
+        out['beautyOn'] = local['beautyOn'];
+        out['beautyIntensity'] = local['beautyIntensity'];
+      }
+      return out;
+    }).toList();
+
+    return [...localsToKeep, ...mergedRemote];
+  }
+
+  Future<String> _maybeUploadMedia(String path, {required bool isVideo}) async {
+    final clean = path.replaceFirst('file://', '').trim();
+    if (clean.isEmpty || _isRemoteUrl(clean)) return path;
+    if (!File(clean).existsSync()) return path;
+    try {
+      final uploaded = await _repository.uploadFile(
+        clean,
+        isVideo: isVideo,
+        sessionToken: _sessionToken(),
+        refreshToken: _refreshTokenOrNull(),
+      );
+      if (uploaded.isNotEmpty) return uploaded;
+    } catch (e) {
+      debugPrint('Background draft ${isVideo ? 'video' : 'thumb'} upload: $e');
+    }
+    return path;
+  }
+
+  Future<void> _syncNewDraftInBackground({
+    required String localId,
+    required String title,
+    required String description,
+    required String recVideoPath,
+    required String thumbPath,
+    required List<String> hashtags,
+    required int durationSeconds,
+    required String cleanChallengeId,
+    required String? cleanCategoryId,
+    required Map<String, dynamic> filterFields,
+  }) async {
+    try {
+      String vUrl = recVideoPath;
+      String tUrl = thumbPath;
+
+      if (!_isUsableThumb(tUrl) && recVideoPath.isNotEmpty) {
+        try {
+          final gen = await VideoThumbnailGenerator.generateThumbnailFromVideo(recVideoPath)
+              .timeout(const Duration(seconds: 4), onTimeout: () => null);
+          if (gen != null && await gen.exists()) tUrl = gen.path;
+        } catch (_) {}
+      }
+
+      final uploaded = await Future.wait([
+        _maybeUploadMedia(vUrl, isVideo: true),
+        _maybeUploadMedia(tUrl, isVideo: false),
+      ]);
+      vUrl = uploaded[0];
+      tUrl = uploaded[1];
+
+      final sToken = _sessionToken();
+      if (sToken == null) return;
+
+      final res = await _repository.saveDraft(
+        body: {
+          if (cleanChallengeId.isNotEmpty) 'challengeId': cleanChallengeId,
+          if (cleanCategoryId != null && cleanCategoryId.isNotEmpty)
+            'categoryId': cleanCategoryId,
+          'title': title,
+          'description': description,
+          'videoUrl': vUrl,
+          'thumbnailUrl': tUrl,
+          'hashtags': hashtags.isNotEmpty ? hashtags : ['dance', 'talent', 'artable'],
+          'durationSeconds': durationSeconds,
+          if ((filterFields['filterId'] as String) != 'natural')
+            'filterId': filterFields['filterId'],
+          if (filterFields['beautyOn'] == true) 'beautyOn': true,
+          if ((filterFields['beautyIntensity'] as num) > 0)
+            'beautyIntensity': filterFields['beautyIntensity'],
+        },
+        sessionToken: sToken,
+        refreshToken: _refreshTokenOrNull(),
+      );
+      if (!res.success || res.data == null) return;
+
+      final ui = res.data!.toUiMap();
+      Map<String, dynamic>? current;
+      for (final d in state.drafts) {
+        if (d['id'] == localId) {
+          current = d;
+          break;
+        }
+      }
+      if (current != null) {
+        if (current['mergedClipPaths'] != null) {
+          ui['mergedClipPaths'] = current['mergedClipPaths'];
+        }
+        if (current['mergedClipDurations'] != null) {
+          ui['mergedClipDurations'] = current['mergedClipDurations'];
+        }
+        if (current['mergedClipThumbnails'] != null) {
+          ui['mergedClipThumbnails'] = current['mergedClipThumbnails'];
+        }
+        final localPath = current['videoPath']?.toString() ?? '';
+        if (localPath.isNotEmpty && !_isRemoteUrl(localPath)) {
+          ui['videoPath'] = localPath;
+        }
+      }
+      if ((ui['thumbnailUrl'] == null ||
+              ui['thumbnailUrl'].toString().contains('storage.example')) &&
+          tUrl.isNotEmpty) {
+        ui['thumbnailUrl'] = tUrl;
+      }
+      _attachFilterToDraftMap(ui, videoUrl: vUrl);
+      _replaceDraftById(localId, ui);
+    } catch (e) {
+      debugPrint('Background draft sync warning: $e');
+    }
+  }
+
+  Future<void> _syncUpdateDraftInBackground({
+    required String videoId,
+    required String title,
+    required String description,
+    required String recVideoPath,
+    required String thumbPath,
+    required List<String> hashtags,
+    required int durationSeconds,
+    required String cleanChallengeId,
+    required String? cleanCategoryId,
+    required Map<String, dynamic> filterFields,
+  }) async {
+    if (_isLocalDraftId(videoId)) {
+      await _syncNewDraftInBackground(
+        localId: videoId,
+        title: title,
+        description: description,
+        recVideoPath: recVideoPath,
+        thumbPath: thumbPath,
+        hashtags: hashtags,
+        durationSeconds: durationSeconds,
+        cleanChallengeId: cleanChallengeId,
+        cleanCategoryId: cleanCategoryId,
+        filterFields: filterFields,
+      );
+      return;
+    }
+
+    try {
+      String tUrl = thumbPath;
+      if (!_isUsableThumb(tUrl) && recVideoPath.isNotEmpty) {
+        try {
+          final gen = await VideoThumbnailGenerator.generateThumbnailFromVideo(recVideoPath)
+              .timeout(const Duration(seconds: 4), onTimeout: () => null);
+          if (gen != null && await gen.exists()) tUrl = gen.path;
+        } catch (_) {}
+      }
+      tUrl = await _maybeUploadMedia(tUrl, isVideo: false);
+
+      final sToken = _sessionToken();
+      if (sToken == null) return;
+
+      final res = await _repository.updateDraft(
+        videoId: videoId,
+        body: {
+          'challengeId': cleanChallengeId,
+          'categoryId': (cleanCategoryId != null && cleanCategoryId.isNotEmpty)
+              ? cleanCategoryId
+              : null,
+          'title': title,
+          'description': description,
+          'thumbnailUrl': tUrl,
+          'hashtags': hashtags.isNotEmpty ? hashtags : ['dance', 'talent', 'artable'],
+          'durationSeconds': durationSeconds,
+          if ((filterFields['filterId'] as String) != 'natural')
+            'filterId': filterFields['filterId'],
+          if (filterFields['beautyOn'] == true) 'beautyOn': true,
+          if ((filterFields['beautyIntensity'] as num) > 0)
+            'beautyIntensity': filterFields['beautyIntensity'],
+        },
+        sessionToken: sToken,
+        refreshToken: _refreshTokenOrNull(),
+      );
+      if (!res.success || res.data == null) return;
+
+      final ui = res.data!.toUiMap();
+      Map<String, dynamic>? current;
+      for (final d in state.drafts) {
+        if (d['id'] == videoId) {
+          current = d;
+          break;
+        }
+      }
+      final merged = {...?current, ...ui};
+      if (state.recordedVideoPath != null && state.recordedVideoPath!.isNotEmpty) {
+        merged['videoPath'] = state.recordedVideoPath;
+      }
+      if (state.mergedClipPaths != null && state.mergedClipPaths!.isNotEmpty) {
+        merged['mergedClipPaths'] = state.mergedClipPaths;
+      }
+      if (state.mergedClipDurations != null && state.mergedClipDurations!.isNotEmpty) {
+        merged['mergedClipDurations'] = state.mergedClipDurations;
+      }
+      if ((merged['thumbnailUrl'] == null ||
+              merged['thumbnailUrl'].toString().contains('storage.example')) &&
+          tUrl.isNotEmpty) {
+        merged['thumbnailUrl'] = tUrl;
+      }
+      _attachFilterToDraftMap(merged);
+      _replaceDraftById(videoId, merged);
+    } catch (e) {
+      debugPrint('Background draft update warning: $e');
+    }
   }
 
   Future<Map<String, dynamic>?> saveDraftFromPreview({
@@ -334,169 +680,76 @@ class StudioCubit extends Cubit<StudioState> {
       ));
       return null;
     }
-
-    emit(state.copyWith(isSavingDraft: true, clearSaveDraftError: true));
-
-    final token = _authCubit?.sessionToken;
-    final refresh = _authCubit?.refreshToken;
-
-    final cleanChallengeId = (challenge['id']?.toString() ?? state.videoChallengeId ?? '').trim();
-    final cleanCategoryId = (challenge['categoryId']?.toString() ?? state.videoCategoryId)?.trim();
-    final draftTitle = (title ?? challenge['title']?.toString() ?? 'Studio Draft').trim();
-    final draftDescription = description ?? 'Draft from studio preview';
-    final recVideoPath = (videoUrl ?? state.recordedVideoPath ?? '').trim();
-
-    String resolvedThumbPath = (thumbnailUrl ?? state.selectedThumbnailPath ?? '').trim();
-
-    if (resolvedThumbPath.isEmpty || resolvedThumbPath.contains('storage.example')) {
-      if (recVideoPath.isNotEmpty) {
-        try {
-          final genFile = await VideoThumbnailGenerator.generateThumbnailFromVideo(recVideoPath);
-          if (genFile != null && await genFile.exists()) {
-            resolvedThumbPath = genFile.path;
-            emit(state.copyWith(selectedThumbnailPath: resolvedThumbPath));
-          }
-        } catch (e) {
-          debugPrint('Video frame thumbnail generation warning: $e');
-        }
-      }
-    }
-
-    if (resolvedThumbPath.isEmpty) {
-      resolvedThumbPath = (challenge['bannerUrl']?.toString() ?? challenge['imageUrl']?.toString() ?? '').trim();
-    }
-
-    final sToken = (token != null && token != 'design_preview') ? token : null;
-    final rToken = (refresh != null && refresh != 'design_preview') ? refresh : null;
-
-    String vUrl = recVideoPath;
-    if (vUrl.isNotEmpty) {
-      final cleanVPath = vUrl.replaceFirst('file://', '').trim();
-      final isLocalV = !cleanVPath.startsWith('http://') && !cleanVPath.startsWith('https://');
-      if (isLocalV && await File(cleanVPath).exists()) {
-        try {
-          debugPrint('=== DRAFT SAVE PRESIGNED URL === Uploading local video file to storage: $cleanVPath');
-          final uploadedVUrl = await _repository.uploadFile(
-            cleanVPath,
-            isVideo: true,
-            sessionToken: sToken,
-            refreshToken: rToken,
-          );
-          if (uploadedVUrl.isNotEmpty) {
-            vUrl = uploadedVUrl;
-            debugPrint('=== DRAFT SAVE PRESIGNED URL === Real video URL obtained: $vUrl');
-          }
-        } catch (e) {
-          debugPrint('=== DRAFT SAVE PRESIGNED URL === Video upload warning: $e');
-        }
-      }
-    }
-
-    String tUrl = resolvedThumbPath;
-    if (tUrl.isNotEmpty) {
-      final cleanTPath = tUrl.replaceFirst('file://', '').trim();
-      final isLocalT = !cleanTPath.startsWith('http://') && !cleanTPath.startsWith('https://');
-      if (isLocalT && await File(cleanTPath).exists()) {
-        try {
-          debugPrint('=== DRAFT SAVE PRESIGNED URL === Uploading local thumbnail file to storage: $cleanTPath');
-          final uploadedTUrl = await _repository.uploadFile(
-            cleanTPath,
-            isVideo: false,
-            sessionToken: sToken,
-            refreshToken: rToken,
-          );
-          if (uploadedTUrl.isNotEmpty) {
-            tUrl = uploadedTUrl;
-            debugPrint('=== DRAFT SAVE PRESIGNED URL === Real thumbnail URL obtained: $tUrl');
-          }
-        } catch (e) {
-          debugPrint('=== DRAFT SAVE PRESIGNED URL === Thumbnail upload warning: $e');
-        }
-      }
-    }
-
-
-    if (tUrl.isEmpty || tUrl.contains('storage.example') || MediaUrlUtils.isDummyThumbnail(tUrl)) {
-      if (recVideoPath.isNotEmpty) {
-        try {
-          final gen = await VideoThumbnailGenerator.generateThumbnailFromVideo(recVideoPath);
-          if (gen != null && await gen.exists()) {
-            tUrl = gen.path;
-          }
-        } catch (_) {}
-      }
-      if (tUrl.isEmpty || MediaUrlUtils.isDummyThumbnail(tUrl)) {
-        final challengeBanner = (challenge['bannerUrl']?.toString() ?? challenge['imageUrl']?.toString() ?? '').trim();
-        tUrl = challengeBanner.isNotEmpty ? challengeBanner : recVideoPath;
-      }
-    }
-
-    int durSecs = durationSeconds ?? 42;
-    if (durationSeconds == null) {
-      final durParts = state.recordedDuration.split(':');
-      if (durParts.length == 2) {
-        final m = int.tryParse(durParts[0]) ?? 0;
-        final s = int.tryParse(durParts[1]) ?? 0;
-        durSecs = m * 60 + s;
-      }
-    }
-
-    final body = {
-      if (cleanChallengeId.isNotEmpty) 'challengeId': cleanChallengeId,
-      if (cleanCategoryId != null && cleanCategoryId.isNotEmpty) 'categoryId': cleanCategoryId,
-      'title': draftTitle,
-      'description': draftDescription,
-      'videoUrl': vUrl,
-      'thumbnailUrl': tUrl,
-      'hashtags': (hashtags != null && hashtags.isNotEmpty) ? hashtags : ['dance', 'talent', 'artable'],
-      'durationSeconds': durSecs > 0 ? durSecs : 42,
-    };
+    if (_draftWriteLock) return null;
+    _draftWriteLock = true;
 
     try {
-      final res = await _repository.saveDraft(
-        body: body,
-        sessionToken: sToken,
-        refreshToken: rToken,
+      emit(state.copyWith(clearSaveDraftError: true));
+
+      final cleanChallengeId =
+          (challenge['id']?.toString() ?? state.videoChallengeId ?? '').trim();
+      final cleanCategoryId =
+          (challenge['categoryId']?.toString() ?? state.videoCategoryId)?.trim();
+      final draftTitle =
+          (title ?? challenge['title']?.toString() ?? 'Studio Draft').trim();
+      final draftDescription = description ?? 'Draft from studio preview';
+      final recVideoPath = (videoUrl ?? state.recordedVideoPath ?? '').trim();
+      final tags = (hashtags != null && hashtags.isNotEmpty)
+          ? hashtags
+          : <String>['dance', 'talent', 'artable'];
+      final durSecs = _parseDurationSeconds(durationSeconds);
+      final resolvedThumb = _fallbackThumb(
+        recVideoPath: recVideoPath,
+        currentThumb: (thumbnailUrl ?? state.selectedThumbnailPath ?? '').trim(),
+        challenge: challenge,
       );
 
-      if (res.success && res.data != null) {
-        final uiDraftMap = res.data!.toUiMap();
-        if ((uiDraftMap['thumbnailUrl'] == null || uiDraftMap['thumbnailUrl'].toString().contains('storage.example')) && tUrl.isNotEmpty) {
-          uiDraftMap['thumbnailUrl'] = tUrl;
-        }
-        if (state.mergedClipPaths != null) {
-          uiDraftMap['mergedClipPaths'] = state.mergedClipPaths;
-        }
-        if (state.mergedClipDurations != null) {
-          uiDraftMap['mergedClipDurations'] = state.mergedClipDurations;
-        }
-        addDraft(uiDraftMap);
-        emit(state.copyWith(isSavingDraft: false));
-        return uiDraftMap;
-      } else {
-        emit(state.copyWith(
-          isSavingDraft: false,
-          saveDraftError: res.message.isNotEmpty ? res.message : 'Failed to save draft',
-        ));
-        return null;
-      }
-    } catch (e) {
-      debugPrint('StudioCubit saveDraftFromPreview error: $e');
-      final localDraft = {
-        'id': 'd${DateTime.now().millisecondsSinceEpoch}',
+      final filterFields = Map<String, dynamic>.from(_filterPersistFields());
+      final embeddedDescription = _descriptionWithFilter(draftDescription);
+      final localId = 'd${DateTime.now().millisecondsSinceEpoch}';
+      final localDraft = <String, dynamic>{
+        'id': localId,
         'challengeId': cleanChallengeId,
         'challengeTitle': draftTitle,
+        'title': draftTitle,
+        'description': embeddedDescription,
         'duration': state.recordedDuration,
+        'durationSeconds': durSecs,
         'recordedAt': DateTime.now().toIso8601String(),
-        'thumbnailUrl': tUrl,
-        'videoPath': state.recordedVideoPath,
+        'thumbnailUrl': resolvedThumb,
+        'thumbnailPath': resolvedThumb,
+        'videoPath': recVideoPath,
+        'videoUrl': recVideoPath,
         if (state.mergedClipPaths != null) 'mergedClipPaths': state.mergedClipPaths,
-        if (state.mergedClipDurations != null) 'mergedClipDurations': state.mergedClipDurations,
+        if (state.mergedClipDurations != null)
+          'mergedClipDurations': state.mergedClipDurations,
         ...state.recordingEffectsPayload,
       };
-      addDraft(localDraft);
-      emit(state.copyWith(isSavingDraft: false));
+      _attachFilterToDraftMap(localDraft, videoUrl: recVideoPath);
+
+      final updated = List<Map<String, dynamic>>.from(state.drafts)..insert(0, localDraft);
+      emit(state.copyWith(
+        drafts: updated,
+        isSavingDraft: false,
+        activeDraftId: localId,
+      ));
+
+      unawaited(_syncNewDraftInBackground(
+        localId: localId,
+        title: draftTitle,
+        description: embeddedDescription,
+        recVideoPath: recVideoPath,
+        thumbPath: resolvedThumb,
+        hashtags: tags,
+        durationSeconds: durSecs,
+        cleanChallengeId: cleanChallengeId,
+        cleanCategoryId: cleanCategoryId,
+        filterFields: filterFields,
+      ));
+
       return localDraft;
+    } finally {
+      _draftWriteLock = false;
     }
   }
 
@@ -513,179 +766,137 @@ class StudioCubit extends Cubit<StudioState> {
   }) async {
     final cleanVideoId = videoId.trim();
     if (cleanVideoId.isEmpty) return null;
-
-    emit(state.copyWith(isSavingDraft: true, clearSaveDraftError: true));
-
-    final token = _authCubit?.sessionToken;
-    final refresh = _authCubit?.refreshToken;
-
-    final cleanChallengeId = (challengeId ?? challenge?['id']?.toString() ?? state.videoChallengeId ?? '').trim();
-    final cleanCategoryId = (categoryId ?? challenge?['categoryId']?.toString() ?? state.videoCategoryId)?.trim();
-    final draftTitle = (title ?? challenge?['title']?.toString() ?? 'My Dance Entry').trim();
-    final draftDescription = description ?? 'This is my challenge performance.';
-    final recVideoPath = (state.recordedVideoPath ?? '').trim();
-
-    String resolvedThumbPath = (thumbnailUrl ?? state.selectedThumbnailPath ?? '').trim();
-
-    if (resolvedThumbPath.isEmpty || resolvedThumbPath.contains('storage.example')) {
-      if (recVideoPath.isNotEmpty) {
-        try {
-          final genFile = await VideoThumbnailGenerator.generateThumbnailFromVideo(recVideoPath);
-          if (genFile != null && await genFile.exists()) {
-            resolvedThumbPath = genFile.path;
-            emit(state.copyWith(selectedThumbnailPath: resolvedThumbPath));
-          }
-        } catch (e) {
-          debugPrint('Video frame thumbnail generation warning: $e');
-        }
-      }
-    }
-
-    if (resolvedThumbPath.isEmpty && challenge != null) {
-      resolvedThumbPath = (challenge['bannerUrl']?.toString() ?? challenge['imageUrl']?.toString() ?? '').trim();
-    }
-
-    final sToken = (token != null && token != 'design_preview') ? token : null;
-    final rToken = (refresh != null && refresh != 'design_preview') ? refresh : null;
-
-    String tUrl = resolvedThumbPath;
-    if (tUrl.isNotEmpty) {
-      final cleanTPath = tUrl.replaceFirst('file://', '').trim();
-      final isLocalT = !cleanTPath.startsWith('http://') && !cleanTPath.startsWith('https://');
-      if (isLocalT && await File(cleanTPath).exists()) {
-        try {
-          debugPrint('=== DRAFT UPDATE PRESIGNED URL === Uploading thumbnail file to storage: $cleanTPath');
-          final uploadedTUrl = await _repository.uploadFile(
-            cleanTPath,
-            isVideo: false,
-            sessionToken: sToken,
-            refreshToken: rToken,
-          );
-          if (uploadedTUrl.isNotEmpty) {
-            tUrl = uploadedTUrl;
-          }
-        } catch (e) {
-          debugPrint('=== DRAFT UPDATE PRESIGNED URL === Thumbnail upload warning: $e');
-        }
-      }
-    }
-
-    if (tUrl.isEmpty || tUrl.contains('storage.example') || MediaUrlUtils.isDummyThumbnail(tUrl)) {
-      if (recVideoPath.isNotEmpty) {
-        try {
-          final gen = await VideoThumbnailGenerator.generateThumbnailFromVideo(recVideoPath);
-          if (gen != null && await gen.exists()) {
-            tUrl = gen.path;
-          }
-        } catch (_) {}
-      }
-      if (tUrl.isEmpty || MediaUrlUtils.isDummyThumbnail(tUrl)) {
-        final challengeBanner = (challenge?['bannerUrl']?.toString() ?? challenge?['imageUrl']?.toString() ?? '').trim();
-        tUrl = challengeBanner.isNotEmpty ? challengeBanner : recVideoPath;
-      }
-    }
-
-    int durSecs = durationSeconds ?? 42;
-    if (durationSeconds == null) {
-      final durParts = state.recordedDuration.split(':');
-      if (durParts.length == 2) {
-        final m = int.tryParse(durParts[0]) ?? 0;
-        final s = int.tryParse(durParts[1]) ?? 0;
-        durSecs = m * 60 + s;
-      }
-    }
-
-    final body = <String, dynamic>{
-      'challengeId': cleanChallengeId,
-      'categoryId': (cleanCategoryId != null && cleanCategoryId.isNotEmpty) ? cleanCategoryId : null,
-      'title': draftTitle,
-      'description': draftDescription,
-      'thumbnailUrl': tUrl,
-      'hashtags': (hashtags != null && hashtags.isNotEmpty) ? hashtags : ['dance', 'talent', 'artable'],
-      'durationSeconds': durSecs > 0 ? durSecs : 42,
-    };
+    if (_draftWriteLock) return null;
+    _draftWriteLock = true;
 
     try {
-      final res = await _repository.updateDraft(
-        videoId: cleanVideoId,
-        body: body,
-        sessionToken: (token != null && token != 'design_preview') ? token : null,
-        refreshToken: (refresh != null && refresh != 'design_preview') ? refresh : null,
+      emit(state.copyWith(clearSaveDraftError: true));
+
+      final cleanChallengeId = (challengeId ??
+              challenge?['id']?.toString() ??
+              state.videoChallengeId ??
+              '')
+          .trim();
+      final cleanCategoryId = (categoryId ??
+              challenge?['categoryId']?.toString() ??
+              state.videoCategoryId)
+          ?.trim();
+      final draftTitle =
+          (title ?? challenge?['title']?.toString() ?? 'My Dance Entry').trim();
+      final draftDescription = description ?? 'This is my challenge performance.';
+      final recVideoPath = (state.recordedVideoPath ?? '').trim();
+      final tags = (hashtags != null && hashtags.isNotEmpty)
+          ? hashtags
+          : <String>['dance', 'talent', 'artable'];
+      final durSecs = _parseDurationSeconds(durationSeconds);
+      final resolvedThumb = _fallbackThumb(
+        recVideoPath: recVideoPath,
+        currentThumb: (thumbnailUrl ?? state.selectedThumbnailPath ?? '').trim(),
+        challenge: challenge,
       );
 
-      if (res.success && res.data != null) {
-        final uiDraftMap = res.data!.toUiMap();
-        if ((uiDraftMap['thumbnailUrl'] == null || uiDraftMap['thumbnailUrl'].toString().contains('storage.example')) && tUrl.isNotEmpty) {
-          uiDraftMap['thumbnailUrl'] = tUrl;
-        }
-
-        final updatedDrafts = state.drafts.map((d) {
-          if (d['id'] == cleanVideoId) {
-            final merged = {...d, ...uiDraftMap};
-            if (state.recordedVideoPath != null && state.recordedVideoPath!.isNotEmpty) {
-              merged['videoPath'] = state.recordedVideoPath;
-              merged['videoUrl'] = state.recordedVideoPath;
-            }
-            if (state.mergedClipPaths != null && state.mergedClipPaths!.isNotEmpty) {
-              merged['mergedClipPaths'] = state.mergedClipPaths;
-            }
-            if (state.mergedClipDurations != null && state.mergedClipDurations!.isNotEmpty) {
-              merged['mergedClipDurations'] = state.mergedClipDurations;
-            }
-            return merged;
-          }
-          return d;
-        }).toList();
-
-        emit(state.copyWith(
-          drafts: updatedDrafts,
-          isSavingDraft: false,
-        ));
-        return uiDraftMap;
-      } else {
-        emit(state.copyWith(
-          isSavingDraft: false,
-          saveDraftError: res.message.isNotEmpty ? res.message : 'Failed to update draft',
-        ));
-        return null;
+      final filterFields = Map<String, dynamic>.from(_filterPersistFields());
+      final embeddedDescription = _descriptionWithFilter(draftDescription);
+      final localPatch = <String, dynamic>{
+        'id': cleanVideoId,
+        'challengeId': cleanChallengeId,
+        'challengeTitle': draftTitle,
+        'title': draftTitle,
+        'description': embeddedDescription,
+        'thumbnailUrl': resolvedThumb,
+        'thumbnailPath': resolvedThumb,
+        'duration': state.recordedDuration,
+        'durationSeconds': durSecs,
+        'hashtags': tags,
+      };
+      if (recVideoPath.isNotEmpty) {
+        localPatch['videoPath'] = recVideoPath;
+        localPatch['videoUrl'] = recVideoPath;
       }
-    } catch (e) {
-      debugPrint('StudioCubit updateDraftDetails error: $e');
+      if (state.mergedClipPaths != null && state.mergedClipPaths!.isNotEmpty) {
+        localPatch['mergedClipPaths'] = state.mergedClipPaths;
+      }
+      if (state.mergedClipDurations != null && state.mergedClipDurations!.isNotEmpty) {
+        localPatch['mergedClipDurations'] = state.mergedClipDurations;
+      }
+      _attachFilterToDraftMap(localPatch, videoUrl: recVideoPath);
+
+      final updatedDrafts = state.drafts.map((d) {
+        if (d['id'] == cleanVideoId) {
+          return {...d, ...localPatch};
+        }
+        return d;
+      }).toList();
+
       emit(state.copyWith(
+        drafts: updatedDrafts,
         isSavingDraft: false,
-        saveDraftError: e.toString(),
       ));
-      return null;
+
+      unawaited(_syncUpdateDraftInBackground(
+        videoId: cleanVideoId,
+        title: draftTitle,
+        description: embeddedDescription,
+        recVideoPath: recVideoPath,
+        thumbPath: resolvedThumb,
+        hashtags: tags,
+        durationSeconds: durSecs,
+        cleanChallengeId: cleanChallengeId,
+        cleanCategoryId: cleanCategoryId,
+        filterFields: filterFields,
+      ));
+
+      return localPatch;
+    } finally {
+      _draftWriteLock = false;
     }
   }
 
   Future<void> fetchDraftsList({String? challengeId, bool forceRefresh = false}) async {
-    if (state.isLoadingDrafts) return;
+    final hasCache = state.drafts.isNotEmpty;
+    if (!forceRefresh && hasCache) {
+      unawaited(_refreshDraftsFromNetwork(challengeId, showSpinner: false));
+      return;
+    }
+    await _refreshDraftsFromNetwork(
+      challengeId,
+      showSpinner: !hasCache,
+    );
+  }
 
-    emit(state.copyWith(isLoadingDrafts: true));
-
-    final token = _authCubit?.sessionToken;
-    final refresh = _authCubit?.refreshToken;
+  Future<void> _refreshDraftsFromNetwork(
+    String? challengeId, {
+    required bool showSpinner,
+  }) async {
+    if (_draftsFetchInFlight) return;
+    _draftsFetchInFlight = true;
+    if (showSpinner) {
+      emit(state.copyWith(isLoadingDrafts: true));
+    }
 
     try {
       final res = await _repository.getDraftsList(
         challengeId: challengeId,
-        sessionToken: (token != null && token != 'design_preview') ? token : null,
-        refreshToken: (refresh != null && refresh != 'design_preview') ? refresh : null,
+        sessionToken: _sessionToken(),
+        refreshToken: _refreshTokenOrNull(),
       );
 
       if (res.success) {
         final uiDrafts = res.data.map((d) => d.toUiMap()).toList();
         emit(state.copyWith(
-          drafts: uiDrafts,
+          drafts: _mergeIncomingDrafts(uiDrafts),
           isLoadingDrafts: false,
         ));
-      } else {
+      } else if (state.isLoadingDrafts) {
         emit(state.copyWith(isLoadingDrafts: false));
       }
     } catch (e) {
       debugPrint('StudioCubit fetchDraftsList error: $e');
-      emit(state.copyWith(isLoadingDrafts: false));
+      if (state.isLoadingDrafts) {
+        emit(state.copyWith(isLoadingDrafts: false));
+      }
+    } finally {
+      _draftsFetchInFlight = false;
     }
   }
 
@@ -867,15 +1078,76 @@ class StudioCubit extends Cubit<StudioState> {
     bool? isMuted,
     String? speed,
   }) {
+    final id = filterId?.trim();
+    final hasFilter = id != null && id.isNotEmpty;
     emit(state.copyWith(
-      recordingFilter: filterId ?? state.selectedFilter,
-      recordingBeautyOn: beautyOn ?? state.beautyOn,
-      recordingBeautyIntensity: beautyIntensity ?? state.beautyIntensity,
+      recordingFilter: hasFilter ? id : state.recordingFilter,
+      selectedFilter: hasFilter ? id : state.selectedFilter,
+      recordingBeautyOn: beautyOn ?? state.recordingBeautyOn,
+      beautyOn: beautyOn ?? state.beautyOn,
+      recordingBeautyIntensity: beautyIntensity ?? state.recordingBeautyIntensity,
+      beautyIntensity: beautyIntensity ?? state.beautyIntensity,
       videoCropAspectRatio: cropAspectRatio ?? state.videoCropAspectRatio,
       videoTrimStartSeconds: trimStart ?? state.videoTrimStartSeconds,
       videoTrimEndSeconds: trimEnd ?? state.videoTrimEndSeconds,
       isMuted: isMuted ?? state.isMuted,
       selectedSpeed: speed ?? state.selectedSpeed,
+    ));
+  }
+
+  void applyDraftFilterToSession(Map<String, dynamic>? draft) {
+    if (draft == null) return;
+    final meta = ReelHelpers.resolveFilter(
+      filterId: draft['filterId']?.toString() ?? draft['filter_id']?.toString(),
+      beautyOn: draft['beautyOn'] == true || draft['beauty_on'] == true,
+      beautyIntensity: (draft['beautyIntensity'] as num?)?.toDouble() ??
+          (draft['beauty_intensity'] as num?)?.toDouble(),
+      description: draft['description']?.toString(),
+      videoId: draft['id']?.toString(),
+      videoUrl: (draft['videoUrl'] ?? draft['videoPath'])?.toString(),
+    );
+    restoreRecordingEffects(
+      filterId: meta?.filterId ?? 'natural',
+      beautyOn: meta?.beautyOn ?? false,
+      beautyIntensity: meta?.beautyIntensity ?? 0,
+    );
+  }
+
+  Map<String, dynamic> _filterPersistFields() {
+    final id = state.recordingFilter.trim();
+    return {
+      'filterId': id.isEmpty ? 'natural' : id,
+      'beautyOn': state.recordingBeautyOn,
+      'beautyIntensity': state.recordingBeautyIntensity,
+    };
+  }
+
+  String _descriptionWithFilter(String? description) {
+    return ReelHelpers.embedFilterInDescription(
+      description,
+      filterId: state.recordingFilter,
+      beautyOn: state.recordingBeautyOn,
+      beautyIntensity: state.recordingBeautyIntensity,
+    );
+  }
+
+  void _attachFilterToDraftMap(Map<String, dynamic> draft, {String? videoUrl}) {
+    final fields = _filterPersistFields();
+    draft.addAll(fields);
+    final id = draft['id']?.toString();
+    final url = videoUrl ?? draft['videoUrl']?.toString() ?? draft['videoPath']?.toString();
+    ReelHelpers.cacheFilter(
+      id,
+      (
+        filterId: fields['filterId'] as String,
+        beautyOn: fields['beautyOn'] as bool,
+        beautyIntensity: (fields['beautyIntensity'] as num).toDouble(),
+      ),
+    );
+    ReelHelpers.cacheFilter(url, (
+      filterId: fields['filterId'] as String,
+      beautyOn: fields['beautyOn'] as bool,
+      beautyIntensity: (fields['beautyIntensity'] as num).toDouble(),
     ));
   }
 
@@ -1095,15 +1367,25 @@ class StudioCubit extends Cubit<StudioState> {
   }
 
   void resetSession() {
+    prepareFreshRecording();
+  }
+
+  /// Clears leftover draft music/filter/mute so a new in-app recording starts clean.
+  void prepareFreshRecording() {
     state.activeVideoController?.dispose();
-    emit(StudioState(
+    StudioMusicPlaybackService.invalidateLoadedTrack();
+    unawaited(StudioMusicPlaybackService.stop());
+    emit(state.copyWith(
       recordedDuration: '0:00',
-      recordedVideoPath: null,
-      activeVideoController: null,
-      selectedMusic: null,
-      selectedTrack: null,
+      clearRecordedVideoPath: true,
+      clearSelectedThumbnailPath: true,
+      clearSelectedMusic: true,
+      clearActiveVideoController: true,
       musicStartSeconds: 0.0,
       musicCropDuration: 30.0,
+      videoCropAspectRatio: '9:16',
+      videoTrimStartSeconds: 0.0,
+      clearVideoTrimEndSeconds: true,
       cameraMode: StudioCameraMode.back,
       selectedFilter: 'natural',
       selectedSpeed: '1x',
@@ -1113,7 +1395,11 @@ class StudioCubit extends Cubit<StudioState> {
       recordingBeautyOn: false,
       recordingBeautyIntensity: 50,
       isMuted: false,
-      drafts: state.drafts,
+      clearMergedClipPaths: true,
+      clearActiveDraftId: true,
+      videoTitle: '',
+      videoDescription: '',
+      videoHashtags: '',
     ));
   }
 

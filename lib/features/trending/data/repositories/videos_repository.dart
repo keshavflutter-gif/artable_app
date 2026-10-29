@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:artable_app/core/network/api_auth_headers.dart';
@@ -10,6 +11,7 @@ import 'package:artable_app/core/utils/validators.dart';
 import 'package:artable_app/core/utils/reel_helpers.dart';
 import 'package:artable_app/core/widgets/app_image.dart';
 import 'package:artable_app/core/utils/media_url_utils.dart';
+import 'package:artable_app/core/utils/video_cache_manager.dart';
 import '../models/trending_videos_response.dart';
 
 class VideosRepository {
@@ -105,68 +107,7 @@ class VideosRepository {
       } catch (_) {}
     }
 
-    if (res.data == null || (res.data!.hero == null && res.data!.gridVideos.isEmpty)) {
-      final fallbackItems = _getMockTrendingVideos(category: category ?? cleanTab);
-      if (fallbackItems.isNotEmpty) {
-        final heroItem = fallbackItems.first;
-        final videoList = fallbackItems.length > 1 ? fallbackItems.sublist(1) : fallbackItems;
-        res = TrendingVideosResponse(
-          success: true,
-          message: 'Loaded trending videos',
-          data: TrendingVideosData(
-            hero: heroItem,
-            videos: videoList,
-            moreTrendingTalent: videoList,
-            tabs: const ['Trending', 'Popular', 'Newest', 'Dance', 'Singing', 'Comedy', 'Fitness'],
-          ),
-        );
-      }
-    }
-
     return res;
-  }
-
-  List<TrendingVideoItem> _getMockTrendingVideos({String? category}) {
-    final list = <TrendingVideoItem>[];
-    final cleanCategory = category?.trim().toLowerCase();
-
-    for (final raw in MockData.REELS) {
-      final map = Map<String, dynamic>.from(raw);
-      map['status'] ??= 'APPROVED';
-      map['statusLabel'] ??= 'LIVE';
-      map['isLive'] ??= true;
-      map['canContinueDraft'] ??= false;
-      final item = TrendingVideoItem.fromJson(map);
-      if (!item.isVideoLive || item.isDraft) continue;
-
-      if (cleanCategory != null &&
-          cleanCategory.isNotEmpty &&
-          cleanCategory != 'trending' &&
-          cleanCategory != 'popular' &&
-          cleanCategory != 'newest') {
-        final itemCat = item.displayCategoryName.toLowerCase();
-        if (itemCat.contains(cleanCategory) || cleanCategory.contains(itemCat)) {
-          list.add(item);
-        }
-      } else {
-        list.add(item);
-      }
-    }
-
-    if (list.isEmpty) {
-      for (final raw in MockData.REELS) {
-        final map = Map<String, dynamic>.from(raw);
-        map['status'] ??= 'APPROVED';
-        map['statusLabel'] ??= 'LIVE';
-        map['isLive'] ??= true;
-        map['canContinueDraft'] ??= false;
-        final item = TrendingVideoItem.fromJson(map);
-        if (item.isVideoLive && !item.isDraft) {
-          list.add(item);
-        }
-      }
-    }
-    return list;
   }
 
   Future<TrendingVideoItem?> getVideoById(
@@ -232,99 +173,131 @@ class VideosRepository {
     String? username,
     String? avatarUrl,
     String? userId,
+    String? musicName,
+    String? musicUrl,
+    double? musicStartSeconds,
+    double? musicCropDuration,
+    String? filterId,
+    bool? beautyOn,
+    double? beautyIntensity,
+    void Function(int sent, int total)? onUploadProgress,
   }) async {
-    // 1. Ensure video URL is ready
-    String finalVideoUrl = videoPathOrUrl;
-    if (!finalVideoUrl.startsWith('http://') && !finalVideoUrl.startsWith('https://')) {
-      finalVideoUrl = await _uploadFile(
-        finalVideoUrl,
-        isVideo: true,
-        sessionToken: sessionToken,
-        refreshToken: refreshToken,
-      );
+    String _normPath(String p) {
+      var c = p.trim();
+      if (c.startsWith('file://')) c = c.substring(7);
+      return c.replaceAll('\\', '/');
     }
 
-    // 1b. Ensure merged clip URLs are uploaded if present
-    final List<String> finalMergedClipUrls = [];
-    if (mergedClipPaths != null && mergedClipPaths.isNotEmpty) {
-      for (final clip in mergedClipPaths) {
-        var cleanClip = clip.trim();
-        if (cleanClip.startsWith('file://')) cleanClip = cleanClip.replaceFirst('file://', '');
-        if (cleanClip.isEmpty) continue;
-        if (cleanClip.startsWith('http://') || cleanClip.startsWith('https://')) {
-          finalMergedClipUrls.add(cleanClip);
-        } else if (cleanClip.startsWith('/') && !File(cleanClip).existsSync()) {
-          final fullUrl = 'http://server.keshavinfotechdemo2.com:3055$cleanClip';
-          finalMergedClipUrls.add(fullUrl);
-        } else if (cleanClip.contains('uploads/') && !File(cleanClip).existsSync()) {
-          final fullUrl = 'http://server.keshavinfotechdemo2.com:3055/${cleanClip.replaceFirst(RegExp(r'^/+'), '')}';
-          finalMergedClipUrls.add(fullUrl);
-        } else {
-          try {
-            final uploadedClip = await _uploadFile(
-              cleanClip,
-              isVideo: true,
-              sessionToken: sessionToken,
-              refreshToken: refreshToken,
-            );
-            if (uploadedClip.isNotEmpty) {
-              finalMergedClipUrls.add(uploadedClip);
-            } else {
-              finalMergedClipUrls.add(cleanClip);
-            }
-          } catch (e) {
-            debugPrint('Error uploading clip in createVideo: $e');
-            finalMergedClipUrls.add(cleanClip);
-          }
-        }
-      }
-    }
-
-    // 2. Resolve Thumbnail (Priority: Non-dummy manual thumbnail > Video-generated frame)
-    String finalThumbnailUrl = '';
-    Uint8List? localThumbBytes;
     final isManualValid = manualSelectedThumbnailPath != null &&
         manualSelectedThumbnailPath.trim().isNotEmpty &&
         manualSelectedThumbnailPath.trim() != 'null' &&
         !MediaUrlUtils.isDummyThumbnail(manualSelectedThumbnailPath);
 
-    if (isManualValid) {
-      final path = manualSelectedThumbnailPath.trim();
+    // Upload thumbnail in parallel with the video (it is tiny).
+    final thumbTask = () async {
+      String url = '';
+      Uint8List? bytes;
+      if (!isManualValid) return (url: url, bytes: bytes);
+      final path = manualSelectedThumbnailPath!.trim();
       if (path.startsWith('http://') || path.startsWith('https://')) {
-        finalThumbnailUrl = path;
-      } else {
-        try {
-          final file = File(path);
-          if (await file.exists()) {
-            localThumbBytes = await file.readAsBytes();
-          }
-          finalThumbnailUrl = await _uploadFile(
-            path,
-            isVideo: false,
-            sessionToken: sessionToken,
-            refreshToken: refreshToken,
-          );
-        } catch (e) {
-          debugPrint('Thumbnail upload error fallback to video frame: $e');
+        return (url: path, bytes: bytes);
+      }
+      try {
+        final file = File(path);
+        if (await file.exists()) {
+          bytes = await file.readAsBytes();
+        }
+        url = await _uploadFile(
+          path,
+          isVideo: false,
+          sessionToken: sessionToken,
+          refreshToken: refreshToken,
+        );
+      } catch (e) {
+        debugPrint('Thumbnail upload error fallback to video frame: $e');
+      }
+      return (url: url, bytes: bytes);
+    }();
+
+    // 1. Ensure video URL is ready
+    String finalVideoUrl = videoPathOrUrl;
+    final localPrimaryPath =
+        (!finalVideoUrl.startsWith('http://') && !finalVideoUrl.startsWith('https://'))
+            ? finalVideoUrl
+            : null;
+    if (localPrimaryPath != null) {
+      finalVideoUrl = await _uploadFile(
+        localPrimaryPath,
+        isVideo: true,
+        sessionToken: sessionToken,
+        refreshToken: refreshToken,
+        onProgress: onUploadProgress,
+      );
+    }
+
+    // 1b. Extra clips only — skip re-uploading the same primary video.
+    final List<String> finalMergedClipUrls = [];
+    if (mergedClipPaths != null && mergedClipPaths.length > 1) {
+      final mainNorm = _normPath(videoPathOrUrl);
+      final pending = <int, String>{};
+      final slots = List<String?>.filled(mergedClipPaths.length, null);
+
+      for (int i = 0; i < mergedClipPaths.length; i++) {
+        var cleanClip = mergedClipPaths[i].trim();
+        if (cleanClip.startsWith('file://')) cleanClip = cleanClip.replaceFirst('file://', '');
+        if (cleanClip.isEmpty) continue;
+        if (cleanClip.startsWith('http://') || cleanClip.startsWith('https://')) {
+          slots[i] = cleanClip;
+        } else if (cleanClip.startsWith('/') && !File(cleanClip).existsSync()) {
+          slots[i] = 'http://server.keshavinfotechdemo2.com:3055$cleanClip';
+        } else if (cleanClip.contains('uploads/') && !File(cleanClip).existsSync()) {
+          slots[i] =
+              'http://server.keshavinfotechdemo2.com:3055/${cleanClip.replaceFirst(RegExp(r'^/+'), '')}';
+        } else if (_normPath(cleanClip) == mainNorm) {
+          slots[i] = finalVideoUrl;
+        } else {
+          pending[i] = cleanClip;
         }
       }
+
+      if (pending.isNotEmpty) {
+        final entries = pending.entries.toList();
+        final uploaded = await Future.wait(entries.map((e) async {
+          try {
+            return await _uploadFile(
+              e.value,
+              isVideo: true,
+              sessionToken: sessionToken,
+              refreshToken: refreshToken,
+            );
+          } catch (err) {
+            debugPrint('Error uploading clip in createVideo: $err');
+            return e.value;
+          }
+        }));
+        for (int j = 0; j < entries.length; j++) {
+          slots[entries[j].key] = uploaded[j].isNotEmpty ? uploaded[j] : entries[j].value;
+          if (uploaded[j].isNotEmpty) {
+            unawaited(VideoCacheManager.associateLocalFile(entries[j].value, uploaded[j]));
+          }
+        }
+      }
+
+      for (final url in slots) {
+        if (url != null && url.isNotEmpty) finalMergedClipUrls.add(url);
+      }
     }
+
+    // 2. Resolve Thumbnail (already started in parallel with video upload)
+    final thumbResult = await thumbTask;
+    String finalThumbnailUrl = thumbResult.url;
+    Uint8List? localThumbBytes = thumbResult.bytes;
 
     // If manual thumbnail is missing, dummy, or failed to upload, generate frame directly from video
     if (finalThumbnailUrl.isEmpty) {
       try {
-        var generatedFile =
+        final generatedFile =
             await VideoThumbnailGenerator.generateThumbnailFromVideo(videoPathOrUrl);
-
-        if ((generatedFile == null || !await generatedFile.exists()) &&
-            mergedClipPaths != null &&
-            mergedClipPaths.isNotEmpty) {
-          for (final clip in mergedClipPaths) {
-            generatedFile =
-                await VideoThumbnailGenerator.generateThumbnailFromVideo(clip);
-            if (generatedFile != null && await generatedFile.exists()) break;
-          }
-        }
 
         if (generatedFile != null && await generatedFile.exists()) {
           localThumbBytes = await generatedFile.readAsBytes();
@@ -368,9 +341,32 @@ class VideosRepository {
 
     final hashtagsList = _parseHashtagsList(hashtags);
 
-    final effectiveDescription = ReelHelpers.embedClipsInDescription(
+    final clipsDescription = ReelHelpers.embedClipsInDescription(
       description,
       finalMergedClipUrls,
+    );
+    final resolvedMusicName = (musicName != null && musicName.trim().isNotEmpty)
+        ? musicName.trim()
+        : null;
+    final resolvedMusicUrl = (musicUrl != null && musicUrl.trim().isNotEmpty)
+        ? musicUrl.trim()
+        : null;
+    final withMusic = ReelHelpers.embedMusicInDescription(
+      clipsDescription,
+      resolvedMusicUrl != null
+          ? ReelMusicMeta(
+              url: resolvedMusicUrl,
+              name: resolvedMusicName ?? '',
+              startSeconds: musicStartSeconds ?? 0,
+              durationSeconds: musicCropDuration ?? 0,
+            )
+          : null,
+    );
+    final effectiveDescription = ReelHelpers.embedFilterInDescription(
+      withMusic,
+      filterId: filterId,
+      beautyOn: beautyOn ?? false,
+      beautyIntensity: beautyIntensity ?? 0,
     );
 
     final body = <String, dynamic>{
@@ -381,6 +377,19 @@ class VideosRepository {
         'mergedClipPaths': finalMergedClipUrls,
       if (effectiveDescription.isNotEmpty)
         'description': effectiveDescription,
+      if (resolvedMusicName != null)
+        'musicName': resolvedMusicName,
+      if (resolvedMusicUrl != null)
+        'musicUrl': resolvedMusicUrl,
+      if (musicStartSeconds != null)
+        'musicStartSeconds': musicStartSeconds,
+      if (musicCropDuration != null)
+        'musicCropDuration': musicCropDuration,
+      if (filterId != null && filterId.trim().isNotEmpty && filterId.trim() != 'natural')
+        'filterId': filterId.trim(),
+      if (beautyOn == true) 'beautyOn': true,
+      if (beautyIntensity != null && beautyIntensity > 0)
+        'beautyIntensity': beautyIntensity,
       if (realCategoryId != null)
         'categoryId': realCategoryId,
       if (realChallengeId != null)
@@ -500,8 +509,15 @@ class VideosRepository {
       'avatarUrl': resolvedAvatar,
       'views': '1',
       'challengeId': challengeId ?? 'c1',
-      'musicName': 'Original Sound',
+      'musicName': resolvedMusicName ?? 'Original Sound',
+      if (resolvedMusicUrl != null) 'musicUrl': resolvedMusicUrl,
+      if (musicStartSeconds != null) 'musicStartSeconds': musicStartSeconds,
+      if (musicCropDuration != null) 'musicCropDuration': musicCropDuration,
       'caption': title,
+      'description': effectiveDescription,
+      if (filterId != null && filterId.trim().isNotEmpty) 'filterId': filterId.trim(),
+      'beautyOn': beautyOn == true,
+      'beautyIntensity': beautyIntensity ?? 0,
       'likes': '0',
       'comments': '0',
       'shares': '0',
@@ -525,7 +541,23 @@ class VideosRepository {
       ReelHelpers.cacheMergedClips(finalVideoUrl, finalMergedClipUrls);
       newReelItem['mergedClipPaths'] = finalMergedClipUrls;
     }
+    final uploadedFilter = ReelHelpers.resolveFilter(
+      filterId: filterId,
+      beautyOn: beautyOn ?? false,
+      beautyIntensity: beautyIntensity ?? 0,
+      description: effectiveDescription,
+      videoId: createdId != 'N/A' && createdId.isNotEmpty ? createdId : null,
+      videoUrl: finalVideoUrl,
+    );
+    if (uploadedFilter != null) {
+      newReelItem['filterId'] = uploadedFilter.filterId;
+      newReelItem['beautyOn'] = uploadedFilter.beautyOn;
+      newReelItem['beautyIntensity'] = uploadedFilter.beautyIntensity;
+    }
     MockData.REELS.insert(0, Map<String, Object>.from(newReelItem));
+    if (localPrimaryPath != null && finalVideoUrl.startsWith('http')) {
+      await VideoCacheManager.associateLocalFile(localPrimaryPath, finalVideoUrl);
+    }
 
     debugPrint('=== CREATE VIDEO === Create Video API status: ${response['status'] ?? 200}');
     debugPrint('=== CREATE VIDEO === Create Video success: $isSuccess');
@@ -743,6 +775,7 @@ class VideosRepository {
     required bool isVideo,
     String? sessionToken,
     String? refreshToken,
+    void Function(int sent, int total)? onProgress,
   }) async {
     var clean = filePath.trim();
     if (clean.startsWith('file://')) {
@@ -824,12 +857,13 @@ class VideosRepository {
 
     debugPrint(
         '=== STORAGE UPLOAD === Video PUT upload started for $fileSize bytes');
-    final bytes = await file.readAsBytes();
 
-    final uploadSuccess = await _apiClient.uploadFileToPresignedUrl(
+    final uploadSuccess = await _apiClient.uploadStreamToPresignedUrl(
       uploadUrl: uploadUrl,
-      bytes: bytes,
+      byteStream: file.openRead(),
+      contentLength: fileSize,
       contentType: contentType,
+      onProgress: onProgress,
     );
 
     if (!uploadSuccess) {

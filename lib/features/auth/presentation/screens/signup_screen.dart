@@ -132,29 +132,103 @@ class _SignupScreenState extends State<SignupScreen> {
       final userId = response.userId.isNotEmpty
           ? response.userId
           : (auth.pendingUserId ?? '');
+
+      // Backend didn't send a verify id — log in and land on Home.
+      if (verifyId.isEmpty) {
+        final loggedIn = await auth.login(email, pass);
+        if (!mounted) return;
+        if (loggedIn) {
+          context.go(AppRoutes.home);
+          return;
+        }
+        final pending = auth.loginVerificationRequired;
+        if (pending != null) {
+          _openOtpScreen(
+            email: pending.email,
+            password: pending.password,
+            verifyId: pending.verifyId,
+            userId: pending.userId,
+            channel: pending.channel,
+            destination: pending.destination,
+          );
+          return;
+        }
+      }
+
       final targetPhone = phone.trim();
       final destinationVal = targetPhone.isNotEmpty ? targetPhone : email;
-      final destination = Uri.encodeComponent(destinationVal);
-      final encodedVerifyId = Uri.encodeComponent(verifyId);
-      final encodedUserId = Uri.encodeComponent(userId);
-
-      context.push(
-        '${AppRoutes.otpVerification}?from=signup&destination=$destination&verifyId=$encodedVerifyId&userId=$encodedUserId&channel=SMS',
-        extra: {
-          'email': email,
-          'password': pass,
-          'verifyId': verifyId,
-          'userId': userId,
-          'channel': 'SMS',
-        },
+      _openOtpScreen(
+        email: email,
+        password: pass,
+        verifyId: verifyId,
+        userId: userId,
+        channel: 'SMS',
+        destination: destinationVal,
       );
       return;
     }
 
-    final apiMsg = auth.errorMessage ?? response?.message ?? 'Unable to create account. Please try again.';
+    final fields = auth.fieldErrors;
+    String? field(List<String> keys) {
+      for (final key in keys) {
+        final value = fields[key]?.trim();
+        if (value != null && value.isNotEmpty) return value;
+      }
+      return null;
+    }
+
+    final nameApiErr = field(['username', 'fullName', 'name']);
+    final emailApiErr = field(['email']);
+    final phoneApiErr = field(['phoneNumber', 'phone']);
+    final passApiErr = field(['password']);
+    final confirmApiErr = field(['confirmPassword']);
+    final hasFieldErr = nameApiErr != null ||
+        emailApiErr != null ||
+        phoneApiErr != null ||
+        passApiErr != null ||
+        confirmApiErr != null;
+    final apiMsg = auth.errorMessage ??
+        response?.message ??
+        'Unable to create account. Please try again.';
+
     setState(() {
-      _emailError = apiMsg;
+      _nameError = nameApiErr;
+      _emailError = emailApiErr ?? (hasFieldErr ? null : apiMsg);
+      _phoneError = phoneApiErr;
+      _passwordError = passApiErr;
+      _confirmError = confirmApiErr;
     });
+  }
+
+  void _openOtpScreen({
+    required String email,
+    required String password,
+    required String verifyId,
+    required String userId,
+    required String channel,
+    required String destination,
+  }) {
+    final dest = Uri.encodeComponent(destination);
+    final encodedVerifyId = Uri.encodeComponent(verifyId);
+    final encodedUserId = Uri.encodeComponent(userId);
+    final encodedEmail = Uri.encodeComponent(email);
+
+    context.push(
+      '${AppRoutes.otpVerification}'
+      '?from=signup'
+      '&destination=$dest'
+      '&verifyId=$encodedVerifyId'
+      '&userId=$encodedUserId'
+      '&channel=$channel'
+      '&email=$encodedEmail',
+      extra: {
+        'email': email,
+        'password': password,
+        'verifyId': verifyId,
+        'userId': userId,
+        'channel': channel,
+      },
+    );
   }
 
   @override

@@ -1,8 +1,9 @@
-import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
-import 'package:artable_app/core/widgets/app_image.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:artable_app/core/utils/app_filter_utils.dart';
+import 'package:artable_app/features/studio/presentation/bloc/studio_cubit.dart';
 import '../../data/services/video_thumbnail_generator.dart';
 import 'editor_clip.dart';
 
@@ -386,7 +387,7 @@ class _ClipTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final borderColor = isSelected ? _yellow : _unselectedBorder;
     final borderWidth = isSelected ? 2.5 : 1.2;
-    final thumbnailCount = (clipPx / 44).clamp(1.0, 20.0).round();
+    final thumbnailCount = (clipPx / 48).clamp(1.0, 8.0).round();
 
     return GestureDetector(
       onTapUp: (details) {
@@ -531,8 +532,6 @@ class _ClipFilmstripStrip extends StatefulWidget {
 
 class _ClipFilmstripStripState extends State<_ClipFilmstripStrip> {
   static final Map<String, List<Uint8List>> _framesCache = {};
-  static final Map<String, Uint8List> _singleThumbCache = {};
-  static final Set<String> _inFlight = {};
   bool _isLoading = true;
 
   String _cleanPath(String path) {
@@ -549,19 +548,19 @@ class _ClipFilmstripStripState extends State<_ClipFilmstripStrip> {
       rawPath,
       trimStart: widget.clip.trimStart,
       trimEnd: widget.clip.trimEnd,
-      count: widget.frameCount,
       extra: widget.clip.id,
     );
   }
+
+  bool _hasFilmstrip(List<Uint8List>? frames) => frames != null && frames.length > 1;
 
   @override
   void initState() {
     super.initState();
     final key = _cacheKey();
     final cached = _framesCache[key] ?? VideoThumbnailGenerator.getCachedFilmstripFrames(key);
-    if (cached != null && cached.length > 1) {
-      _framesCache[key] = cached;
-      _singleThumbCache[key] = cached.first;
+    if (_hasFilmstrip(cached)) {
+      _framesCache[key] = cached!;
       _isLoading = false;
     } else {
       _isLoading = true;
@@ -576,26 +575,26 @@ class _ClipFilmstripStripState extends State<_ClipFilmstripStrip> {
       _cleanPath(oldWidget.clip.filePath),
       trimStart: oldWidget.clip.trimStart,
       trimEnd: oldWidget.clip.trimEnd,
-      count: oldWidget.frameCount,
       extra: oldWidget.clip.id,
     );
     final newKey = _cacheKey();
 
     if (oldKey != newKey ||
         oldWidget.clip.isMerging != widget.clip.isMerging ||
-        oldWidget.isMerging != widget.isMerging ||
-        oldWidget.clip.thumbnailBytes != widget.clip.thumbnailBytes ||
-        oldWidget.clip.thumbnailPath != widget.clip.thumbnailPath) {
+        oldWidget.isMerging != widget.isMerging) {
       final cached = _framesCache[newKey] ?? VideoThumbnailGenerator.getCachedFilmstripFrames(newKey);
-      if (cached != null && cached.length > 1) {
-        _framesCache[newKey] = cached;
+      if (_hasFilmstrip(cached)) {
+        _framesCache[newKey] = cached!;
         if (_isLoading) {
           setState(() => _isLoading = false);
         }
-      } else {
+      } else if (!widget.isMerging && !widget.clip.isMerging) {
+        if (!_isLoading) {
+          setState(() => _isLoading = true);
+        }
         _loadThumbnails();
       }
-    } else if (_isLoading && _framesCache.containsKey(newKey) && _framesCache[newKey]!.length > 1) {
+    } else if (_isLoading && _hasFilmstrip(_framesCache[newKey])) {
       setState(() => _isLoading = false);
     }
   }
@@ -605,10 +604,9 @@ class _ClipFilmstripStripState extends State<_ClipFilmstripStrip> {
     if (rawPath.isEmpty) return;
 
     final key = _cacheKey();
-    final frameCount = widget.frameCount.clamp(1, 15);
+    final frameCount = widget.frameCount.clamp(1, 8);
 
-    // 1. Instant check if frames already cached for this exact clip and trim interval
-    if (_framesCache.containsKey(key) && _framesCache[key]!.length > 1) {
+    if (_hasFilmstrip(_framesCache[key])) {
       if (_isLoading && mounted) {
         setState(() => _isLoading = false);
       }
@@ -616,42 +614,13 @@ class _ClipFilmstripStripState extends State<_ClipFilmstripStrip> {
     }
 
     final genCached = VideoThumbnailGenerator.getCachedFilmstripFrames(key);
-    if (genCached != null && genCached.length > 1) {
-      _framesCache[key] = genCached;
-      _singleThumbCache[key] = genCached.first;
+    if (_hasFilmstrip(genCached)) {
+      _framesCache[key] = genCached!;
       if (mounted) {
         setState(() => _isLoading = false);
       }
       return;
     }
-
-    // 2. Check clip thumbnail bytes for immediate non-empty display while frames extract
-    Uint8List? existingThumb = widget.clip.thumbnailBytes ??
-        _singleThumbCache[key] ??
-        _singleThumbCache[rawPath] ??
-        AppImage.getCachedThumbnail(rawPath);
-
-    if (existingThumb == null && widget.clip.thumbnailPath != null && widget.clip.thumbnailPath!.isNotEmpty) {
-      try {
-        final f = File(_cleanPath(widget.clip.thumbnailPath!));
-        if (f.existsSync()) {
-          final b = f.readAsBytesSync();
-          if (b.isNotEmpty && b.length > 200) {
-            existingThumb = b;
-          }
-        }
-      } catch (_) {}
-    }
-
-    if (existingThumb != null && existingThumb.isNotEmpty) {
-      _singleThumbCache[key] = existingThumb;
-      if (mounted && _isLoading) {
-        setState(() => _isLoading = false);
-      }
-    }
-
-    if (_inFlight.contains(key)) return;
-    _inFlight.add(key);
 
     try {
       final frames = await VideoThumbnailGenerator.extractFilmstripFrames(
@@ -661,108 +630,83 @@ class _ClipFilmstripStripState extends State<_ClipFilmstripStrip> {
         trimEnd: widget.clip.trimEnd,
         duration: widget.clip.originalDuration,
         cacheKeyExtra: widget.clip.id,
+        onPartial: (partial) {
+          if (!mounted || partial.isEmpty) return;
+          _framesCache[key] = partial;
+          setState(() {});
+        },
       );
 
       if (frames.isNotEmpty) {
         _framesCache[key] = frames;
-        _singleThumbCache[key] = frames.first;
-        if (mounted) {
-          setState(() => _isLoading = false);
-        }
+      }
+      if (mounted) {
+        setState(() => _isLoading = false);
       }
     } catch (_) {
-    } finally {
-      _inFlight.remove(key);
-      if (mounted && _isLoading) {
+      if (mounted) {
         setState(() => _isLoading = false);
       }
     }
   }
 
+  Widget _withRecordingFilter(Widget child) {
+    try {
+      final studio = context.read<StudioCubit>();
+      return AppFilterUtils.wrap(
+        filterId: studio.recordingFilter,
+        beautyOn: studio.recordingBeautyOn,
+        beautyIntensity: studio.recordingBeautyIntensity,
+        child: child,
+      );
+    } catch (_) {
+      return child;
+    }
+  }
+
   Widget _buildCell(int index, int totalCount, List<Uint8List>? frames) {
-    if (frames != null && frames.isNotEmpty) {
-      // 1-to-1 mapping if exact frameCount was extracted, otherwise proportional
-      final int frameIdx = (frames.length == totalCount)
-          ? index.clamp(0, frames.length - 1)
-          : ((index / (totalCount <= 1 ? 1 : totalCount - 1)) * (frames.length - 1)).round().clamp(0, frames.length - 1);
-      final Uint8List cellBytes = frames[frameIdx];
-      return Image.memory(
-        cellBytes,
-        fit: BoxFit.cover,
-        width: double.infinity,
-        height: double.infinity,
-        gaplessPlayback: true,
-      );
+    if (frames == null || frames.isEmpty) {
+      if (_isLoading) return const _FilmstripCellLoader();
+      return const ColoredBox(color: Color(0xFF1E1435));
     }
 
-    final key = _cacheKey();
-    final rawPath = _cleanPath(widget.clip.filePath);
-    final single = widget.clip.thumbnailBytes ??
-        _singleThumbCache[key] ??
-        _singleThumbCache[rawPath] ??
-        AppImage.getCachedThumbnail(rawPath);
-    if (single != null && single.isNotEmpty) {
-      return Image.memory(
-        single,
-        fit: BoxFit.cover,
-        width: double.infinity,
-        height: double.infinity,
-        gaplessPlayback: true,
-      );
-    }
-
-    final thumbPath = widget.clip.thumbnailPath;
-    if (thumbPath != null && thumbPath.trim().isNotEmpty) {
-      final cleanThumb = _cleanPath(thumbPath);
-      final f = File(cleanThumb);
-      if (f.existsSync()) {
-        return Image.file(
-          f,
+    if (_isLoading) {
+      if (index >= frames.length) return const _FilmstripCellLoader();
+      return _withRecordingFilter(
+        Image.memory(
+          frames[index],
           fit: BoxFit.cover,
           width: double.infinity,
           height: double.infinity,
           gaplessPlayback: true,
-        );
-      }
+          filterQuality: FilterQuality.low,
+        ),
+      );
     }
 
-    // High quality filmstrip cell placeholder (never spawn video controller in cells)
-    return Container(
-      decoration: const BoxDecoration(
-        color: Color(0xFF1E1435),
-      ),
-      child: Center(
-        child: Container(
-          width: 4,
-          height: 4,
-          decoration: const BoxDecoration(
-            shape: BoxShape.circle,
-            color: Color(0x22FFFFFF),
-          ),
-        ),
+    final int frameIdx = (frames.length == totalCount)
+        ? index.clamp(0, frames.length - 1)
+        : ((index / (totalCount <= 1 ? 1 : totalCount - 1)) * (frames.length - 1)).round().clamp(0, frames.length - 1);
+    return _withRecordingFilter(
+      Image.memory(
+        frames[frameIdx],
+        fit: BoxFit.cover,
+        width: double.infinity,
+        height: double.infinity,
+        gaplessPlayback: true,
+        filterQuality: FilterQuality.low,
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final rawPath = _cleanPath(widget.clip.filePath);
     final key = _cacheKey();
-    final frameCount = widget.frameCount.clamp(1, 15);
+    final frameCount = widget.frameCount.clamp(1, 8);
     final frames = _framesCache[key] ?? VideoThumbnailGenerator.getCachedFilmstripFrames(key);
-
     final bool isMergingNow = widget.isMerging || widget.clip.isMerging;
-    final bool hasFrames = frames != null && frames.isNotEmpty;
-    final bool hasThumbBytes = (widget.clip.thumbnailBytes != null && widget.clip.thumbnailBytes!.isNotEmpty) ||
-        _singleThumbCache.containsKey(key) ||
-        _singleThumbCache.containsKey(rawPath) ||
-        AppImage.getCachedThumbnail(rawPath) != null;
-    final bool hasThumbPath = widget.clip.thumbnailPath != null && widget.clip.thumbnailPath!.trim().isNotEmpty;
-    final bool hasAnyVisual = hasFrames || hasThumbBytes || hasThumbPath;
-
-    // While merging is active, ALWAYS show the loader in this row.
-    // If not merging, show loader ONLY while actively loading frames and no visual is ready.
-    final bool showLoader = isMergingNow || (_isLoading && !hasAnyVisual);
+    final bool hasFilmstrip = _hasFilmstrip(frames);
+    final bool showFullLoader = isMergingNow || (_isLoading && !hasFilmstrip);
 
     return Container(
       decoration: BoxDecoration(
@@ -776,8 +720,7 @@ class _ClipFilmstripStripState extends State<_ClipFilmstripStrip> {
         child: Stack(
           alignment: Alignment.center,
           children: [
-            // When ready: display clean frames/thumbnails across the strip
-            if (!showLoader)
+            if (!showFullLoader)
               Row(
                 children: List.generate(frameCount, (i) {
                   return Expanded(
@@ -793,9 +736,7 @@ class _ClipFilmstripStripState extends State<_ClipFilmstripStrip> {
                   );
                 }),
               ),
-
-            // While loading or merging: show ONLY the centered loader (no text)
-            if (showLoader)
+            if (showFullLoader)
               Container(
                 color: const Color(0xFF140D24),
                 child: const Center(
@@ -810,6 +751,27 @@ class _ClipFilmstripStripState extends State<_ClipFilmstripStrip> {
                 ),
               ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FilmstripCellLoader extends StatelessWidget {
+  const _FilmstripCellLoader();
+
+  @override
+  Widget build(BuildContext context) {
+    return const ColoredBox(
+      color: Color(0xFF1E1435),
+      child: Center(
+        child: SizedBox(
+          width: 12,
+          height: 12,
+          child: CircularProgressIndicator(
+            strokeWidth: 1.6,
+            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFFD54F)),
+          ),
         ),
       ),
     );

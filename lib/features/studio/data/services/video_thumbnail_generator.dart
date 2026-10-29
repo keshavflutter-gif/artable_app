@@ -172,6 +172,8 @@ class VideoThumbnailGenerator {
   }
 
   static final Map<String, List<Uint8List>> _filmstripCache = {};
+  static final Map<String, Future<List<Uint8List>>> _inflightFilmstrip = {};
+  static final Map<String, List<void Function(List<Uint8List>)>> _partialListeners = {};
 
   /// Clears the entire filmstrip cache in memory.
   static void clearCache() {
@@ -199,7 +201,7 @@ class VideoThumbnailGenerator {
     clean = clean.replaceAll('\\', '/');
     final sMs = trimStart.inMilliseconds;
     final eMs = trimEnd?.inMilliseconds ?? 0;
-    return '${extra ?? ""}_${clean}_${sMs}_${eMs}_${count ?? 0}';
+    return '${extra ?? ""}_${clean}_${sMs}_$eMs';
   }
 
   /// Returns cached filmstrip frames if already extracted.
@@ -208,6 +210,42 @@ class VideoThumbnailGenerator {
     if (clean.startsWith('file://')) clean = clean.substring(7);
     clean = clean.replaceAll('\\', '/');
     return _filmstripCache[clean] ?? _filmstripCache[cacheKeyOrPath];
+  }
+
+  static bool _isSameFrame(Uint8List a, Uint8List b) {
+    if (identical(a, b) || a.length != b.length) return a.length == b.length;
+    final step = (a.length / 12).floor().clamp(1, a.length);
+    for (int i = 0; i < a.length; i += step) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
+  static void _emitPartial(String cacheKey, List<Uint8List> frames) {
+    if (frames.isEmpty) return;
+    _filmstripCache[cacheKey] = frames;
+    final listeners = _partialListeners[cacheKey];
+    if (listeners == null) return;
+    for (final listener in List<void Function(List<Uint8List>)>.from(listeners)) {
+      try {
+        listener(frames);
+      } catch (_) {}
+    }
+  }
+
+  static Future<Uint8List?> _frameAt(String videoPath, int timeMs) async {
+    try {
+      final data = await VideoThumbnail.thumbnailData(
+        video: videoPath,
+        imageFormat: ImageFormat.JPEG,
+        maxWidth: 80,
+        maxHeight: 80,
+        quality: 50,
+        timeMs: timeMs.clamp(0, 3600000),
+      ).timeout(const Duration(milliseconds: 900), onTimeout: () => null);
+      if (data != null && data.isNotEmpty && data.length > 200) return data;
+    } catch (_) {}
+    return null;
   }
 
   /// Generates a list of progressive distinct frame bytes strictly across the
@@ -219,6 +257,7 @@ class VideoThumbnailGenerator {
     Duration? trimEnd,
     Duration? duration,
     String? cacheKeyExtra,
+    void Function(List<Uint8List> frames)? onPartial,
   }) async {
     try {
       var cleanPath = videoPath.trim();
@@ -228,143 +267,163 @@ class VideoThumbnailGenerator {
       cleanPath = cleanPath.replaceAll('\\', '/');
       if (cleanPath.isEmpty) return const [];
 
-      final int count = targetCount.clamp(1, 15);
+      final int count = targetCount.clamp(1, 8);
       final cacheKey = buildCacheKey(
         cleanPath,
         trimStart: trimStart,
         trimEnd: trimEnd,
-        count: count,
         extra: cacheKeyExtra,
       );
 
-      if (_filmstripCache.containsKey(cacheKey) && _filmstripCache[cacheKey]!.isNotEmpty) {
-        return _filmstripCache[cacheKey]!;
+      final cached = _filmstripCache[cacheKey];
+      if (cached != null && cached.length > 1) {
+        onPartial?.call(cached);
+        return cached;
       }
 
-      final isRemote = cleanPath.startsWith('http://') || cleanPath.startsWith('https://');
-      String effectivePath = cleanPath;
-
-      if (isRemote) {
-        final tempDir = await getTemporaryDirectory();
-        final urlHash = cleanPath.hashCode.abs();
-        final cachedVideo = File('${tempDir.path}/vclip_$urlHash.mp4');
-        if (await cachedVideo.exists() && await cachedVideo.length() > 5000) {
-          effectivePath = cachedVideo.path;
-        } else {
-          try {
-            final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
-            final req = await client.getUrl(Uri.parse(cleanPath));
-            final resp = await req.close();
-            if (resp.statusCode >= 200 && resp.statusCode < 300) {
-              final sink = cachedVideo.openWrite();
-              await resp.pipe(sink);
-              await sink.flush();
-              await sink.close();
-              effectivePath = cachedVideo.path;
-            }
-          } catch (e) {
-            debugPrint('VideoThumbnailGenerator remote clip fetch error: $e');
-          }
-        }
-      } else {
-        final localFile = File(cleanPath);
-        if (!await localFile.exists()) {
-          return const [];
-        }
+      if (onPartial != null) {
+        _partialListeners.putIfAbsent(cacheKey, () => []).add(onPartial);
       }
 
-      // Calculate exact start and end in ms
-      final int startMs = trimStart.inMilliseconds.clamp(0, 3600000);
-      int endMs = trimEnd != null ? trimEnd.inMilliseconds : 0;
-      if (endMs <= startMs) {
-        final fallbackDurMs = (duration != null && duration.inMilliseconds > 500)
-            ? duration.inMilliseconds
-            : 6000;
-        endMs = fallbackDurMs;
-      }
-      if (endMs <= startMs) {
-        endMs = startMs + 6000;
-      }
-
-      final int segmentMs = endMs - startMs;
-
-      // Compute exact center sample time for each timeline cell slot
-      final List<int> sampleTimes = [];
-      for (int i = 0; i < count; i++) {
-        final double ratio = (count <= 1) ? 0.5 : ((i + 0.5) / count);
-        final int t = startMs + (segmentMs * ratio).round();
-        sampleTimes.add(t);
-      }
-
-      final List<Uint8List?> slotFrames = List.filled(count, null);
-      for (int i = 0; i < count; i++) {
-        final tMs = sampleTimes[i];
-        Uint8List? data;
+      final inflight = _inflightFilmstrip[cacheKey];
+      if (inflight != null) {
         try {
-          data = await VideoThumbnail.thumbnailData(
-            video: effectivePath,
-            imageFormat: ImageFormat.JPEG,
-            maxWidth: 120,
-            maxHeight: 120,
-            quality: 45,
-            timeMs: tMs,
-          ).timeout(const Duration(milliseconds: 2500), onTimeout: () => null);
-        } catch (_) {}
-
-        if (data != null && data.isNotEmpty && data.length > 200) {
-          slotFrames[i] = data;
-        }
-
-        // Brief yield so Android MediaMetadataRetriever recovers
-        await Future.delayed(const Duration(milliseconds: 10));
-      }
-
-      // Fill any missing slots with the closest available slot's frame
-      Uint8List? lastAvailable;
-      for (int i = 0; i < count; i++) {
-        if (slotFrames[i] != null) {
-          lastAvailable = slotFrames[i];
-        } else if (lastAvailable != null) {
-          slotFrames[i] = lastAvailable;
-        }
-      }
-      Uint8List? nextAvailable;
-      for (int i = count - 1; i >= 0; i--) {
-        if (slotFrames[i] != null) {
-          nextAvailable = slotFrames[i];
-        } else if (nextAvailable != null) {
-          slotFrames[i] = nextAvailable;
+          return await inflight;
+        } finally {
+          _partialListeners[cacheKey]?.remove(onPartial);
         }
       }
 
-      // Final single-frame fallback if all slots failed
-      if (slotFrames.every((f) => f == null)) {
-        try {
-          final single = await VideoThumbnail.thumbnailData(
-            video: effectivePath,
-            imageFormat: ImageFormat.JPEG,
-            maxWidth: 120,
-            maxHeight: 120,
-            quality: 45,
-            timeMs: (startMs + 250).clamp(0, endMs),
-          ).timeout(const Duration(milliseconds: 2000), onTimeout: () => null);
-          if (single != null && single.isNotEmpty) {
-            slotFrames.fillRange(0, count, single);
-          }
-        } catch (_) {}
+      final extractFuture = _extractFilmstripUncached(
+        cleanPath: cleanPath,
+        cacheKey: cacheKey,
+        count: count,
+        trimStart: trimStart,
+        trimEnd: trimEnd,
+        duration: duration,
+      );
+      _inflightFilmstrip[cacheKey] = extractFuture;
+      try {
+        return await extractFuture;
+      } finally {
+        _inflightFilmstrip.remove(cacheKey);
+        _partialListeners.remove(cacheKey);
       }
-
-      final List<Uint8List> finalFrames = slotFrames.whereType<Uint8List>().toList();
-
-      if (finalFrames.isNotEmpty) {
-        _filmstripCache[cacheKey] = finalFrames;
-        return finalFrames;
-      }
-
-      return const [];
     } catch (e) {
       debugPrint('VideoThumbnailGenerator extractFilmstripFrames error: $e');
       return const [];
     }
+  }
+
+  static Future<List<Uint8List>> _extractFilmstripUncached({
+    required String cleanPath,
+    required String cacheKey,
+    required int count,
+    required Duration trimStart,
+    Duration? trimEnd,
+    Duration? duration,
+  }) async {
+    final isRemote = cleanPath.startsWith('http://') || cleanPath.startsWith('https://');
+    String effectivePath = cleanPath;
+
+    if (isRemote) {
+      final tempDir = await getTemporaryDirectory();
+      final urlHash = cleanPath.hashCode.abs();
+      final cachedVideo = File('${tempDir.path}/vclip_$urlHash.mp4');
+      if (await cachedVideo.exists() && await cachedVideo.length() > 5000) {
+        effectivePath = cachedVideo.path;
+      } else {
+        try {
+          final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
+          final req = await client.getUrl(Uri.parse(cleanPath));
+          final resp = await req.close();
+          if (resp.statusCode >= 200 && resp.statusCode < 300) {
+            final sink = cachedVideo.openWrite();
+            await resp.pipe(sink);
+            await sink.flush();
+            await sink.close();
+            effectivePath = cachedVideo.path;
+          }
+        } catch (e) {
+          debugPrint('VideoThumbnailGenerator remote clip fetch error: $e');
+        }
+      }
+    } else {
+      final localFile = File(cleanPath);
+      if (!await localFile.exists()) {
+        return const [];
+      }
+    }
+
+    final int startMs = trimStart.inMilliseconds.clamp(0, 3600000);
+    int endMs = trimEnd != null ? trimEnd.inMilliseconds : 0;
+    if (endMs <= startMs) {
+      final fallbackDurMs = (duration != null && duration.inMilliseconds > 500)
+          ? duration.inMilliseconds
+          : 6000;
+      endMs = fallbackDurMs;
+    }
+    if (endMs <= startMs) {
+      endMs = startMs + 6000;
+    }
+
+    final int segmentMs = (endMs - startMs).clamp(1, 3600000);
+    final List<Uint8List?> slotFrames = List.filled(count, null);
+    Uint8List? previous;
+
+    for (int i = 0; i < count; i++) {
+      final double ratio = (count <= 1) ? 0.5 : ((i + 0.5) / count);
+      int tMs = startMs + (segmentMs * ratio).round();
+      Uint8List? data = await _frameAt(effectivePath, tMs);
+
+      if (data != null && previous != null && _isSameFrame(previous, data)) {
+        for (final bump in [400, 800, 1200]) {
+          final retryAt = (tMs + bump).clamp(startMs, endMs);
+          if (retryAt == tMs) continue;
+          final retry = await _frameAt(effectivePath, retryAt);
+          if (retry != null && !_isSameFrame(previous, retry)) {
+            data = retry;
+            break;
+          }
+        }
+      }
+
+      if (data != null) {
+        slotFrames[i] = data;
+        previous = data;
+        final prefix = <Uint8List>[];
+        for (final slot in slotFrames) {
+          if (slot == null) break;
+          prefix.add(slot);
+        }
+        _emitPartial(cacheKey, prefix);
+      }
+
+      await Future<void>.delayed(Duration.zero);
+    }
+
+    Uint8List? lastAvailable;
+    for (int i = 0; i < count; i++) {
+      if (slotFrames[i] != null) {
+        lastAvailable = slotFrames[i];
+      } else if (lastAvailable != null) {
+        slotFrames[i] = lastAvailable;
+      }
+    }
+    Uint8List? nextAvailable;
+    for (int i = count - 1; i >= 0; i--) {
+      if (slotFrames[i] != null) {
+        nextAvailable = slotFrames[i];
+      } else if (nextAvailable != null) {
+        slotFrames[i] = nextAvailable;
+      }
+    }
+
+    final List<Uint8List> finalFrames = slotFrames.whereType<Uint8List>().toList();
+    if (finalFrames.isNotEmpty) {
+      _filmstripCache[cacheKey] = finalFrames;
+      _emitPartial(cacheKey, finalFrames);
+    }
+    return finalFrames;
   }
 }

@@ -11,6 +11,8 @@ import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/features/shell/presentation/widgets/app_shell.dart';
 import 'package:artable_app/features/shell/presentation/widgets/bottom_nav.dart';
 import 'package:artable_app/core/widgets/network_image_widget.dart';
+import 'package:artable_app/core/utils/app_filter_utils.dart';
+import 'package:artable_app/core/utils/reel_helpers.dart';
 import 'package:artable_app/core/widgets/section_header.dart';
 import 'package:artable_app/features/studio/presentation/widgets/studio_header.dart';
 import 'package:artable_app/core/widgets/no_internet_dialog.dart';
@@ -1195,7 +1197,31 @@ class _ReelGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (reels.isEmpty) {
-      return const SizedBox.shrink();
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 16),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF9F8FC),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFECE8F5), width: 1.2),
+        ),
+        child: const Column(
+          children: [
+            Icon(Icons.movie_filter_outlined, size: 36, color: Color(0xFF8B849C)),
+            SizedBox(height: 8),
+            Text(
+              'No trending videos available right now.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF8B849C),
+              ),
+            ),
+          ],
+        ),
+      );
     }
 
     return GridView.builder(
@@ -1240,13 +1266,17 @@ class _ReelGrid extends StatelessWidget {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                ColorFiltered(
-                  colorFilter: const ColorFilter.matrix([
-                    1.12, 0, 0, 0, 0,
-                    0, 1.05, 0, 0, 0,
-                    0, 0, 1.05, 0, 0,
-                    0, 0, 0, 1, 0,
-                  ]),
+                AppFilterUtils.wrap(
+                  filterId: ReelHelpers.resolveFilter(
+                    filterId: reel['filterId']?.toString(),
+                    beautyOn: reel['beautyOn'] == true,
+                    beautyIntensity: (reel['beautyIntensity'] as num?)?.toDouble(),
+                    description: (reel['description'] ?? reel['caption'])?.toString(),
+                    videoId: reel['id']?.toString(),
+                    videoUrl: reel['videoUrl']?.toString(),
+                  )?.filterId ?? reel['filterId']?.toString(),
+                  beautyOn: reel['beautyOn'] == true,
+                  beautyIntensity: (reel['beautyIntensity'] as num?)?.toDouble() ?? 0,
                   child: NetworkImageWidget(url: reel['imageUrl'] as String? ?? ''),
                 ),
                 DecoratedBox(

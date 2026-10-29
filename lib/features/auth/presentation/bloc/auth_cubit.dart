@@ -85,6 +85,7 @@ class AuthCubit extends Cubit<AuthState> {
   bool get isUpdatingProfile => state.isUpdatingProfile;
   bool get isChangingPassword => state.isChangingPassword;
   String? get errorMessage => state.errorMessage;
+  Map<String, String> get fieldErrors => state.fieldErrors;
 
   void applyRefreshedTokens({
     required String sessionToken,
@@ -686,7 +687,12 @@ class AuthCubit extends Cubit<AuthState> {
       debugPrint('=== REGISTER API EXCEPTION ===');
       debugPrint('Status Code: ${e.statusCode}');
       debugPrint('Message: ${e.message}');
-      emit(state.copyWith(isLoading: false, errorMessage: e.message));
+      debugPrint('Field errors: ${e.fieldErrors}');
+      emit(state.copyWith(
+        isLoading: false,
+        errorMessage: e.message,
+        fieldErrors: e.fieldErrors,
+      ));
       return null;
     } catch (e) {
       debugPrint('=== REGISTER API ERROR ===: $e');
@@ -727,22 +733,15 @@ class AuthCubit extends Cubit<AuthState> {
       }
 
       if (response.success) {
-        final token = response.data?['sessionToken']?.toString() ??
-            response.data?['token']?.toString() ??
-            response.data?['accessToken']?.toString();
-        final refresh = response.data?['refreshToken']?.toString();
-
-        if (token != null && token.isNotEmpty) {
+        if (response.hasSession) {
           final updatedUser = Map<String, dynamic>.from(state.currentUser);
-          String? updatedUid = state.userId;
+          String? updatedUid = response.userInfo?.id ?? state.userId;
           String? registeredName = state.lastRegisteredFullName;
 
-          final userMap = response.data?['user'] ?? response.data?['userInfo'];
-          if (userMap is Map<String, dynamic>) {
-            final userInfo = UserInfo.fromJson(userMap);
+          if (response.userInfo != null) {
             final res = _applyUserInfoToState(
               updatedUser,
-              userInfo,
+              response.userInfo,
               registeredName,
               updatedUid,
             );
@@ -754,20 +753,20 @@ class AuthCubit extends Cubit<AuthState> {
           }
           updatedUser['isLoggedIn'] = true;
 
-          await _authRepository.persistLocalProfileDetails(
-            displayName: updatedUser['name'] as String?,
-            firstName: updatedUser['firstName'] as String?,
-            lastName: updatedUser['lastName'] as String?,
-          );
-
           emit(state.copyWith(
             isVerifyingOtp: false,
-            sessionToken: token,
-            refreshToken: refresh ?? token,
+            sessionToken: response.sessionToken,
+            refreshToken: response.refreshToken.isNotEmpty
+                ? response.refreshToken
+                : response.sessionToken,
             userId: updatedUid,
             currentUser: updatedUser,
             lastRegisteredFullName: registeredName,
           ));
+
+          if (updatedUid != null && updatedUid.isNotEmpty) {
+            await fetchUserDetails();
+          }
         } else {
           emit(state.copyWith(isVerifyingOtp: false));
           final loginEmail = (email != null && email.isNotEmpty)

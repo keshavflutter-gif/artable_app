@@ -330,9 +330,29 @@ abstract final class AppFilterUtils {
 
   static FilterPreset getPreset(String id) {
     final cleanId = id.trim().toLowerCase();
-    return presets.firstWhere(
-      (p) => p.id.toLowerCase() == cleanId,
-      orElse: () => presets.first,
+    for (final p in presets) {
+      if (p.id.toLowerCase() == cleanId || p.label.toLowerCase() == cleanId) {
+        return p;
+      }
+    }
+    return presets.first;
+  }
+
+  static Widget wrap({
+    required Widget child,
+    String? filterId,
+    bool beautyOn = false,
+    double beautyIntensity = 0,
+  }) {
+    final id = filterId?.trim() ?? '';
+    if ((id.isEmpty || id.toLowerCase() == 'natural') && !beautyOn) {
+      return child;
+    }
+    return buildFilteredView(
+      child: child,
+      filterId: id.isEmpty ? 'natural' : id,
+      beautyOn: beautyOn,
+      beautyIntensity: beautyIntensity,
     );
   }
 

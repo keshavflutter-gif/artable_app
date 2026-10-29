@@ -292,7 +292,21 @@ class AuthRepository {
 
   Future<VerifyOtpResponse> verifyOtp(VerifyOtpRequest request) async {
     final data = await _apiClient.post('/auth/verify-otp', body: request.toJson());
-    return VerifyOtpResponse.fromJson(data);
+    final response = VerifyOtpResponse.fromJson(data);
+
+    if (response.success && response.hasSession) {
+      await _storageService.saveSession(
+        sessionToken: response.sessionToken,
+        refreshToken: response.refreshToken.isNotEmpty
+            ? response.refreshToken
+            : response.sessionToken,
+        userId: response.userInfo?.id,
+        displayName: response.userInfo?.displayName,
+      );
+      await _persistUserProfile(response.userInfo);
+    }
+
+    return response;
   }
 
   Future<ResendOtpResponse> resendOtp(ResendOtpRequest request) async {

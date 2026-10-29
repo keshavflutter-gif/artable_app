@@ -22,6 +22,7 @@ import 'package:artable_app/core/widgets/app_image.dart';
 import 'package:artable_app/features/studio/data/services/video_thumbnail_generator.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:artable_app/core/utils/media_url_utils.dart';
+import 'package:artable_app/core/utils/app_filter_utils.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Screen
@@ -116,6 +117,10 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
     _initialSelectedSpeed = _studio.state.selectedSpeed;
     _confirmedChanges = false;
     _alreadyReverted = false;
+    final openingDraft = _draft;
+    if (openingDraft != null) {
+      _studio.applyDraftFilterToSession(openingDraft);
+    }
     _initAllClips();
   }
 
@@ -334,14 +339,11 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
         await firstController.pause();
       } catch (_) {}
 
-      // Music + original audio = echo; keep clips muted when BGM is selected.
-      final shouldMute = studio.isMuted ||
+      // Music + original audio = echo; keep clip volume at 0 while BGM is on.
+      // Do not flip isMuted — that flag is the user's mute choice.
+      await _applyOriginalAudioMute(studio.isMuted ||
           studio.selectedMusic != null ||
-          studio.selectedTrack != null;
-      if (shouldMute && !studio.isMuted) {
-        studio.setMuted(true);
-      }
-      await _applyOriginalAudioMute(shouldMute);
+          studio.selectedTrack != null);
 
       // Instantly show the screen! Zero blocking delay!
       if (mounted) {
@@ -351,6 +353,14 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
         });
       }
       _startPlaybackTimer();
+      unawaited(VideoThumbnailGenerator.extractFilmstripFrames(
+        cleanVideo,
+        targetCount: 8,
+        trimStart: Duration(milliseconds: safeStart),
+        trimEnd: Duration(milliseconds: safeEnd),
+        duration: realDur,
+        cacheKeyExtra: updatedFirst.id,
+      ));
     } else {
       if (mounted) {
         setState(() {
@@ -398,6 +408,14 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
           );
           _clipNotifier.updateClip(clip.id, updated);
           setState(() {});
+          unawaited(VideoThumbnailGenerator.extractFilmstripFrames(
+            clip.filePath,
+            targetCount: 8,
+            trimStart: updated.trimStart,
+            trimEnd: updated.trimEnd,
+            duration: updated.originalDuration,
+            cacheKeyExtra: updated.id,
+          ));
         }
       } catch (e) {
         debugPrint('Error loading remaining clip ${clip.id}: $e');
@@ -904,8 +922,6 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
       return;
     }
 
-    final studio = context.read<StudioCubit>();
-
     // Pause first
     for (final c in _controllers.values) {
       await c.pause();
@@ -913,12 +929,9 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
     await StudioMusicPlaybackService.pause();
     if (mounted) setState(() => _playing = false);
 
-    // Fetch latest drafts
-    await studio.fetchDraftsList();
-
     if (!mounted) return;
 
-    // Navigate to full-screen StudioDraftsScreen page
+    // Open cached drafts immediately — list refresh happens in the background.
     final selectedDraft = await Navigator.push<Map<String, dynamic>>(
       context,
       MaterialPageRoute(
@@ -936,254 +949,131 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
 
   Future<void> _importDraftToTimeline(Map<String, dynamic> draft) async {
     if (!mounted) return;
-    setState(() => _isImportingClip = true);
 
-    try {
-      List<String> rawPaths = [];
-      List<String> rawThumbs = [];
-      if (draft['mergedClipPaths'] is List && (draft['mergedClipPaths'] as List).isNotEmpty) {
-        rawPaths = List<String>.from(draft['mergedClipPaths'] as List);
-        if (draft['mergedClipThumbnails'] is List) {
-          rawThumbs = List<String>.from(draft['mergedClipThumbnails'] as List);
-        }
-      } else {
-        final String? path = (draft['videoPath'] as String?) ?? (draft['videoUrl'] as String?);
-        if (path != null && path.trim().isNotEmpty) {
-          rawPaths.add(path.trim());
-          final String? t = (draft['thumbnailPath'] as String?) ?? (draft['thumbnailUrl'] as String?);
-          if (t != null && t.isNotEmpty) rawThumbs.add(t);
-        }
+    List<String> rawPaths = [];
+    List<String> rawThumbs = [];
+    List<double> rawDurs = [];
+    if (draft['mergedClipPaths'] is List && (draft['mergedClipPaths'] as List).isNotEmpty) {
+      rawPaths = List<String>.from(draft['mergedClipPaths'] as List);
+      if (draft['mergedClipThumbnails'] is List) {
+        rawThumbs = List<String>.from(draft['mergedClipThumbnails'] as List);
       }
-
-      final List<String> pathsToAdd = [];
-      final List<String?> thumbsToAdd = [];
-      for (int i = 0; i < rawPaths.length; i++) {
-        final p = rawPaths[i].trim();
-        if (p.isNotEmpty) {
-          pathsToAdd.add(p);
-          thumbsToAdd.add(i < rawThumbs.length ? rawThumbs[i] : null);
-        }
+      if (draft['mergedClipDurations'] is List) {
+        rawDurs = (draft['mergedClipDurations'] as List)
+            .map((e) => (e as num).toDouble())
+            .toList();
       }
-
-      if (pathsToAdd.isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).hideCurrentSnackBar();
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('No valid video found in the selected draft.'),
-              backgroundColor: Colors.deepOrange,
-              duration: Duration(milliseconds: 1000),
-            ),
-          );
-        }
-        return;
-      }
-
-      // Immediately add separate rows for EACH merging video with loader spinning!
-      final studio = context.read<StudioCubit>();
-      final List<EditorClip> mergingPlaceholders = [];
-      for (int i = 0; i < pathsToAdd.length; i++) {
-        if (_clipNotifier.clips.length >= EditorClipListNotifier.maxClips) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).hideCurrentSnackBar();
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Reached maximum limit of 10 clips.'),
-                backgroundColor: Colors.deepOrange,
-                duration: Duration(milliseconds: 1000),
-              ),
-            );
-          }
-          break;
-        }
-
-        final path = pathsToAdd[i];
-        final candidateThumb = thumbsToAdd[i];
-        String? thumbPath;
-        Uint8List? thumbBytes;
-
-        // 1. Check if candidateThumb points to a valid thumbnail file for THIS clip
-        if (candidateThumb != null && candidateThumb.isNotEmpty && !candidateThumb.startsWith('http')) {
-          final cleanP = candidateThumb.replaceFirst('file://', '');
-          try {
-            final f = File(cleanP);
-            if (f.existsSync() && f.lengthSync() > 300) {
-              thumbBytes = f.readAsBytesSync();
-              thumbPath = candidateThumb;
-            }
-          } catch (_) {}
-        }
-
-        // 2. Check StudioCubit and AppImage RAM cache
-        if (thumbBytes == null) {
-          final cubitThumb = studio.getThumbnailForClip(path);
-          if (cubitThumb != null && cubitThumb.isNotEmpty && !cubitThumb.startsWith('http')) {
-            try {
-              final f = File(cubitThumb.replaceFirst('file://', ''));
-              if (f.existsSync() && f.lengthSync() > 300) {
-                thumbBytes = f.readAsBytesSync();
-                thumbPath = cubitThumb;
-              }
-            } catch (_) {}
-          }
-        }
-        thumbBytes ??= AppImage.getCachedThumbnail(path);
-
-        // 3. Search drafts for this specific video path if not found yet
-        if (thumbBytes == null) {
-          final cleanP = path.trim().replaceFirst('file://', '').replaceAll('\\', '/').toLowerCase();
-          for (final d in studio.state.drafts) {
-            final vp = (d['videoPath']?.toString() ?? d['videoUrl']?.toString() ?? '')
-                .trim().replaceFirst('file://', '').replaceAll('\\', '/').toLowerCase();
-            if (vp.isNotEmpty && vp == cleanP) {
-              final t = (d['thumbnailPath'] as String?) ?? (d['thumbnailUrl'] as String?);
-              if (t != null && t.isNotEmpty && !t.startsWith('http')) {
-                try {
-                  final f = File(t.replaceFirst('file://', ''));
-                  if (f.existsSync() && f.lengthSync() > 300) {
-                    thumbBytes = f.readAsBytesSync();
-                    thumbPath = t;
-                    break;
-                  }
-                } catch (_) {}
-              }
-            }
-          }
-        }
-
-        if (thumbBytes != null && thumbBytes.isNotEmpty) {
-          AppImage.cacheThumbnail(path, thumbBytes);
-        }
-
-        // Add placeholder IMMEDIATELY so the row and spinner appear without waiting!
-        final placeholder = EditorClip(
-          id: '${path.hashCode}_${DateTime.now().microsecondsSinceEpoch}_$i',
-          filePath: path,
-          originalDuration: const Duration(seconds: 4), // visual timeline width
-          trimStart: Duration.zero,
-          trimEnd: const Duration(seconds: 4),
-          thumbnailPath: thumbPath,
-          thumbnailBytes: thumbBytes,
-          isMerging: true, // LOADER SPINS IN THIS SEPARATE ROW!
-        );
-        mergingPlaceholders.add(placeholder);
-        _clipNotifier.addClip(placeholder);
-      }
-
-      if (mergingPlaceholders.isEmpty) return;
-
-      // Fast parallel initialization of controllers & thumbnail extraction
-      final initResults = await Future.wait(
-        mergingPlaceholders.map((placeholder) async {
-          final path = placeholder.filePath;
-
-          final controller = await _initController(path);
-          final realDur = (controller != null && controller.value.isInitialized)
-              ? controller.value.duration
-              : placeholder.originalDuration;
-
-          // Always extract the true filmstrip frames directly from the video file while spinner shows
-          final cleanVideo = path.trim().replaceFirst('file://', '');
-          final frames = await VideoThumbnailGenerator.extractFilmstripFrames(
-            cleanVideo,
-            targetCount: 8,
-            trimStart: Duration.zero,
-            trimEnd: realDur,
-            duration: realDur,
-            cacheKeyExtra: placeholder.id,
-          );
-          final realThumb = frames.isNotEmpty ? frames.first : placeholder.thumbnailBytes;
-
-          if (realThumb != null && realThumb.isNotEmpty) {
-            AppImage.cacheThumbnail(path, realThumb);
-            AppImage.cacheThumbnail(cleanVideo, realThumb);
-          }
-
-          return (
-            placeholder: placeholder,
-            controller: controller,
-            thumbBytes: realThumb,
-            thumbPath: placeholder.thumbnailPath,
-          );
-        }),
-      );
-
-      int addedCount = 0;
-      for (final res in initResults) {
-        final placeholder = res.placeholder;
-        var controller = res.controller;
-
-        if (controller == null) {
-          try {
-            controller = await _initController(placeholder.filePath);
-          } catch (_) {}
-        }
-
-        if (controller != null && controller.value.isInitialized) {
-          final duration = controller.value.duration > Duration.zero
-              ? controller.value.duration
-              : const Duration(seconds: 15);
-
-          _controllers[placeholder.id] = controller;
-          final finalThumb = res.thumbBytes ?? placeholder.thumbnailBytes ?? AppImage.getCachedThumbnail(placeholder.filePath);
-          final readyClip = placeholder.copyWith(
-            originalDuration: duration,
-            trimStart: Duration.zero,
-            trimEnd: duration,
-            thumbnailBytes: finalThumb,
-            thumbnailPath: res.thumbPath ?? placeholder.thumbnailPath,
-            isMerging: false, // LOADER STOPS IMMEDIATELY, THUMBNAILS DISPLAY!
-          );
-          _clipNotifier.updateClip(placeholder.id, readyClip);
-          addedCount++;
-        } else {
-          final cleanP = placeholder.filePath.trim().replaceFirst('file://', '');
-          final isLocal = !placeholder.filePath.startsWith('http');
-          final fileMissing = isLocal && !File(cleanP).existsSync();
-
-          if (fileMissing) {
-            final idx = _clipNotifier.clips.indexWhere((c) => c.id == placeholder.id);
-            if (idx >= 0) _clipNotifier.removeClip(idx);
-          } else {
-            final finalThumb = res.thumbBytes ?? placeholder.thumbnailBytes ?? AppImage.getCachedThumbnail(placeholder.filePath);
-            final readyClip = placeholder.copyWith(
-              originalDuration: const Duration(seconds: 15),
-              trimStart: Duration.zero,
-              trimEnd: const Duration(seconds: 15),
-              thumbnailBytes: finalThumb,
-              isMerging: false,
-            );
-            _clipNotifier.updateClip(placeholder.id, readyClip);
-            addedCount++;
-          }
-        }
-      }
-
-      if (mounted) {
-        _syncClipsToStudioCubit();
-        final studio = context.read<StudioCubit>();
-        final hasBgm = studio.selectedMusic != null || studio.selectedTrack != null;
-        if (hasBgm || studio.isMuted) {
-          await _applyOriginalAudioMute(true);
-        }
-        if (!mounted) return;
-        if (addedCount > 0) {
-          final total = _clipNotifier.clips.length;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Successfully merged $total clips into 1 video!'),
-              backgroundColor: const Color(0xFF8B5CF6),
-              duration: const Duration(milliseconds: 1000),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-        }
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isImportingClip = false);
+    } else {
+      final String? path = (draft['videoPath'] as String?) ?? (draft['videoUrl'] as String?);
+      if (path != null && path.trim().isNotEmpty) {
+        rawPaths.add(path.trim());
+        final String? t = (draft['thumbnailPath'] as String?) ?? (draft['thumbnailUrl'] as String?);
+        if (t != null && t.isNotEmpty) rawThumbs.add(t);
+        final ds = (draft['durationSeconds'] as num?)?.toDouble();
+        if (ds != null && ds > 0) rawDurs.add(ds);
       }
     }
+
+    final List<String> pathsToAdd = [];
+    final List<String?> thumbsToAdd = [];
+    final List<double> dursToAdd = [];
+    for (int i = 0; i < rawPaths.length; i++) {
+      final p = rawPaths[i].trim();
+      if (p.isEmpty) continue;
+      pathsToAdd.add(p);
+      thumbsToAdd.add(i < rawThumbs.length ? rawThumbs[i] : null);
+      dursToAdd.add(i < rawDurs.length && rawDurs[i] > 0 ? rawDurs[i] : 15.0);
+    }
+
+    if (pathsToAdd.isEmpty) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No valid video found in the selected draft.'),
+          backgroundColor: Colors.deepOrange,
+          duration: Duration(milliseconds: 1000),
+        ),
+      );
+      return;
+    }
+
+    final studio = context.read<StudioCubit>();
+    final added = <EditorClip>[];
+    for (int i = 0; i < pathsToAdd.length; i++) {
+      if (_clipNotifier.clips.length >= EditorClipListNotifier.maxClips) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Reached maximum limit of 10 clips.'),
+            backgroundColor: Colors.deepOrange,
+            duration: Duration(milliseconds: 1000),
+          ),
+        );
+        break;
+      }
+
+      final path = pathsToAdd[i];
+      final candidateThumb = thumbsToAdd[i];
+      String? thumbPath;
+      Uint8List? thumbBytes;
+
+      if (candidateThumb != null && candidateThumb.isNotEmpty && !candidateThumb.startsWith('http')) {
+        try {
+          final f = File(candidateThumb.replaceFirst('file://', ''));
+          if (f.existsSync() && f.lengthSync() > 300) {
+            thumbBytes = f.readAsBytesSync();
+            thumbPath = candidateThumb;
+          }
+        } catch (_) {}
+      }
+
+      if (thumbBytes == null) {
+        final cubitThumb = studio.getThumbnailForClip(path);
+        if (cubitThumb != null && cubitThumb.isNotEmpty && !cubitThumb.startsWith('http')) {
+          try {
+            final f = File(cubitThumb.replaceFirst('file://', ''));
+            if (f.existsSync() && f.lengthSync() > 300) {
+              thumbBytes = f.readAsBytesSync();
+              thumbPath = cubitThumb;
+            }
+          } catch (_) {}
+        }
+      }
+      thumbBytes ??= AppImage.getCachedThumbnail(path);
+      if (thumbBytes != null && thumbBytes.isNotEmpty) {
+        AppImage.cacheThumbnail(path, thumbBytes);
+      }
+
+      final durSecs = dursToAdd[i];
+      final duration = Duration(milliseconds: (durSecs * 1000).round());
+      final clip = EditorClip(
+        id: '${path.hashCode}_${DateTime.now().microsecondsSinceEpoch}_$i',
+        filePath: path,
+        originalDuration: duration,
+        trimStart: Duration.zero,
+        trimEnd: duration,
+        thumbnailPath: thumbPath ?? candidateThumb,
+        thumbnailBytes: thumbBytes,
+      );
+      _clipNotifier.addClip(clip);
+      added.add(clip);
+    }
+
+    if (added.isEmpty) return;
+
+    _syncClipsToStudioCubit();
+    unawaited(_loadRemainingClips(added));
+
+    if (!mounted) return;
+    setState(() {});
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Successfully merged ${_clipNotifier.clips.length} clips into 1 video!'),
+        backgroundColor: const Color(0xFF8B5CF6),
+        duration: const Duration(milliseconds: 1000),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1347,10 +1237,7 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
         StudioMusicPlaybackService.invalidateLoadedTrack();
         if (studio.selectedMusic != null || studio.selectedTrack != null) {
           try {
-            // Music + original clip audio together causes an echo — mute clips.
-            if (!studio.isMuted) {
-              studio.setMuted(true);
-            }
+            // Mute clip audio while BGM plays, without changing the user's mute flag.
             await _applyOriginalAudioMute(true);
             await StudioMusicPlaybackService.preloadForStudio(studio);
 
@@ -1384,6 +1271,7 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
           }
         } else {
           await StudioMusicPlaybackService.stop();
+          await _applyOriginalAudioMute(studio.isMuted);
         }
         if (mounted) setState(() {});
         break;
@@ -1406,9 +1294,10 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
   }
 
   Future<void> _removeSelectedMusic() async {
-    await StudioMusicPlaybackService.stop();
+    // Clear cubit first so the playback timer cannot restart BGM.
     _studio.setSelectedTrack(null);
-    await _applyOriginalAudioMute(false);
+    await StudioMusicPlaybackService.stop();
+    await _applyOriginalAudioMute(_studio.isMuted);
     if (mounted) {
       setState(() {});
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
@@ -1566,7 +1455,7 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
                   _buildTopBar(_challenge),
 
                   // ── 2. Video Preview ───────────────────────────────────────────
-                  _buildVideoPreview(studio.isMuted),
+                  _buildVideoPreview(studio),
 
                   // ── 3. Playback Controls ───────────────────────────────────────
                   _buildControls(_globalPositionMs, totalDuration.inMilliseconds),
@@ -1753,7 +1642,8 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
   }
 
   // ─── Video Preview ─────────────────────────────────────────────────────────
-  Widget _buildVideoPreview(bool isMuted) {
+  Widget _buildVideoPreview(StudioCubit studio) {
+    final isMuted = studio.isMuted;
     final c = _activeController;
     final isInit = c != null && c.value.isInitialized;
     final activeClip = _clipNotifier.clips.isNotEmpty
@@ -1771,7 +1661,11 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
             aspectRatio: 9 / 16,
             child: ClipRRect(
               borderRadius: BorderRadius.circular(16),
-              child: Stack(
+              child: AppFilterUtils.buildFilteredView(
+                filterId: studio.recordingFilter,
+                beautyOn: studio.recordingBeautyOn,
+                beautyIntensity: studio.recordingBeautyIntensity,
+                child: Stack(
                 fit: StackFit.expand,
                 children: [
                   // Video or placeholder with smooth fallback
@@ -1880,6 +1774,7 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen> {
                       ),
                     ),
                 ],
+              ),
               ),
             ),
           ),

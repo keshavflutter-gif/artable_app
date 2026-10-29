@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:artable_app/core/utils/reel_helpers.dart';
 import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
 import 'package:artable_app/features/trending/data/models/trending_videos_response.dart';
 import 'package:artable_app/features/trending/data/repositories/videos_repository.dart';
@@ -407,26 +408,33 @@ class ReelsCubit extends Cubit<ReelsState> {
     }
   }
 
-  Future<Map<String, dynamic>> recordShare(String videoId) async {
+  Future<Map<String, dynamic>> recordShare(
+    String videoId, {
+    Map<String, dynamic>? fallbackVideo,
+  }) async {
     final vId = videoId.trim();
     if (vId.isEmpty) return {'success': false};
 
-    // Optimistically increment share count
     final videos = List<Map<String, dynamic>>.from(
       state.videos.map((v) => Map<String, dynamic>.from(v)),
     );
-    for (final v in videos) {
+    var idx = videos.indexWhere((v) {
       final curId = v['id']?.toString() ?? v['_id']?.toString() ?? '';
-      if (curId == vId) {
-        final int currentShares = TrendingVideoItem.parseCount(
-          v['sharesCount'] ?? v['shareCount'] ?? v['shares'],
-        );
-        final int newShares = currentShares + 1;
-        v['shares'] = TrendingVideoItem.formatCount(newShares);
-        v['sharesCount'] = newShares;
-        v['shareCount'] = newShares;
-        break;
-      }
+      return curId == vId;
+    });
+    if (idx == -1 && fallbackVideo != null) {
+      videos.add(Map<String, dynamic>.from(fallbackVideo));
+      idx = videos.length - 1;
+    }
+    if (idx != -1) {
+      final v = videos[idx];
+      final int currentShares = TrendingVideoItem.parseCount(
+        v['sharesCount'] ?? v['shareCount'] ?? v['shares'],
+      );
+      final int newShares = currentShares + 1;
+      v['shares'] = TrendingVideoItem.formatCount(newShares);
+      v['sharesCount'] = newShares;
+      v['shareCount'] = newShares;
     }
     emit(state.copyWith(videos: videos));
 
@@ -438,24 +446,56 @@ class ReelsCubit extends Cubit<ReelsState> {
         sessionToken: (token != null && token != 'design_preview') ? token : null,
         refreshToken: (refresh != null && refresh != 'design_preview') ? refresh : null,
       );
+      debugPrint('Share Video API response: $res');
 
       final data = res['data'];
       if (data is Map<String, dynamic>) {
         final updatedVideos = List<Map<String, dynamic>>.from(
           state.videos.map((v) => Map<String, dynamic>.from(v)),
         );
-        for (final v in updatedVideos) {
+        var uIdx = updatedVideos.indexWhere((v) {
           final curId = v['id']?.toString() ?? v['_id']?.toString() ?? '';
-          if (curId == vId) {
-            final rawS = data['shares'] ?? data['shareCount'] ?? data['sharesCount'];
-            if (rawS != null) {
-              final int sCount = TrendingVideoItem.parseCount(rawS);
-              v['shares'] = TrendingVideoItem.formatCount(sCount);
-              v['sharesCount'] = sCount;
-              v['shareCount'] = sCount;
-            }
-            break;
-          }
+          return curId == vId || curId == data['id']?.toString();
+        });
+        if (uIdx == -1) {
+          updatedVideos.add({
+            ...?fallbackVideo,
+            ...data,
+            'id': data['id'] ?? vId,
+          });
+          uIdx = updatedVideos.length - 1;
+        }
+        final v = updatedVideos[uIdx];
+        v['id'] = data['id'] ?? v['id'] ?? vId;
+        final apiUrl = data['videoUrl']?.toString();
+        if (apiUrl != null && apiUrl.trim().isNotEmpty) {
+          v['videoUrl'] = apiUrl.trim();
+        }
+        if (data['title'] != null) v['title'] = data['title'];
+        if (data['description'] != null) {
+          v['description'] = data['description'];
+          v['caption'] = data['description'];
+        }
+        final shareFilter = ReelHelpers.resolveFilter(
+          filterId: data['filterId']?.toString() ?? v['filterId']?.toString(),
+          beautyOn: data['beautyOn'] == true || v['beautyOn'] == true,
+          beautyIntensity: (data['beautyIntensity'] as num?)?.toDouble() ??
+              (v['beautyIntensity'] as num?)?.toDouble(),
+          description: (data['description'] ?? v['description'])?.toString(),
+          videoId: vId,
+          videoUrl: v['videoUrl']?.toString(),
+        );
+        if (shareFilter != null) {
+          v['filterId'] = shareFilter.filterId;
+          v['beautyOn'] = shareFilter.beautyOn;
+          v['beautyIntensity'] = shareFilter.beautyIntensity;
+        }
+        final rawS = data['shares'] ?? data['shareCount'] ?? data['sharesCount'];
+        if (rawS != null) {
+          final int sCount = TrendingVideoItem.parseCount(rawS);
+          v['shares'] = TrendingVideoItem.formatCount(sCount);
+          v['sharesCount'] = sCount;
+          v['shareCount'] = sCount;
         }
         emit(state.copyWith(videos: updatedVideos));
       }

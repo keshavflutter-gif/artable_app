@@ -405,6 +405,18 @@ abstract final class VideoShareHelper {
     }
   }
 
+  static void _safePopDialog(BuildContext? dialogContext) {
+    if (dialogContext == null) return;
+    final navigator = Navigator.maybeOf(dialogContext, rootNavigator: true);
+    if (navigator == null || !navigator.canPop()) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!dialogContext.mounted) return;
+      final nav = Navigator.maybeOf(dialogContext, rootNavigator: true);
+      if (nav == null || !nav.canPop()) return;
+      nav.pop();
+    });
+  }
+
   static void _showProgressDialog(
     BuildContext context,
     ValueNotifier<double> progressNotifier,
@@ -460,7 +472,7 @@ abstract final class VideoShareHelper {
                       TextButton(
                         onPressed: () {
                           onCancel();
-                          Navigator.of(dCtx).pop();
+                          _safePopDialog(dCtx);
                         },
                         child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
                       ),
@@ -489,7 +501,7 @@ abstract final class VideoShareHelper {
     cancellation?.onCancel = () {
       client?.close(force: true);
       if (dialogContext != null && dialogContext!.mounted) {
-        Navigator.of(dialogContext!).pop();
+        _safePopDialog(dialogContext);
       }
     };
 
@@ -570,7 +582,7 @@ abstract final class VideoShareHelper {
                             onPressed: () {
                               cancellation?.cancel();
                               client?.close(force: true);
-                              Navigator.of(dCtx).pop();
+                              _safePopDialog(dCtx);
                             },
                             child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
                           ),
@@ -608,7 +620,7 @@ abstract final class VideoShareHelper {
 
       if (response.statusCode != 200) {
         if (dialogContext != null && dialogContext!.mounted) {
-          Navigator.of(dialogContext!).pop();
+          _safePopDialog(dialogContext);
         }
         if (cancellation?.isCancelled != true && context != null && context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -645,7 +657,7 @@ abstract final class VideoShareHelper {
       }
 
       if (dialogContext != null && dialogContext!.mounted) {
-        Navigator.of(dialogContext!).pop();
+        _safePopDialog(dialogContext);
       }
 
       if (cancellation?.isCancelled == true) {
@@ -682,7 +694,7 @@ abstract final class VideoShareHelper {
     } catch (e) {
       debugPrint('VideoShareHelper: Error downloading video ($url): $e');
       if (dialogContext != null && dialogContext!.mounted) {
-        Navigator.of(dialogContext!).pop();
+        _safePopDialog(dialogContext);
       }
       if (tmpFile != null && await tmpFile.exists()) {
         try {

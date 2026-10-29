@@ -1,5 +1,3 @@
-import 'package:artable_app/data/datasources/mock_data.dart';
-
 class ReelsState {
   ReelsState({
     List<Map<String, dynamic>>? videos,
@@ -7,7 +5,7 @@ class ReelsState {
     Map<String, Map<String, String>>? userReactions,
     Set<String>? bookmarkedVideoIds,
     Map<String, double>? userRatings,
-  })  : videos = videos ?? List<Map<String, dynamic>>.from(MockData.REELS),
+  })  : videos = videos ?? const [],
         commentsMap = commentsMap ?? const {},
         userReactions = userReactions ?? const {},
         bookmarkedVideoIds = bookmarkedVideoIds ?? const {},

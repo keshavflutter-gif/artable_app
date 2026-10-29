@@ -31,6 +31,7 @@ class AuthState {
     this.isUpdatingProfile = false,
     this.isChangingPassword = false,
     this.errorMessage,
+    this.fieldErrors = const {},
     this.isResetTokenValid,
     this.resetTokenMessage,
     this.activeResetToken,
@@ -54,6 +55,7 @@ class AuthState {
   final bool isUpdatingProfile;
   final bool isChangingPassword;
   final String? errorMessage;
+  final Map<String, String> fieldErrors;
   final bool? isResetTokenValid;
   final String? resetTokenMessage;
   final String? activeResetToken;
@@ -130,6 +132,7 @@ class AuthState {
     bool? isUpdatingProfile,
     bool? isChangingPassword,
     String? errorMessage,
+    Map<String, String>? fieldErrors,
     bool? isResetTokenValid,
     String? resetTokenMessage,
     String? activeResetToken,
@@ -155,6 +158,7 @@ class AuthState {
       isUpdatingProfile: isUpdatingProfile ?? this.isUpdatingProfile,
       isChangingPassword: isChangingPassword ?? this.isChangingPassword,
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
+      fieldErrors: clearError ? const {} : (fieldErrors ?? this.fieldErrors),
       isResetTokenValid: isResetTokenValid ?? this.isResetTokenValid,
       resetTokenMessage: resetTokenMessage ?? this.resetTokenMessage,
       activeResetToken: activeResetToken ?? this.activeResetToken,

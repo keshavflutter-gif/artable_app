@@ -1,3 +1,5 @@
+import 'package:artable_app/core/utils/reel_helpers.dart';
+
 class SaveStudioDraftResponse {
   const SaveStudioDraftResponse({
     required this.success,
@@ -44,6 +46,9 @@ class StudioDraftItem {
     required this.isTrending,
     this.createdAt,
     this.updatedAt,
+    this.filterId,
+    this.beautyOn = false,
+    this.beautyIntensity = 0,
   });
 
   final String id;
@@ -68,6 +73,9 @@ class StudioDraftItem {
   final bool isTrending;
   final String? createdAt;
   final String? updatedAt;
+  final String? filterId;
+  final bool beautyOn;
+  final double beautyIntensity;
 
   factory StudioDraftItem.fromJson(Map<String, dynamic> json) {
     List<String> parsedHashtags = [];
@@ -78,13 +86,24 @@ class StudioDraftItem {
           .toList();
     }
 
+    final rawDesc = json['description']?.toString();
+    final filterMeta = ReelHelpers.resolveFilter(
+      filterId: json['filterId']?.toString() ?? json['filter_id']?.toString(),
+      beautyOn: json['beautyOn'] == true || json['beauty_on'] == true,
+      beautyIntensity: (json['beautyIntensity'] as num?)?.toDouble() ??
+          (json['beauty_intensity'] as num?)?.toDouble(),
+      description: rawDesc,
+      videoId: json['id']?.toString(),
+      videoUrl: json['videoUrl']?.toString(),
+    );
+
     return StudioDraftItem(
       id: json['id']?.toString() ?? '',
       userId: json['userId']?.toString() ?? '',
       challengeId: json['challengeId']?.toString(),
       categoryId: json['categoryId']?.toString(),
       title: json['title']?.toString() ?? 'Draft Entry',
-      description: json['description']?.toString(),
+      description: rawDesc,
       videoUrl: json['videoUrl']?.toString() ?? '',
       thumbnailUrl: json['thumbnailUrl']?.toString() ?? '',
       hashtags: parsedHashtags,
@@ -101,6 +120,9 @@ class StudioDraftItem {
       isTrending: json['isTrending'] as bool? ?? false,
       createdAt: json['createdAt']?.toString(),
       updatedAt: json['updatedAt']?.toString(),
+      filterId: filterMeta?.filterId,
+      beautyOn: filterMeta?.beautyOn ?? false,
+      beautyIntensity: filterMeta?.beautyIntensity ?? 0,
     );
   }
 
@@ -136,6 +158,9 @@ class StudioDraftItem {
       'createdAt': createdAt,
       'recordedAt': createdAt ?? DateTime.now().toIso8601String(),
       'updatedAt': updatedAt,
+      'filterId': filterId,
+      'beautyOn': beautyOn,
+      'beautyIntensity': beautyIntensity,
     };
   }
 }

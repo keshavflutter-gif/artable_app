@@ -18,6 +18,7 @@ class StudioMusicPlaybackService {
   static String? _loadedAudioUrl;
   static bool _sessionConfigured = false;
   static bool _isLoading = false;
+  static int _playEpoch = 0;
 
   /// Serial queue so stop/load/play/seek never overlap.
   static Future<void> _chain = Future.value();
@@ -162,7 +163,9 @@ class StudioMusicPlaybackService {
     StudioCubit studio,
     int globalPositionMs,
   ) async {
+    final epoch = _playEpoch;
     await _enqueue(() async {
+      if (epoch != _playEpoch) return;
       final track = _resolveTrack(studio);
       if (track == null) {
         final player = _player;
@@ -204,11 +207,13 @@ class StudioMusicPlaybackService {
 
       final speedMultiplier = studio.speedMultiplier.clamp(0.4, 4.0);
 
+      if (epoch != _playEpoch) return;
       if (!player.playing) {
         try {
           await player.seek(Duration(milliseconds: seekMs));
           await player.setSpeed(speedMultiplier);
         } catch (_) {}
+        if (epoch != _playEpoch) return;
         // Do NOT await player.play()! In just_audio, play() returns a Future that
         // only completes when playback finishes or is paused/stopped.
         // Awaiting it inside the serial queue causes a permanent deadlock.
@@ -290,8 +295,9 @@ class StudioMusicPlaybackService {
     StudioCubit studio,
     int videoPositionMs,
   ) async {
+    final epoch = _playEpoch;
     final track = _resolveTrack(studio);
-    if (track == null) return;
+    if (track == null || epoch != _playEpoch) return;
 
     final player = _player;
     // Auto-resume audio if paused or not started during video playback
@@ -361,6 +367,7 @@ class StudioMusicPlaybackService {
   }
 
   static Future<void> stop() async {
+    _playEpoch++;
     directPause();
     final playerToDispose = _player;
     _player = null;
@@ -381,6 +388,7 @@ class StudioMusicPlaybackService {
 
   /// Releases music audio focus so [VideoPlayerController] can initialize.
   static Future<void> releaseForVideoPlayback() async {
+    _playEpoch++;
     directPause();
     final playerToDispose = _player;
     _player = null;

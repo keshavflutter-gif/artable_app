@@ -8,9 +8,9 @@ import 'package:artable_app/app/theme/app_text_styles.dart';
 import 'package:artable_app/core/widgets/app_back_header.dart';
 import 'package:artable_app/core/widgets/app_image.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
-import 'package:artable_app/data/datasources/mock_data.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/core/utils/reel_helpers.dart';
+import 'package:artable_app/core/utils/app_filter_utils.dart';
 import 'package:artable_app/core/utils/video_share_helper.dart';
 import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
 import 'package:artable_app/features/home/presentation/bloc/home_cubit.dart';
@@ -76,9 +76,13 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
       if (reelsMatch != null) return reelsMatch;
     }
 
-    final baseMap = available.isNotEmpty
-        ? available.first
-        : (MockData.REELS.isNotEmpty ? MockData.REELS.first : {});
+    if (available.isEmpty) {
+      return <String, dynamic>{
+        if (targetId.isNotEmpty) 'id': targetId,
+      };
+    }
+
+    final baseMap = available.first;
 
     final res = Map<String, dynamic>.from(baseMap);
     final id = res['id']?.toString() ?? res['_id']?.toString() ?? targetId;
@@ -110,10 +114,20 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     });
   }
 
+  bool _lastStageBuffering = false;
+  bool _lastStagePlaying = false;
+
   void _onStageControllerUpdate() {
-    if (mounted) {
-      setState(() {});
+    if (!mounted || _stageController == null) return;
+    final value = _stageController!.value;
+    final buffering = value.isBuffering;
+    final playing = value.isPlaying;
+    if (buffering == _lastStageBuffering && playing == _lastStagePlaying) {
+      return;
     }
+    _lastStageBuffering = buffering;
+    _lastStagePlaying = playing;
+    setState(() {});
   }
 
   Future<void> _initStageVideo() async {
@@ -140,7 +154,9 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
       old?.removeListener(_onStageControllerUpdate);
       await old?.dispose();
 
-      final controller = await VideoCacheManager.createAndInitController(cleanUrl);
+      final controller = await VideoCacheManager.createAndInitController(
+        cleanUrl,
+      );
       if (!mounted) {
         controller?.dispose();
         return;
@@ -260,13 +276,30 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final reel = _reel;
-    final challenge = ReelHelpers.challengeForReel(reel) ??
-        (MockData.CHALLENGES.isNotEmpty ? MockData.CHALLENGES.first : null);
-    final relatedReels = MockData.REELS.where((r) => r['id'] != reel['id']).toList();
-    final creator = MockData.CREATORS.firstWhere(
-      (c) => c['name'] == reel['creator'] || c['handle'] == reel['handle'],
-      orElse: () => MockData.CREATORS.first,
-    );
+    final challenge = ReelHelpers.challengeForReel(reel);
+    final reelId = reel['id']?.toString() ?? reel['_id']?.toString() ?? '';
+    final relatedReels = [
+      if (context.read<TrendingVideosCubit>().hero != null)
+        context.read<TrendingVideosCubit>().hero!.toUiMap(),
+      ...context.read<TrendingVideosCubit>().videos.map((v) => v.toUiMap()),
+      ...context.read<HomeCubit>().trendingReels,
+      ...context.read<ReelsCubit>().videos,
+    ].where((r) {
+      final id = r['id']?.toString() ?? r['_id']?.toString() ?? '';
+      return id.isNotEmpty && id != reelId;
+    }).toList();
+    final seenRelated = <String>{};
+    relatedReels.retainWhere((r) {
+      final id = r['id']?.toString() ?? r['_id']?.toString() ?? '';
+      if (seenRelated.contains(id)) return false;
+      seenRelated.add(id);
+      return true;
+    });
+    final creator = <String, dynamic>{
+      'id': reel['userId'] ?? reel['user_id'] ?? (reel['user'] is Map ? (reel['user'] as Map)['id'] : null),
+      'name': reel['creator'],
+      'handle': reel['handle'],
+    };
 
     return PopScope(
       canPop: false,
@@ -433,18 +466,41 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
               fit: StackFit.expand,
               children: [
                 // 1. Base Video Thumbnail Preview
-                AppImage(
-                  url: imageUrl,
-                  videoUrl: (reel['videoUrl'] as String?) ?? (reel['videoPath'] as String?),
-                  fit: BoxFit.cover,
-                  isVideo: true,
+                AppFilterUtils.wrap(
+                  filterId: ReelHelpers.resolveFilter(
+                    filterId: reel['filterId']?.toString(),
+                    beautyOn: reel['beautyOn'] == true,
+                    beautyIntensity: (reel['beautyIntensity'] as num?)?.toDouble(),
+                    description: (reel['description'] ?? reel['caption'])?.toString(),
+                    videoId: reelId,
+                    videoUrl: (reel['videoUrl'] as String?) ?? (reel['videoPath'] as String?),
+                  )?.filterId ?? reel['filterId']?.toString(),
+                  beautyOn: reel['beautyOn'] == true,
+                  beautyIntensity: (reel['beautyIntensity'] as num?)?.toDouble() ?? 0,
+                  child: AppImage(
+                    url: imageUrl,
+                    videoUrl: (reel['videoUrl'] as String?) ?? (reel['videoPath'] as String?),
+                    fit: BoxFit.cover,
+                    isVideo: true,
+                  ),
                 ),
 
                 // 2. Smooth Inline Video Player
                 if (_isStageInitialized &&
                     _stageController != null &&
                     _stageController!.value.isInitialized)
-                  FittedBox(
+                  AppFilterUtils.wrap(
+                    filterId: ReelHelpers.resolveFilter(
+                      filterId: reel['filterId']?.toString(),
+                      beautyOn: reel['beautyOn'] == true,
+                      beautyIntensity: (reel['beautyIntensity'] as num?)?.toDouble(),
+                      description: (reel['description'] ?? reel['caption'])?.toString(),
+                      videoId: reelId,
+                      videoUrl: (reel['videoUrl'] as String?) ?? (reel['videoPath'] as String?),
+                    )?.filterId ?? reel['filterId']?.toString(),
+                    beautyOn: reel['beautyOn'] == true,
+                    beautyIntensity: (reel['beautyIntensity'] as num?)?.toDouble() ?? 0,
+                    child: FittedBox(
                     fit: BoxFit.cover,
                     clipBehavior: Clip.hardEdge,
                     child: SizedBox(
@@ -454,8 +510,11 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                       height: _stageController!.value.size.height > 0
                           ? _stageController!.value.size.height
                           : 640,
-                      child: VideoPlayer(_stageController!),
+                      child: RepaintBoundary(
+                        child: VideoPlayer(_stageController!),
+                      ),
                     ),
+                  ),
                   ),
 
                 // 3. Subtle Gradient Overlay

@@ -4,8 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
-import 'package:artable_app/features/studio/data/services/video_thumbnail_generator.dart';
-
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_text_styles.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
@@ -16,8 +14,6 @@ import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
 import 'package:artable_app/features/home/presentation/bloc/home_cubit.dart';
 import 'package:artable_app/features/trending/presentation/bloc/trending_videos_cubit.dart';
 import 'package:artable_app/features/trending/data/repositories/videos_repository.dart';
-import 'package:artable_app/features/reels/presentation/bloc/reels_cubit.dart';
-import 'package:artable_app/data/datasources/mock_data.dart';
 import 'package:artable_app/core/utils/validators.dart';
 import 'package:artable_app/features/profile/presentation/bloc/profile_cubit.dart';
 import 'package:artable_app/features/profile/presentation/bloc/my_videos_cubit.dart';
@@ -107,26 +103,21 @@ class _StudioUploadScreenState extends State<StudioUploadScreen> {
       }
 
       setState(() {
-        _percent = 20;
+        _percent = 15;
         _stepIndex = 0;
       });
-      await Future.delayed(const Duration(milliseconds: 200));
 
       // Step 1 & 2: Get Presigned URL & Upload to Storage
       setState(() {
-        _percent = 40;
+        _percent = 25;
         _stepIndex = 1;
       });
 
       String? manualThumbnail = studioCubit.selectedThumbnailPath;
-      if (manualThumbnail == null || !File(manualThumbnail).existsSync()) {
-        try {
-          final genFile = await VideoThumbnailGenerator.generateThumbnailFromVideo(videoPath);
-          if (genFile != null && await genFile.exists()) {
-            manualThumbnail = genFile.path;
-            studioCubit.setSelectedThumbnailPath(manualThumbnail);
-          }
-        } catch (_) {}
+      if (manualThumbnail != null &&
+          (manualThumbnail.trim().isEmpty ||
+              (!manualThumbnail.startsWith('http') && !File(manualThumbnail).existsSync()))) {
+        manualThumbnail = null;
       }
 
       final title = (studioCubit.videoTitle != null && studioCubit.videoTitle!.trim().isNotEmpty)
@@ -160,6 +151,9 @@ class _StudioUploadScreenState extends State<StudioUploadScreen> {
           : (profileUser?.profilePhotoUrl ?? '');
       final realUserId = authCubit.userId ?? profileUser?.id;
 
+      final selectedTrack = studioCubit.selectedTrack;
+      final resolvedMusicName = studioCubit.selectedMusic ??
+          (selectedTrack != null ? '${selectedTrack.title} — ${selectedTrack.artist}' : null);
       final res = await videosRepo.createVideo(
         title: title,
         videoPathOrUrl: videoPath,
@@ -174,12 +168,27 @@ class _StudioUploadScreenState extends State<StudioUploadScreen> {
             ? studioCubit.state.videoTrimStartSeconds
             : null,
         videoTrimEndSeconds: studioCubit.state.videoTrimEndSeconds,
-        mergedClipPaths: mergedClips.isNotEmpty ? mergedClips : null,
+        mergedClipPaths: mergedClips.length > 1 ? mergedClips : null,
+        onUploadProgress: (sent, total) {
+          if (!mounted || total <= 0) return;
+          final pct = 30 + ((sent / total) * 50).round();
+          setState(() {
+            _percent = pct.clamp(30, 80);
+            _stepIndex = 2;
+          });
+        },
         creator: realCreator,
         username: realUsername,
         handle: realUsername.isNotEmpty ? (realUsername.startsWith('@') ? realUsername : '@$realUsername') : null,
         avatarUrl: realAvatar,
         userId: realUserId,
+        musicName: resolvedMusicName,
+        musicUrl: selectedTrack?.audioUrl,
+        musicStartSeconds: selectedTrack != null ? studioCubit.musicStartSeconds : null,
+        musicCropDuration: selectedTrack != null ? studioCubit.musicCropDuration : null,
+        filterId: studioCubit.recordingFilter,
+        beautyOn: studioCubit.recordingBeautyOn,
+        beautyIntensity: studioCubit.recordingBeautyIntensity,
       );
 
       // Step 3: Submitting Entry & Feed Refresh
@@ -204,18 +213,12 @@ class _StudioUploadScreenState extends State<StudioUploadScreen> {
       if (mounted) {
         final homeCubit = context.read<HomeCubit>();
         final trendingCubit = context.read<TrendingVideosCubit>();
-        final reelsCubit = context.read<ReelsCubit>();
         final profileCubit = context.read<ProfileCubit>();
         final myVideosCubit = context.read<MyVideosCubit>();
-        if (MockData.REELS.isNotEmpty) {
-          reelsCubit.syncVideos([MockData.REELS.first]);
-        }
-        try {
-          await homeCubit.loadHomeDashboard(forceRefresh: true);
-        } catch (_) {}
-        try {
-          await trendingCubit.loadTrendingVideos(forceRefresh: true);
-        } catch (_) {}
+        Future<void>.delayed(const Duration(seconds: 6), () {
+          unawaited(homeCubit.loadHomeDashboard(forceRefresh: true));
+          unawaited(trendingCubit.loadTrendingVideos(forceRefresh: true));
+        });
         try {
           profileCubit.loadProfile(forceRefresh: true);
         } catch (_) {}
@@ -229,7 +232,6 @@ class _StudioUploadScreenState extends State<StudioUploadScreen> {
         _stepIndex = 3;
       });
 
-      await Future.delayed(const Duration(milliseconds: 400));
       if (mounted) {
         context.go('${AppRoutes.studioSuccess}?id=${widget.challengeId ?? 'c1'}');
       }

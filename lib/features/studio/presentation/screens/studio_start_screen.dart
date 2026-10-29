@@ -98,9 +98,12 @@ class _StudioStartScreenState extends State<StudioStartScreen> {
                     GradientButton(
                       label: 'Start Recording',
                       icon: const Icon(Icons.videocam_outlined, color: Colors.white, size: 18),
-                      onPressed: () => context.push(
-                        '${AppRoutes.studioCamera}?id=${challengeMap['id']}',
-                      ),
+                      onPressed: () {
+                        context.read<StudioCubit>().prepareFreshRecording();
+                        context.push(
+                          '${AppRoutes.studioCamera}?id=${challengeMap['id']}',
+                        );
+                      },
                     ),
                     const SizedBox(height: 10),
                     SecondaryOutlineButton(

@@ -212,6 +212,9 @@ class TrendingVideoItem {
     this.saveCount = 0,
     this.savesLabel,
     this.musicName,
+    this.musicUrl,
+    this.musicStartSeconds,
+    this.musicCropDuration,
     this.averageRating,
     this.talentScore,
     this.talentScoreLabel,
@@ -239,6 +242,9 @@ class TrendingVideoItem {
     this.isSaved = false,
     this.hashtags = const [],
     this.mergedClipPaths,
+    this.filterId,
+    this.beautyOn = false,
+    this.beautyIntensity = 0,
   });
 
   final String id;
@@ -267,6 +273,9 @@ class TrendingVideoItem {
   final int saveCount;
   final String? savesLabel;
   final String? musicName;
+  final String? musicUrl;
+  final double? musicStartSeconds;
+  final double? musicCropDuration;
   final String? averageRating;
   final double? talentScore;
   final String? talentScoreLabel;
@@ -293,6 +302,9 @@ class TrendingVideoItem {
   final bool isLiked;
   final bool isSaved;
   final List<String> hashtags;
+  final String? filterId;
+  final bool beautyOn;
+  final double beautyIntensity;
 
   static String formatCount(int count) {
     if (count >= 1000000) {
@@ -520,8 +532,11 @@ class TrendingVideoItem {
   }
 
   String get displayCaption {
-    final desc = (description != null && description!.trim().isNotEmpty)
+    final rawDesc = (description != null && description!.trim().isNotEmpty)
         ? description!.trim()
+        : title.trim();
+    final desc = ReelHelpers.cleanDescription(rawDesc).isNotEmpty
+        ? ReelHelpers.cleanDescription(rawDesc)
         : title.trim();
 
     final cleanDesc = desc.replaceAll(RegExp(r'#+'), '#');
@@ -554,6 +569,14 @@ class TrendingVideoItem {
     final resolvedCommentsCount = comments > 0 ? comments : commentCount;
     final resolvedSharesCount = shares > 0 ? shares : shareCount;
     final resolvedSavesCount = saves > 0 ? saves : saveCount;
+    final resolvedFilter = ReelHelpers.resolveFilter(
+      filterId: filterId,
+      beautyOn: beautyOn,
+      beautyIntensity: beautyIntensity,
+      description: description,
+      videoId: id,
+      videoUrl: playableVideoUrl,
+    );
 
     return {
       'id': id,
@@ -599,6 +622,12 @@ class TrendingVideoItem {
       'saved': isSaved,
       'isBookmarked': isSaved,
       'musicName': displayMusicName,
+      'musicUrl': musicUrl,
+      'musicStartSeconds': musicStartSeconds,
+      'musicCropDuration': musicCropDuration,
+      'filterId': resolvedFilter?.filterId,
+      'beautyOn': resolvedFilter?.beautyOn ?? false,
+      'beautyIntensity': resolvedFilter?.beautyIntensity ?? 0,
       'avatarUrl': displayAvatar,
       'handle': resolvedHandle,
       'username': user?.username ?? resolvedHandle.replaceAll('@', ''),
@@ -889,7 +918,8 @@ class TrendingVideoItem {
 
     final rawDesc = json['description']?.toString();
     final parsedClipsDesc = ReelHelpers.parseDescriptionClips(rawDesc);
-    final effectiveDesc = parsedClipsDesc.cleanDescription.isNotEmpty ? parsedClipsDesc.cleanDescription : rawDesc;
+    final musicMeta = ReelHelpers.parseDescriptionMusic(rawDesc) ?? _extractMusicMetaFromJson(json);
+    final effectiveDesc = (rawDesc != null && rawDesc.trim().isNotEmpty) ? rawDesc : parsedClipsDesc.cleanDescription;
 
     final idStr = json['id']?.toString() ?? json['_id']?.toString() ?? '';
     final videoUrlStr = _extractVideoUrl(json);
@@ -909,6 +939,15 @@ class TrendingVideoItem {
       if (idStr.isNotEmpty) ReelHelpers.cacheMergedClips(idStr, effectiveMergedClips);
       if (videoUrlStr != null && videoUrlStr.isNotEmpty) ReelHelpers.cacheMergedClips(videoUrlStr, effectiveMergedClips);
     }
+
+    final filterMeta = ReelHelpers.resolveFilter(
+      filterId: json['filterId']?.toString() ?? json['filter_id']?.toString(),
+      beautyOn: json['beautyOn'] == true || json['beauty_on'] == true,
+      beautyIntensity: _parseDouble(json['beautyIntensity'] ?? json['beauty_intensity']),
+      description: rawDesc,
+      videoId: idStr,
+      videoUrl: videoUrlStr,
+    );
 
     final rawStatus = json['status']?.toString();
     final rawStatusLabel = json['statusLabel']?.toString();
@@ -958,7 +997,12 @@ class TrendingVideoItem {
       saves: parsedSaves,
       saveCount: parsedSaves,
       savesLabel: json['savesLabel']?.toString() ?? (json['savesCount'] is String ? json['savesCount'] as String : null),
-      musicName: _extractMusicName(json),
+      musicName: (musicMeta?.name != null && musicMeta!.name.isNotEmpty)
+          ? musicMeta.name
+          : _extractMusicName(json),
+      musicUrl: musicMeta?.url,
+      musicStartSeconds: musicMeta?.startSeconds,
+      musicCropDuration: musicMeta?.durationSeconds,
       averageRating: json['averageRating']?.toString() ?? json['rating']?.toString(),
       talentScore: _extractTalentScore(json),
       talentScoreLabel: json['talentScoreLabel']?.toString(),
@@ -993,6 +1037,9 @@ class TrendingVideoItem {
       isLiked: _extractIsLiked(json),
       isSaved: parsedIsSaved,
       mergedClipPaths: effectiveMergedClips,
+      filterId: filterMeta?.filterId,
+      beautyOn: filterMeta?.beautyOn ?? false,
+      beautyIntensity: filterMeta?.beautyIntensity ?? 0,
     );
   }
 
@@ -1179,13 +1226,41 @@ class TrendingVideoItem {
     final directKeys = ['musicName', 'music_name', 'music', 'soundName', 'sound_name', 'audioTitle'];
     for (final key in directKeys) {
       final val = json[key]?.toString().trim();
-      if (val != null && val.isNotEmpty && val != 'null') return val;
+      if (val != null && val.isNotEmpty && val != 'null' && !val.startsWith('Original Sound')) return val;
     }
     if (json['audio'] is Map) {
       final name = json['audio']['title']?.toString().trim() ?? json['audio']['name']?.toString().trim();
       if (name != null && name.isNotEmpty && name != 'null') return name;
     }
-    return null;
+    return ReelHelpers.parseDescriptionMusic(json['description']?.toString())?.name;
+  }
+
+  static ReelMusicMeta? _extractMusicMetaFromJson(Map<String, dynamic> json) {
+    final url = json['musicUrl']?.toString().trim() ??
+        json['music_url']?.toString().trim() ??
+        json['audioUrl']?.toString().trim() ??
+        json['audio_url']?.toString().trim();
+    if (url == null || url.isEmpty || url == 'null') {
+      if (json['audio'] is Map) {
+        final audioUrl = (json['audio'] as Map)['url']?.toString().trim() ??
+            (json['audio'] as Map)['audioUrl']?.toString().trim();
+        if (audioUrl != null && audioUrl.isNotEmpty && audioUrl != 'null') {
+          return ReelMusicMeta(
+            url: audioUrl,
+            name: _extractMusicName(json) ?? '',
+            startSeconds: _parseDouble(json['musicStartSeconds'] ?? json['music_start_seconds']) ?? 0,
+            durationSeconds: _parseDouble(json['musicCropDuration'] ?? json['music_crop_duration']) ?? 0,
+          );
+        }
+      }
+      return null;
+    }
+    return ReelMusicMeta(
+      url: url,
+      name: _extractMusicName(json) ?? '',
+      startSeconds: _parseDouble(json['musicStartSeconds'] ?? json['music_start_seconds']) ?? 0,
+      durationSeconds: _parseDouble(json['musicCropDuration'] ?? json['music_crop_duration']) ?? 0,
+    );
   }
 
   static int? _parseInt(dynamic value) {
@@ -1244,6 +1319,9 @@ class TrendingVideoItem {
         'badgeLabel': badgeLabel,
         'ratingLabel': ratingLabel,
         'isTrending': isTrending,
+        if (filterId != null && filterId!.isNotEmpty) 'filterId': filterId,
+        'beautyOn': beautyOn,
+        'beautyIntensity': beautyIntensity,
       };
 }
 

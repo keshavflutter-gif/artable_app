@@ -157,10 +157,22 @@ class ProfileData {
       }
     }
 
+    final approvedCount = statsObj.approvedVideos;
+    final patchedStatCards = statCardsList.map((card) {
+      final key = card.key.toLowerCase().trim();
+      final label = card.label.toLowerCase().trim();
+      final isVideosCard = key == 'videos' || label == 'videos';
+      if (!isVideosCard) return card;
+      return card.copyWith(
+        value: approvedCount,
+        displayValue: '$approvedCount',
+      );
+    }).toList();
+
     return ProfileData(
       user: userObj,
       stats: statsObj,
-      statCards: statCardsList,
+      statCards: patchedStatCards,
       recentVideos: videosList,
       recentVideosTitle: root['recentVideosTitle']?.toString() ?? 'Recent Videos',
       recentVideosSeeAllRoute:

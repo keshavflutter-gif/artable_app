@@ -122,6 +122,7 @@ class _SubmitEntryScreenState extends State<SubmitEntryScreen> {
                             }
 
                             final studioCubit = context.read<StudioCubit>();
+                            studioCubit.prepareFreshRecording();
                             studioCubit.setVideoSubmissionDetails(
                               title: '',
                               challengeId: realChallengeId,

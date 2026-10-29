@@ -1,14 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_gradients.dart';
 import 'package:artable_app/app/theme/app_text_styles.dart';
+import 'package:artable_app/core/utils/formatters.dart';
 import 'package:artable_app/core/widgets/app_back_header.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
-import 'package:artable_app/data/datasources/mock_data.dart';
-import 'package:artable_app/core/utils/video_share_helper.dart';
+import 'package:artable_app/features/referral/presentation/bloc/referral_cubit.dart';
+import 'package:artable_app/features/referral/presentation/bloc/referral_state.dart';
 
 class InviteFriendsScreen extends StatefulWidget {
   const InviteFriendsScreen({super.key});
@@ -19,6 +23,15 @@ class InviteFriendsScreen extends StatefulWidget {
 
 class _InviteFriendsScreenState extends State<InviteFriendsScreen> {
   bool _copied = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<ReferralCubit>().loadInvite();
+    });
+  }
 
   void _copyCode(String code) {
     Clipboard.setData(ClipboardData(text: code));
@@ -34,34 +47,94 @@ class _InviteFriendsScreenState extends State<InviteFriendsScreen> {
     });
   }
 
-  void _onShareOptionTap(String label) {
+  String _inviteShareText(ReferralState state) {
+    final code = state.invite?.code.trim() ?? '';
+    final link = state.invite?.inviteLink.trim() ?? '';
+    final shareMessage = state.invite?.shareMessage.trim() ?? '';
+    if (shareMessage.isNotEmpty) return shareMessage;
+    final buffer = StringBuffer('Join me on Artable!');
+    if (code.isNotEmpty) {
+      buffer.write('\nUse my referral code $code to sign up and earn rewards.');
+    } else {
+      buffer.write('\nSign up and earn rewards with me.');
+    }
+    if (link.isNotEmpty) buffer.write('\n$link');
+    return buffer.toString();
+  }
+
+  Future<void> _onShareOptionTap(String label, ReferralState state) async {
+    final text = _inviteShareText(state);
+    const title = 'Join me on Artable!';
     final optionId = switch (label.toLowerCase()) {
       'whatsapp' => 'whatsapp',
       'sms' => 'sms',
       'email' => 'email',
       _ => 'social',
     };
-    VideoShareHelper.shareVideo(
-      context: context,
-      optionId: optionId,
-      videoUrl: 'https://vjs.zencdn.net/v/oceans.mp4',
-      title: 'Join me on Artable!',
-      caption: 'Use my referral code ART100 to join Artable and earn rewards!',
-    );
+
+    try {
+      if (optionId == 'whatsapp') {
+        final waUri = Uri.parse(
+          'https://wa.me/?text=${Uri.encodeComponent(text)}',
+        );
+        final launched = await launchUrl(
+          waUri,
+          mode: LaunchMode.externalApplication,
+        );
+        if (launched) return;
+      } else if (optionId == 'sms') {
+        final smsUri = Uri(scheme: 'sms', queryParameters: {'body': text});
+        if (await canLaunchUrl(smsUri)) {
+          await launchUrl(smsUri);
+          return;
+        }
+      } else if (optionId == 'email') {
+        final emailUri = Uri(
+          scheme: 'mailto',
+          queryParameters: {
+            'subject': title,
+            'body': text,
+          },
+        );
+        if (await canLaunchUrl(emailUri)) {
+          await launchUrl(emailUri);
+          return;
+        }
+      }
+
+      if (!mounted) return;
+      final box = context.findRenderObject() as RenderBox?;
+      final origin = (box != null && box.hasSize)
+          ? box.localToGlobal(Offset.zero) & box.size
+          : null;
+      await SharePlus.instance.share(
+        ShareParams(
+          text: text,
+          subject: title,
+          title: title,
+          sharePositionOrigin: origin,
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open share.')),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final s = MockData.REFERRAL_SUMMARY;
-    final code = s['code'] as String;
-
     return AppScreen(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const AppBackHeader(title: 'Invite Friends'),
           Expanded(
-            child: SingleChildScrollView(
+            child: BlocBuilder<ReferralCubit, ReferralState>(
+              builder: (context, state) {
+                final code = state.invite?.code ?? '';
+                return SingleChildScrollView(
               child: AppContent(
                 noBottomPad: true,
                 child: Column(
@@ -120,17 +193,31 @@ class _InviteFriendsScreenState extends State<InviteFriendsScreen> {
                               color: Colors.white.withValues(alpha: 0.12),
                               borderRadius: BorderRadius.circular(16),
                             ),
-                            child: Text(
-                              code,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                fontFamily: 'Poppins',
-                                fontSize: 22,
-                                fontWeight: FontWeight.w900,
-                                color: Colors.white,
-                                letterSpacing: 1.5,
-                              ),
-                            ),
+                            child: state.isInviteLoading && code.isEmpty
+                                ? const SizedBox(
+                                    height: 28,
+                                    child: Center(
+                                      child: SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                    ),
+                                  )
+                                : Text(
+                                    code.isNotEmpty ? code : '—',
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(
+                                      fontFamily: 'Poppins',
+                                      fontSize: 22,
+                                      fontWeight: FontWeight.w900,
+                                      color: Colors.white,
+                                      letterSpacing: 1.5,
+                                    ),
+                                  ),
                           ),
                         ),
                         const SizedBox(height: 14),
@@ -138,7 +225,7 @@ class _InviteFriendsScreenState extends State<InviteFriendsScreen> {
                         Material(
                           color: Colors.transparent,
                           child: InkWell(
-                            onTap: () => _copyCode(code),
+                            onTap: code.isEmpty ? null : () => _copyCode(code),
                             borderRadius: BorderRadius.circular(30),
                             child: Container(
                               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
@@ -201,22 +288,22 @@ class _InviteFriendsScreenState extends State<InviteFriendsScreen> {
                       _ShareOptionItem(
                         icon: Icons.chat_bubble_outline_rounded,
                         label: 'WhatsApp',
-                        onTap: () => _onShareOptionTap('WhatsApp'),
+                        onTap: () => _onShareOptionTap('WhatsApp', state),
                       ),
                       _ShareOptionItem(
                         icon: Icons.sms_outlined,
                         label: 'SMS',
-                        onTap: () => _onShareOptionTap('SMS'),
+                        onTap: () => _onShareOptionTap('SMS', state),
                       ),
                       _ShareOptionItem(
                         icon: Icons.mail_outline_rounded,
                         label: 'Email',
-                        onTap: () => _onShareOptionTap('Email'),
+                        onTap: () => _onShareOptionTap('Email', state),
                       ),
                       _ShareOptionItem(
                         icon: Icons.share_outlined,
                         label: 'Social Share',
-                        onTap: () => _onShareOptionTap('Social Share'),
+                        onTap: () => _onShareOptionTap('Social Share', state),
                       ),
                     ],
                   ),
@@ -339,12 +426,14 @@ class _InviteFriendsScreenState extends State<InviteFriendsScreen> {
                 ],
               ),
             ),
+          );
+              },
+            ),
           ),
-        ),
-      ],
-    ),
-  );
-}
+        ],
+      ),
+    );
+  }
 }
 
 class _ShareOptionItem extends StatelessWidget {
@@ -452,8 +541,22 @@ class _DashedBorderPainter extends CustomPainter {
   }
 }
 
-class ReferralTrackingScreen extends StatelessWidget {
+class ReferralTrackingScreen extends StatefulWidget {
   const ReferralTrackingScreen({super.key});
+
+  @override
+  State<ReferralTrackingScreen> createState() => _ReferralTrackingScreenState();
+}
+
+class _ReferralTrackingScreenState extends State<ReferralTrackingScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<ReferralCubit>().loadTracking();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -463,22 +566,78 @@ class ReferralTrackingScreen extends StatelessWidget {
         children: [
           const AppBackHeader(title: 'Referral Tracking'),
           Expanded(
-            child: SingleChildScrollView(
-              child: AppContent(
-                noBottomPad: true,
-                child: Column(
-                  children: MockData.REFERRAL_LIST.map((r) {
-                    final user = MockData.CREATORS.firstWhere((u) => u['id'] == r['userId']);
-                    return ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: CircleAvatar(backgroundImage: NetworkImage(user['avatarUrl'] as String)),
-                      title: Text(user['name'] as String, style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w700)),
-                      subtitle: Text('${r['status']} · ${r['date']}', style: AppTextStyles.bodySoft.copyWith(fontSize: 11)),
-                      trailing: Text(r['amount'] as String, style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w700)),
-                    );
-                  }).toList(),
-                ),
-              ),
+            child: BlocBuilder<ReferralCubit, ReferralState>(
+              builder: (context, state) {
+                if (state.isTrackingLoading && state.tracking == null) {
+                  return const Center(
+                    child: CircularProgressIndicator(color: AppColors.purple),
+                  );
+                }
+
+                final items = state.tracking?.referrals ?? const [];
+                if (items.isEmpty) {
+                  return const Center(
+                    child: Text(
+                      'No referrals yet',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 13,
+                        color: AppColors.textSoft,
+                      ),
+                    ),
+                  );
+                }
+
+                return SingleChildScrollView(
+                  child: AppContent(
+                    noBottomPad: true,
+                    child: Column(
+                      children: items.map((r) {
+                        final dateLabel = r.date.isEmpty
+                            ? ''
+                            : AppFormatters.formatDate(r.date);
+                        final subtitle = [
+                          if (r.status.isNotEmpty) r.status,
+                          if (dateLabel.isNotEmpty) dateLabel,
+                        ].join(' · ');
+                        return ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: CircleAvatar(
+                            backgroundImage: r.avatarUrl.isNotEmpty
+                                ? NetworkImage(r.avatarUrl)
+                                : null,
+                            backgroundColor: const Color(0xFFF5F2FC),
+                            child: r.avatarUrl.isEmpty
+                                ? Text(
+                                    r.name.isNotEmpty
+                                        ? r.name[0].toUpperCase()
+                                        : '?',
+                                    style: const TextStyle(
+                                      fontFamily: 'Poppins',
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.purple,
+                                    ),
+                                  )
+                                : null,
+                          ),
+                          title: Text(
+                            r.name.isNotEmpty ? r.name : 'Artable user',
+                            style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w700),
+                          ),
+                          subtitle: Text(
+                            subtitle,
+                            style: AppTextStyles.bodySoft.copyWith(fontSize: 11),
+                          ),
+                          trailing: Text(
+                            r.amount,
+                            style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w700),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                );
+              },
             ),
           ),
         ],

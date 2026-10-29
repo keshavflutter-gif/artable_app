@@ -1,6 +1,5 @@
 import 'package:artable_app/core/utils/media_url_utils.dart';
 import 'package:artable_app/core/utils/reel_helpers.dart';
-import 'package:artable_app/data/datasources/mock_data.dart';
 
 class MyVideosResponse {
   const MyVideosResponse({
@@ -115,6 +114,9 @@ class MyVideoItem {
     this.creator,
     this.avatarUrl,
     this.user,
+    this.filterId,
+    this.beautyOn = false,
+    this.beautyIntensity = 0,
   });
 
   final String id;
@@ -145,6 +147,9 @@ class MyVideoItem {
   final String? creator;
   final String? avatarUrl;
   final Map<String, dynamic>? user;
+  final String? filterId;
+  final bool beautyOn;
+  final double beautyIntensity;
 
   factory MyVideoItem.fromJson(Map<String, dynamic> json, {Map<String, dynamic>? fallbackUser}) {
     final actionsRaw = json['actions'];
@@ -263,9 +268,9 @@ class MyVideoItem {
 
     final rawDesc = json['description']?.toString();
     final parsedClipsDesc = ReelHelpers.parseDescriptionClips(rawDesc);
-    final effectiveDesc = parsedClipsDesc.cleanDescription.isNotEmpty
-        ? parsedClipsDesc.cleanDescription
-        : rawDesc;
+    final effectiveDesc = (rawDesc != null && rawDesc.trim().isNotEmpty)
+        ? rawDesc
+        : parsedClipsDesc.cleanDescription;
 
     final idStr = json['id']?.toString() ?? json['_id']?.toString() ?? '';
 
@@ -293,13 +298,6 @@ class MyVideoItem {
             ? MediaUrlUtils.resolve(effectiveMergedClips.first)
             : videoUrlStr);
 
-    if ((finalVideoUrl == null || finalVideoUrl.isEmpty) && idStr.isNotEmpty) {
-      final mockMatch = MockData.REELS.where((r) => r['id'] == idStr).firstOrNull;
-      if (mockMatch != null) {
-        finalVideoUrl = mockMatch['videoUrl']?.toString();
-      }
-    }
-
     if ((thumb.isEmpty || MediaUrlUtils.isDummyThumbnail(thumb)) &&
         finalVideoUrl != null &&
         finalVideoUrl.trim().isNotEmpty) {
@@ -319,6 +317,16 @@ class MyVideoItem {
         statusStr.toUpperCase() == 'LIVE' ||
         statusStr.toUpperCase() == 'PUBLISHED' ||
         statusStr.toUpperCase() == 'ACTIVE');
+
+    final filterMeta = ReelHelpers.resolveFilter(
+      filterId: json['filterId']?.toString() ?? json['filter_id']?.toString(),
+      beautyOn: json['beautyOn'] == true || json['beauty_on'] == true,
+      beautyIntensity: (json['beautyIntensity'] as num?)?.toDouble() ??
+          (json['beauty_intensity'] as num?)?.toDouble(),
+      description: rawDesc,
+      videoId: idStr,
+      videoUrl: finalVideoUrl,
+    );
 
     return MyVideoItem(
       id: idStr,
@@ -351,6 +359,9 @@ class MyVideoItem {
       creator: creatorStr.isNotEmpty ? creatorStr : null,
       avatarUrl: avatarStr.isNotEmpty ? avatarStr : null,
       user: userObj,
+      filterId: filterMeta?.filterId,
+      beautyOn: filterMeta?.beautyOn ?? false,
+      beautyIntensity: filterMeta?.beautyIntensity ?? 0,
     );
   }
 
@@ -391,11 +402,20 @@ class MyVideoItem {
         ? mergedClipPaths
         : (ReelHelpers.getCachedMergedClips(id) ?? ReelHelpers.getCachedMergedClips(videoUrl));
 
+    final resolvedFilter = ReelHelpers.resolveFilter(
+      filterId: filterId,
+      beautyOn: beautyOn,
+      beautyIntensity: beautyIntensity,
+      description: description,
+      videoId: id,
+      videoUrl: videoUrl,
+    );
+    final cleanCaption = ReelHelpers.cleanDescription(description);
     return {
       'id': id,
       'title': title,
       'description': description ?? '',
-      'caption': (description != null && description!.trim().isNotEmpty) ? description! : title,
+      'caption': cleanCaption.isNotEmpty ? cleanCaption : title,
       'challengeId': challengeId,
       'challengeTitle': challengeTitle,
       'imageUrl': thumbnailUrl,
@@ -431,6 +451,9 @@ class MyVideoItem {
       if (creator != null && creator!.isNotEmpty) 'creator': creator,
       if (avatarUrl != null && avatarUrl!.isNotEmpty) 'avatarUrl': avatarUrl,
       if (user != null) 'user': user,
+      'filterId': resolvedFilter?.filterId,
+      'beautyOn': resolvedFilter?.beautyOn ?? false,
+      'beautyIntensity': resolvedFilter?.beautyIntensity ?? 0,
     };
   }
 }

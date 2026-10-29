@@ -242,11 +242,10 @@ class StudioRepository {
       throw Exception('Presigned URL response missing uploadUrl or fileUrl');
     }
 
-    final bytes = await file.readAsBytes();
-
-    final uploadSuccess = await _apiClient.uploadFileToPresignedUrl(
+    final uploadSuccess = await _apiClient.uploadStreamToPresignedUrl(
       uploadUrl: uploadUrl,
-      bytes: bytes,
+      byteStream: file.openRead(),
+      contentLength: fileSize,
       contentType: contentType,
     );
 

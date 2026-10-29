@@ -244,129 +244,45 @@ class _LogoutConfirmDialogContentState extends State<LogoutConfirmDialogContent>
 
               // Extra Input Fields for Delete Account Mode
               if (isDelete) ...[
-                // Password Field
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    'Password',
-                    style: TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w600,
-                      color: const Color(0xFF241E38),
-                    ),
-                  ),
-                ),
+                _buildFieldLabel('Password'),
                 const SizedBox(height: 6),
-                Container(
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF8F7FB),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: _errorMessage != null && _passwordController.text.isEmpty
-                          ? const Color(0xFFE53935)
-                          : const Color(0xFFECE8F5),
-                    ),
-                  ),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.lock_outline_rounded, size: 18, color: Color(0xFF8B3DFF)),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: TextField(
-                          controller: _passwordController,
-                          obscureText: _obscurePassword,
-                          enabled: !_isProcessing,
-                          style: const TextStyle(
-                            fontFamily: 'Poppins',
-                            fontSize: 13,
-                            color: Color(0xFF241E38),
-                          ),
-                          decoration: const InputDecoration(
-                            hintText: 'Enter your password',
-                            hintStyle: TextStyle(
-                              fontFamily: 'Poppins',
-                              fontSize: 13,
-                              color: Color(0xFFB3A9C9),
+                _buildDialogField(
+                  controller: _passwordController,
+                  hintText: 'Enter your password',
+                  icon: Icons.lock_outline_rounded,
+                  obscureText: _obscurePassword,
+                  hasError: _errorMessage != null &&
+                      _passwordController.text.isEmpty,
+                  suffix: GestureDetector(
+                    onTap: _isProcessing
+                        ? null
+                        : () => setState(
+                              () => _obscurePassword = !_obscurePassword,
                             ),
-                            border: InputBorder.none,
-                            isDense: true,
-                          ),
-                        ),
+                    behavior: HitTestBehavior.opaque,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 2,
+                        vertical: 8,
                       ),
-                      IconButton(
-                        onPressed: () {
-                          setState(() {
-                            _obscurePassword = !_obscurePassword;
-                          });
-                        },
-                        icon: Icon(
-                          _obscurePassword
-                              ? Icons.visibility_off_outlined
-                              : Icons.visibility_outlined,
-                          size: 18,
-                          color: const Color(0xFF7A7090),
-                        ),
+                      child: Icon(
+                        _obscurePassword
+                            ? Icons.visibility_off_outlined
+                            : Icons.visibility_outlined,
+                        size: 18,
+                        color: const Color(0xFF7A7090),
                       ),
-                    ],
+                    ),
                   ),
                 ),
                 const SizedBox(height: 14),
-
-                // Reason Field (Optional)
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    'Reason (Optional)',
-                    style: TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w600,
-                      color: const Color(0xFF241E38),
-                    ),
-                  ),
-                ),
+                _buildFieldLabel('Reason (Optional)'),
                 const SizedBox(height: 6),
-                Container(
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF8F7FB),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: const Color(0xFFECE8F5)),
-                  ),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Padding(
-                        padding: EdgeInsets.only(top: 10),
-                        child: Icon(Icons.chat_bubble_outline_rounded, size: 18, color: Color(0xFF8B3DFF)),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: TextField(
-                          controller: _reasonController,
-                          enabled: !_isProcessing,
-                          maxLines: 2,
-                          style: const TextStyle(
-                            fontFamily: 'Poppins',
-                            fontSize: 13,
-                            color: Color(0xFF241E38),
-                          ),
-                          decoration: const InputDecoration(
-                            hintText: 'Why are you leaving?',
-                            hintStyle: TextStyle(
-                              fontFamily: 'Poppins',
-                              fontSize: 13,
-                              color: Color(0xFFB3A9C9),
-                            ),
-                            border: InputBorder.none,
-                            isDense: true,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
+                _buildDialogField(
+                  controller: _reasonController,
+                  hintText: 'Why are you leaving?',
+                  icon: Icons.chat_bubble_outline_rounded,
+                  maxLines: 3,
                 ),
                 const SizedBox(height: 20),
               ] else
@@ -453,6 +369,111 @@ class _LogoutConfirmDialogContentState extends State<LogoutConfirmDialogContent>
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildFieldLabel(String label) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontFamily: 'Poppins',
+          fontSize: 12.5,
+          fontWeight: FontWeight.w600,
+          color: Color(0xFF241E38),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDialogField({
+    required TextEditingController controller,
+    required String hintText,
+    required IconData icon,
+    bool obscureText = false,
+    bool hasError = false,
+    int maxLines = 1,
+    Widget? suffix,
+  }) {
+    final isMultiline = maxLines > 1;
+    return Container(
+      height: isMultiline ? null : 48,
+      constraints: isMultiline ? const BoxConstraints(minHeight: 88) : null,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8F7FB),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: hasError ? const Color(0xFFE53935) : const Color(0xFFECE8F5),
+          width: hasError ? 1.5 : 1.2,
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment:
+            isMultiline ? CrossAxisAlignment.start : CrossAxisAlignment.center,
+        children: [
+          Padding(
+            padding: EdgeInsets.only(top: isMultiline ? 8 : 0),
+            child: Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: const Color(0xFFF3EAFD),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, size: 17, color: const Color(0xFF8B3DFF)),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.symmetric(vertical: isMultiline ? 10 : 0),
+              child: TextField(
+                controller: controller,
+                obscureText: obscureText,
+                enabled: !_isProcessing,
+                maxLines: obscureText ? 1 : maxLines,
+                textAlignVertical: isMultiline
+                    ? TextAlignVertical.top
+                    : TextAlignVertical.center,
+                onChanged: (_) {
+                  if (_errorMessage != null) {
+                    setState(() => _errorMessage = null);
+                  }
+                },
+                style: const TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w500,
+                  color: Color(0xFF241E38),
+                  height: 1.3,
+                ),
+                decoration: InputDecoration(
+                  hintText: hintText,
+                  hintMaxLines: isMultiline ? 2 : 1,
+                  hintStyle: const TextStyle(
+                    fontFamily: 'Poppins',
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w400,
+                    color: Color(0xFFB3A9C9),
+                    height: 1.3,
+                  ),
+                  filled: false,
+                  border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  disabledBorder: InputBorder.none,
+                  isDense: true,
+                  isCollapsed: true,
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+            ),
+          ),
+          if (suffix != null) suffix,
+        ],
       ),
     );
   }

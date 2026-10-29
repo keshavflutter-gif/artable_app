@@ -15,7 +15,30 @@ abstract final class VideoCacheManager {
   VideoCacheManager._();
 
   static final Map<String, Future<File?>> _inFlightDownloads = {};
+  static final Map<String, HttpClient> _inFlightClients = {};
   static final Set<String> _completedUrls = {};
+  static final Map<String, String> _urlToLocalPath = {};
+  static Directory? _tempDir;
+
+  static Future<Directory> _sharedTempDir() async {
+    return _tempDir ??= await getTemporaryDirectory();
+  }
+
+  /// Stops a background full-file download so ExoPlayer can stream this URL
+  /// immediately (Range requests) instead of competing for bandwidth.
+  static void cancelPrecache(String? rawUrl) {
+    if (rawUrl == null) return;
+    final resolved = MediaUrlUtils.resolve(rawUrl).trim();
+    if (resolved.isEmpty) return;
+    final hash = computeHash(resolved);
+    final client = _inFlightClients.remove(hash);
+    if (client != null) {
+      debugPrint('[VideoCacheManager] Cancelled precache so playback can start: $resolved');
+      try {
+        client.close(force: true);
+      } catch (_) {}
+    }
+  }
 
   /// Computes a stable hash for any URL to identify its cache file.
   static String computeHash(String url) {
@@ -43,6 +66,14 @@ abstract final class VideoCacheManager {
     final resolved = MediaUrlUtils.resolve(clean).trim();
     if (resolved.isEmpty) return null;
 
+    final aliased = _urlToLocalPath[resolved] ?? _urlToLocalPath[clean];
+    if (aliased != null) {
+      final aliasedFile = File(aliased);
+      if (aliasedFile.existsSync() && aliasedFile.lengthSync() > 1024) {
+        return aliasedFile;
+      }
+    }
+
     if (!resolved.startsWith('http://') && !resolved.startsWith('https://')) {
       final f = File(resolved);
       if (f.existsSync() && f.lengthSync() > 1024) {
@@ -51,7 +82,7 @@ abstract final class VideoCacheManager {
     }
 
     try {
-      final tempDir = await getTemporaryDirectory();
+      final tempDir = await _sharedTempDir();
       final urlHash = computeHash(resolved);
       final rawHash = computeHash(clean);
 
@@ -91,6 +122,49 @@ abstract final class VideoCacheManager {
     }
 
     return null;
+  }
+
+  /// Points a remote playback URL at the local recorded file so the first
+  /// Challenge Arena play after upload does not stream a cold CDN copy.
+  static Future<File?> associateLocalFile(String? localPath, String? remoteUrl) async {
+    if (localPath == null || remoteUrl == null) return null;
+    var local = localPath.trim();
+    if (local.startsWith('file://')) local = local.replaceFirst('file://', '');
+    final remote = MediaUrlUtils.resolve(remoteUrl).trim();
+    if (local.isEmpty || remote.isEmpty) return null;
+    if (!remote.startsWith('http://') && !remote.startsWith('https://')) return null;
+
+    final source = File(local);
+    if (!source.existsSync() || source.lengthSync() <= 1024) return null;
+
+    _urlToLocalPath[remote] = source.path;
+    _urlToLocalPath[remoteUrl.trim()] = source.path;
+
+    try {
+      final tempDir = await _sharedTempDir();
+      final cacheDir = Directory('${tempDir.path}/shared_videos');
+      if (!cacheDir.existsSync()) {
+        cacheDir.createSync(recursive: true);
+      }
+      final hash = computeHash(remote);
+      final target = File('${cacheDir.path}/cached_video_$hash.mp4');
+      if (target.existsSync() && target.lengthSync() > 30000) {
+        _completedUrls.add(remote);
+        return target;
+      }
+      if (source.path == target.path) {
+        _completedUrls.add(remote);
+        return source;
+      }
+      await source.copy(target.path);
+      _completedUrls.add(remote);
+      _urlToLocalPath[remote] = target.path;
+      debugPrint('[VideoCacheManager] Bound local recording to remote URL cache: $remote');
+      return target;
+    } catch (e) {
+      debugPrint('[VideoCacheManager] associateLocalFile copy failed, using source path: $e');
+      return source;
+    }
   }
 
   /// Silently pre-caches a remote video to local storage in background.
@@ -139,7 +213,7 @@ abstract final class VideoCacheManager {
     File? tmpFile;
 
     try {
-      final tempDir = await getTemporaryDirectory();
+      final tempDir = await _sharedTempDir();
       final cacheDir = Directory('${tempDir.path}/shared_videos');
       if (!cacheDir.existsSync()) {
         try {
@@ -156,6 +230,7 @@ abstract final class VideoCacheManager {
         ..connectionTimeout = const Duration(seconds: 15)
         ..idleTimeout = const Duration(seconds: 15)
         ..badCertificateCallback = ((cert, host, port) => true);
+      _inFlightClients[urlHash] = client;
 
       final req = await client.getUrl(uri);
       req.headers.set(HttpHeaders.userAgentHeader,
@@ -208,17 +283,28 @@ abstract final class VideoCacheManager {
         } catch (_) {}
       }
     } finally {
+      _inFlightClients.remove(urlHash);
       client?.close(force: true);
     }
 
     return null;
   }
 
-  /// Creates an initialized [VideoPlayerController] using local cache when possible
-  /// for instant, buttery-smooth playback without network buffering.
+  static VideoFormat? _formatHintFor(String url) {
+    final lower = url.toLowerCase().split('?').first;
+    if (lower.endsWith('.m3u8') || lower.contains('/hls/')) {
+      return VideoFormat.hls;
+    }
+    if (lower.endsWith('.mpd')) return VideoFormat.dash;
+    return null;
+  }
+
+  /// Creates an initialized [VideoPlayerController] using local cache when possible.
+  /// Visible playback should pass [waitForInFlightDownload] = Duration.zero so
+  /// ExoPlayer can Range-stream the first frame immediately.
   static Future<VideoPlayerController?> createAndInitController(
     String rawUrl, {
-    Duration timeout = const Duration(seconds: 12),
+    Duration timeout = const Duration(seconds: 8),
     Duration waitForInFlightDownload = Duration.zero,
   }) async {
     final clean = rawUrl.trim();
@@ -227,12 +313,8 @@ abstract final class VideoCacheManager {
     final resolved = MediaUrlUtils.resolve(clean);
     if (resolved.isEmpty) return null;
 
-    // 1. Try local cache first for instant 0ms playback
     var cached = await findCachedVideoFile(resolved);
 
-    // 1b. If a background precache of this exact video is already running,
-    // optionally wait for it instead of opening a second network stream that
-    // would compete with it for bandwidth.
     if (cached == null && waitForInFlightDownload > Duration.zero) {
       final inFlight = _inFlightDownloads[computeHash(resolved.trim())];
       if (inFlight != null) {
@@ -268,33 +350,94 @@ abstract final class VideoCacheManager {
           videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
         );
       } else {
+        // Visible playback: drop competing full-file download so ExoPlayer
+        // can use HTTP Range and start on the first frames.
+        cancelPrecache(resolved);
         debugPrint('[VideoCacheManager] Streaming from NETWORK: $resolved');
         controller = VideoPlayerController.networkUrl(
           Uri.parse(resolved),
+          formatHint: _formatHintFor(resolved),
           videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
         );
       }
     }
 
     await controller.initialize().timeout(timeout);
+    if (cached == null &&
+        (resolved.startsWith('http://') || resolved.startsWith('https://'))) {
+      await _primeNetworkBuffer(controller);
+    }
     return controller;
   }
 
-  /// Pre-caches a list of video URLs sequentially in background (e.g. for trending feed)
-  static void precacheBatch(List<String?> urls, {int maxCount = 3}) {
-    final cleanUrls = urls
-        .where((u) => u != null && u.trim().isNotEmpty && u.trim() != 'null')
-        .map((u) => MediaUrlUtils.resolve(u!).trim())
-        .where((u) => u.startsWith('http://') || u.startsWith('https://'))
-        .take(maxCount)
-        .toList();
+  static Duration _bufferedAhead(VideoPlayerController controller) {
+    final pos = controller.value.position;
+    var end = Duration.zero;
+    for (final range in controller.value.buffered) {
+      if (range.end > end) end = range.end;
+    }
+    final extra = end - pos;
+    return extra.isNegative ? Duration.zero : extra;
+  }
+
+  /// Fills ~1s of ExoPlayer buffer while the thumbnail is still showing, so
+  /// the first play after upload does not stall every second.
+  static Future<void> _primeNetworkBuffer(VideoPlayerController controller) async {
+    if (!controller.value.isInitialized) return;
+    final durationMs = controller.value.duration.inMilliseconds;
+    final targetMs = durationMs > 0
+        ? (durationMs * 0.22).round().clamp(800, 1800)
+        : 1100;
+    final target = Duration(milliseconds: targetMs);
+    if (_bufferedAhead(controller) >= target) return;
+
+    try {
+      await controller.setVolume(0);
+      await controller.play();
+      final deadline = DateTime.now().add(const Duration(milliseconds: 2000));
+      while (DateTime.now().isBefore(deadline)) {
+        if (_bufferedAhead(controller) >= target) break;
+        if (controller.value.hasError) break;
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+      await controller.pause();
+      await controller.seekTo(Duration.zero);
+    } catch (_) {
+      try {
+        await controller.pause();
+        await controller.seekTo(Duration.zero);
+      } catch (_) {}
+    }
+  }
+
+  /// Pre-caches a list of video URLs in background (e.g. for trending feed).
+  static void precacheBatch(
+    List<String?> urls, {
+    int maxCount = 5,
+    int parallelism = 2,
+  }) {
+    final seen = <String>{};
+    final cleanUrls = <String>[];
+    for (final raw in urls) {
+      if (raw == null) continue;
+      final u = MediaUrlUtils.resolve(raw).trim();
+      if (u.isEmpty || seen.contains(u)) continue;
+      if (!u.startsWith('http://') && !u.startsWith('https://')) continue;
+      seen.add(u);
+      cleanUrls.add(u);
+      if (cleanUrls.length >= maxCount) break;
+    }
 
     () async {
-      for (final u in cleanUrls) {
-        try {
-          await precacheVideo(u);
-          await Future.delayed(const Duration(milliseconds: 600));
-        } catch (_) {}
+      for (var i = 0; i < cleanUrls.length; i += parallelism) {
+        final slice = cleanUrls.skip(i).take(parallelism);
+        await Future.wait(
+          slice.map((u) async {
+            try {
+              await precacheVideo(u);
+            } catch (_) {}
+          }),
+        );
       }
     }();
   }

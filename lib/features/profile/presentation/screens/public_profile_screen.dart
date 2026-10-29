@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_gradients.dart';
 import 'package:artable_app/core/utils/media_url_utils.dart';
+import 'package:artable_app/core/utils/app_filter_utils.dart';
+import 'package:artable_app/core/utils/reel_helpers.dart';
 import 'package:artable_app/core/widgets/app_image.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
 import 'package:artable_app/core/widgets/secondary_outline_button.dart';
@@ -656,14 +658,26 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                           child: Stack(
                             fit: StackFit.expand,
                             children: [
-                              AppImage(
-                                url: ((topReel.first['imageUrl'] as String? ?? '').isNotEmpty &&
-                                        !MediaUrlUtils.isDummyThumbnail(topReel.first['imageUrl'] as String?))
-                                    ? (topReel.first['imageUrl'] as String? ?? '')
-                                    : (topReel.first['videoUrl'] as String? ?? topReel.first['video_url'] as String? ?? ''),
-                                videoUrl: topReel.first['videoUrl'] as String? ?? topReel.first['video_url'] as String?,
-                                fit: BoxFit.cover,
-                                isVideo: true,
+                              AppFilterUtils.wrap(
+                                filterId: ReelHelpers.resolveFilter(
+                                  filterId: topReel.first['filterId']?.toString(),
+                                  beautyOn: topReel.first['beautyOn'] == true,
+                                  beautyIntensity: (topReel.first['beautyIntensity'] as num?)?.toDouble(),
+                                  description: (topReel.first['description'] ?? topReel.first['caption'])?.toString(),
+                                  videoId: topReel.first['id']?.toString(),
+                                  videoUrl: topReel.first['videoUrl']?.toString(),
+                                )?.filterId ?? topReel.first['filterId']?.toString(),
+                                beautyOn: topReel.first['beautyOn'] == true,
+                                beautyIntensity: (topReel.first['beautyIntensity'] as num?)?.toDouble() ?? 0,
+                                child: AppImage(
+                                  url: ((topReel.first['imageUrl'] as String? ?? '').isNotEmpty &&
+                                          !MediaUrlUtils.isDummyThumbnail(topReel.first['imageUrl'] as String?))
+                                      ? (topReel.first['imageUrl'] as String? ?? '')
+                                      : (topReel.first['videoUrl'] as String? ?? topReel.first['video_url'] as String? ?? ''),
+                                  videoUrl: topReel.first['videoUrl'] as String? ?? topReel.first['video_url'] as String?,
+                                  fit: BoxFit.cover,
+                                  isVideo: true,
+                                ),
                               ),
                               DecoratedBox(
                                 decoration: BoxDecoration(
@@ -836,11 +850,23 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                             child: Stack(
                               fit: StackFit.expand,
                               children: [
-                                AppImage(
-                                  url: effectiveThumb,
-                                  videoUrl: effectiveVideo,
-                                  fit: BoxFit.cover,
-                                  isVideo: true,
+                                AppFilterUtils.wrap(
+                                  filterId: ReelHelpers.resolveFilter(
+                                    filterId: r['filterId']?.toString(),
+                                    beautyOn: r['beautyOn'] == true,
+                                    beautyIntensity: (r['beautyIntensity'] as num?)?.toDouble(),
+                                    description: (r['description'] ?? r['caption'])?.toString(),
+                                    videoId: r['id']?.toString(),
+                                    videoUrl: r['videoUrl']?.toString() ?? r['video_url']?.toString(),
+                                  )?.filterId ?? r['filterId']?.toString(),
+                                  beautyOn: r['beautyOn'] == true,
+                                  beautyIntensity: (r['beautyIntensity'] as num?)?.toDouble() ?? 0,
+                                  child: AppImage(
+                                    url: effectiveThumb,
+                                    videoUrl: effectiveVideo,
+                                    fit: BoxFit.cover,
+                                    isVideo: true,
+                                  ),
                                 ),
                                 DecoratedBox(
                                   decoration: BoxDecoration(

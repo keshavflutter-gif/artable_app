@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/core/utils/media_url_utils.dart';
+import 'package:artable_app/core/utils/app_filter_utils.dart';
+import 'package:artable_app/core/utils/reel_helpers.dart';
 import 'package:artable_app/core/utils/video_share_helper.dart';
 import 'package:artable_app/core/widgets/app_image.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
@@ -497,7 +499,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
       );
     }
 
-    final videos = stats?.totalVideos ?? 0;
+    final videos = stats?.approvedVideos ?? 0;
     final likes = stats?.totalLikes ?? 0;
     final talentScore = stats?.talentScore.toStringAsFixed(1) ?? '0.0';
     final wins = stats?.wins ?? 0;
@@ -949,12 +951,25 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
                       context.read<ReelsCubit>().syncVideos([uiMap]);
                       context.push('/video-detail?id=$routeId', extra: uiMap);
                     },
-                    child: AppImage(
-                      url: effectiveThumb,
-                      videoUrl: effectiveVideo,
-                      fallbackUrl: fallbackImg,
-                      fit: BoxFit.cover,
-                      isVideo: true,
+                    child: AppFilterUtils.wrap(
+                      filterId: ReelHelpers.resolveFilter(
+                            filterId: video.filterId,
+                            beautyOn: video.beautyOn,
+                            beautyIntensity: video.beautyIntensity,
+                            description: video.description,
+                            videoId: video.id,
+                            videoUrl: video.videoUrl,
+                          )?.filterId ??
+                          video.filterId,
+                      beautyOn: video.beautyOn,
+                      beautyIntensity: video.beautyIntensity,
+                      child: AppImage(
+                        url: effectiveThumb,
+                        videoUrl: effectiveVideo,
+                        fallbackUrl: fallbackImg,
+                        fit: BoxFit.cover,
+                        isVideo: true,
+                      ),
                     ),
                   ),
                   Positioned(
