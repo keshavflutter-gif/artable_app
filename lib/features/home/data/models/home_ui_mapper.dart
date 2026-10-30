@@ -299,6 +299,20 @@ class HomeUiMapper {
       item['creatorId'],
     ]);
 
+    final musicMeta = ReelHelpers.resolveMusic(
+      description: item['description']?.toString() ?? rawDescription,
+      musicUrl: _firstNonEmptyString([item['musicUrl'], item['music_url'], item['audioUrl']]),
+      musicName: _firstNonEmptyString([item['musicName'], item['music']]),
+      startSeconds: item['musicStartSeconds'] is num
+          ? (item['musicStartSeconds'] as num).toDouble()
+          : null,
+      durationSeconds: item['musicCropDuration'] is num
+          ? (item['musicCropDuration'] as num).toDouble()
+          : null,
+      videoId: _stringValue(item['id']),
+      videoUrl: videoUrl,
+    );
+
     return {
       'id': _stringValue(item['id']),
       'userId': resolvedUserId,
@@ -339,22 +353,20 @@ class HomeUiMapper {
           : _formatCompactNumber(rawShares),
       'sharesCount': rawShares,
       'musicName': () {
-        final embedded = ReelHelpers.parseDescriptionMusic(item['description']?.toString());
-        final named = _firstNonEmptyString([embedded?.name, item['musicName'], item['music']]);
+        final named = _firstNonEmptyString([musicMeta?.name, item['musicName'], item['music']]);
         if (named.isNotEmpty && !named.startsWith('Original Sound')) return named;
         if (named.isNotEmpty) return named;
         return creator.isNotEmpty
             ? 'Original Sound — $creator'
             : (handle.isNotEmpty ? 'Original Sound — $handle' : 'Original Sound');
       }(),
-      'musicUrl': ReelHelpers.parseDescriptionMusic(item['description']?.toString())?.url ??
-          _firstNonEmptyString([item['musicUrl'], item['music_url'], item['audioUrl']]),
+      'musicUrl': musicMeta?.url ?? '',
       'filterId': filterMeta?.filterId,
       'beautyOn': filterMeta?.beautyOn ?? false,
       'beautyIntensity': filterMeta?.beautyIntensity ?? 0,
-      'musicStartSeconds': ReelHelpers.parseDescriptionMusic(item['description']?.toString())?.startSeconds ??
+      'musicStartSeconds': musicMeta?.startSeconds ??
           (item['musicStartSeconds'] is num ? (item['musicStartSeconds'] as num).toDouble() : null),
-      'musicCropDuration': ReelHelpers.parseDescriptionMusic(item['description']?.toString())?.durationSeconds ??
+      'musicCropDuration': musicMeta?.durationSeconds ??
           (item['musicCropDuration'] is num ? (item['musicCropDuration'] as num).toDouble() : null),
       'avatarUrl': avatarUrl,
       'handle': handle,

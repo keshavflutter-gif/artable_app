@@ -20,6 +20,8 @@ class RecordedVideoPreview extends StatelessWidget {
     this.isMuted = false,
     this.hasError = false,
     this.onRetry,
+    this.clipControllers,
+    this.currentClipIndex = 0,
   });
 
   final VideoPlayerController? videoController;
@@ -36,6 +38,11 @@ class RecordedVideoPreview extends StatelessWidget {
   final bool hasError;
   final VoidCallback? onRetry;
 
+  /// When multiple clips are provided, both current + next stay mounted so
+  /// handoff does not remount the video texture (avoids visible breaks).
+  final List<VideoPlayerController>? clipControllers;
+  final int currentClipIndex;
+
   double get _targetContainerRatio {
     switch (cropAspectRatio) {
       case '1:1':
@@ -50,14 +57,70 @@ class RecordedVideoPreview extends StatelessWidget {
     }
   }
 
+  Widget _buildSurface(VideoPlayerController vc) {
+    final ratio = cropAspectRatio == '1:1'
+        ? 1.0
+        : cropAspectRatio == '4:5'
+            ? 4 / 5
+            : cropAspectRatio == '16:9'
+                ? 16 / 9
+                : (vc.value.aspectRatio > 0 ? vc.value.aspectRatio : 9 / 16);
+    return AspectRatio(
+      aspectRatio: ratio,
+      // No ValueKey(controller) — remounting the texture is what makes
+      // draft-continue / clip switches visibly stutter.
+      child: VideoPlayer(vc),
+    );
+  }
+
+  Widget _buildPlayerLayers() {
+    final clips = clipControllers;
+    if (clips != null && clips.length > 1) {
+      final nextIndex = (currentClipIndex + 1) % clips.length;
+      final layers = <Widget>[];
+
+      void addLayer(int index, {required bool visible}) {
+        if (index < 0 || index >= clips.length) return;
+        final c = clips[index];
+        if (!c.value.isInitialized) return;
+        layers.add(
+          Positioned.fill(
+            child: IgnorePointer(
+              child: Opacity(
+                opacity: visible ? 1 : 0,
+                child: Center(child: _buildSurface(c)),
+              ),
+            ),
+          ),
+        );
+      }
+
+      if (nextIndex != currentClipIndex) {
+        addLayer(nextIndex, visible: false);
+      }
+      addLayer(currentClipIndex, visible: true);
+
+      if (layers.isNotEmpty) {
+        return Stack(fit: StackFit.expand, children: layers);
+      }
+    }
+
+    final vc = videoController;
+    if (vc == null || !vc.value.isInitialized) {
+      return const SizedBox.shrink();
+    }
+    return Center(child: _buildSurface(vc));
+  }
+
   @override
   Widget build(BuildContext context) {
     final vc = videoController;
+    final clipsReady = clipControllers != null &&
+        clipControllers!.isNotEmpty &&
+        clipControllers!.any((c) => c.value.isInitialized);
     final isReady = isVideoInitialized &&
         !hasError &&
-        vc != null &&
-        vc.value.isInitialized &&
-        !vc.value.hasError;
+        ((vc != null && vc.value.isInitialized && !vc.value.hasError) || clipsReady);
 
     return AspectRatio(
       aspectRatio: _targetContainerRatio,
@@ -69,27 +132,12 @@ class RecordedVideoPreview extends StatelessWidget {
               borderRadius: BorderRadius.circular(20),
               child: Container(
                 color: Colors.black,
-                child: Center(
-                  child: AspectRatio(
-                    aspectRatio: cropAspectRatio == '1:1'
-                        ? 1.0
-                        : cropAspectRatio == '4:5'
-                            ? 4 / 5
-                            : cropAspectRatio == '16:9'
-                                ? 16 / 9
-                                : (vc.value.aspectRatio > 0
-                                    ? vc.value.aspectRatio
-                                    : 9 / 16),
-                    child: AppFilterUtils.buildFilteredView(
-                      filterId: filterId,
-                      beautyOn: beautyOn,
-                      beautyIntensity: beautyIntensity,
-                      child: VideoPlayer(
-                        key: ValueKey(vc),
-                        vc,
-                      ),
-                    ),
-                  ),
+                child: AppFilterUtils.buildFilteredView(
+                  filterId: filterId,
+                  beautyOn: beautyOn,
+                  beautyIntensity: beautyIntensity,
+                  performanceMode: true,
+                  child: _buildPlayerLayers(),
                 ),
               ),
             )

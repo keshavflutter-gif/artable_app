@@ -744,17 +744,17 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
   // --- 6. Recent Videos Grid ---
   Widget _buildRecentVideosGrid(BuildContext context) {
     final profileState = context.watch<ProfileCubit>();
-    var videos = profileState.liveRecentVideos;
-
-    if (videos.isEmpty) {
-      final myLiveVideos = context
-          .watch<MyVideosCubit>()
-          .videos
-          .where((v) => v.isVideoLive && !v.isDraft)
-          .toList();
-      if (myLiveVideos.isNotEmpty) {
-        videos = myLiveVideos.take(6).toList();
-      }
+    final myLiveVideos = context
+        .watch<MyVideosCubit>()
+        .videos
+        .where((v) => v.isVideoLive && !v.isDraft)
+        .toList();
+    final seenIds = <String>{};
+    final videos = <MyVideoItem>[];
+    for (final video in [...myLiveVideos, ...profileState.liveRecentVideos]) {
+      if (video.id.isEmpty || seenIds.contains(video.id)) continue;
+      seenIds.add(video.id);
+      videos.add(video);
     }
 
     if (profileState.isLoading && videos.isEmpty) {
@@ -812,7 +812,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
         mainAxisSpacing: 12,
         childAspectRatio: 0.54,
       ),
-      itemCount: videos.length,
+      itemCount: videos.take(6).length,
       itemBuilder: (context, i) {
         return _buildFigmaVideoCard(context, videos[i]);
       },

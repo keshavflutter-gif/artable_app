@@ -918,11 +918,17 @@ class TrendingVideoItem {
 
     final rawDesc = json['description']?.toString();
     final parsedClipsDesc = ReelHelpers.parseDescriptionClips(rawDesc);
-    final musicMeta = ReelHelpers.parseDescriptionMusic(rawDesc) ?? _extractMusicMetaFromJson(json);
     final effectiveDesc = (rawDesc != null && rawDesc.trim().isNotEmpty) ? rawDesc : parsedClipsDesc.cleanDescription;
 
     final idStr = json['id']?.toString() ?? json['_id']?.toString() ?? '';
     final videoUrlStr = _extractVideoUrl(json);
+    final extractedMusic = ReelHelpers.parseDescriptionMusic(rawDesc) ?? _extractMusicMetaFromJson(json);
+    final musicMeta = extractedMusic ??
+        ReelHelpers.getCachedMusic(idStr) ??
+        ReelHelpers.getCachedMusic(videoUrlStr);
+    if (musicMeta != null && musicMeta.url.isNotEmpty && idStr.isNotEmpty) {
+      ReelHelpers.cacheMusic(idStr, musicMeta);
+    }
 
     List<String>? effectiveMergedClips = json['mergedClipPaths'] is List
         ? List<String>.from((json['mergedClipPaths'] as List).map((e) => e.toString()))
@@ -1000,7 +1006,9 @@ class TrendingVideoItem {
       musicName: (musicMeta?.name != null && musicMeta!.name.isNotEmpty)
           ? musicMeta.name
           : _extractMusicName(json),
-      musicUrl: musicMeta?.url,
+      musicUrl: (musicMeta?.url != null && musicMeta!.url.isNotEmpty)
+          ? musicMeta.url
+          : null,
       musicStartSeconds: musicMeta?.startSeconds,
       musicCropDuration: musicMeta?.durationSeconds,
       averageRating: json['averageRating']?.toString() ?? json['rating']?.toString(),

@@ -163,6 +163,7 @@ class StudioSetupChallenge {
       'title': title,
       'description': description ?? '',
       'category': category?.name ?? '',
+      'categoryId': category?.id ?? '',
       'imageUrl': bannerUrl ?? category?.imageUrl ?? '',
       'bannerUrl': bannerUrl ?? category?.imageUrl ?? '',
       'prize': prize,

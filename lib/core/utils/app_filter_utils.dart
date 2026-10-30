@@ -1,4 +1,3 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 
 class FilterPreset {
@@ -375,56 +374,45 @@ abstract final class AppFilterUtils {
       );
     }
 
-    // Full beauty overlay when idle; lightweight tint while recording.
-    if (beautyOn && beautyIntensity > 0 && !performanceMode) {
-      final factor = (beautyIntensity / 100).clamp(0.0, 1.0);
-      filteredChild = Stack(
-        fit: StackFit.passthrough,
-        children: [
-          filteredChild,
-          Positioned.fill(
-            child: IgnorePointer(
-              child: ImageFiltered(
-                imageFilter: ImageFilter.blur(
-                  sigmaX: 1.5 * factor,
-                  sigmaY: 1.5 * factor,
-                ),
-                child: Container(
-                  color: Colors.pinkAccent.withValues(alpha: 0.06 * factor),
-                ),
-              ),
-            ),
-          ),
-          Positioned.fill(
-            child: IgnorePointer(
-              child: Container(
-                decoration: BoxDecoration(
-                  gradient: RadialGradient(
-                    center: Alignment.center,
-                    radius: 1.0,
-                    colors: [
-                      const Color(0xFFFFF0F5).withValues(alpha: 0.12 * factor),
-                      const Color(0xFFFFD1DC).withValues(alpha: 0.04 * factor),
-                      Colors.transparent,
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      );
-    } else if (beautyOn && beautyIntensity > 0 && performanceMode) {
-      final factor = (beautyIntensity / 100).clamp(0.0, 1.0);
-      filteredChild = ColorFiltered(
-        colorFilter: ColorFilter.mode(
-          Colors.pinkAccent.withValues(alpha: 0.06 * factor),
-          BlendMode.softLight,
-        ),
+    if (beautyOn && beautyIntensity > 0) {
+      filteredChild = _applyBeautySmooth(
         child: filteredChild,
+        intensity: beautyIntensity,
       );
     }
 
     return filteredChild;
+  }
+
+  /// Beauty smooth is a soft glow / skin-tone grade on the live video.
+  /// Do not Gaussian-blur the whole preview — 100% must stay in focus.
+  static Widget _applyBeautySmooth({
+    required Widget child,
+    required double intensity,
+  }) {
+    final factor = (intensity / 100).clamp(0.0, 1.0);
+
+    return ColorFiltered(
+      colorFilter: ColorFilter.mode(
+        const Color(0xFFFFE4EC).withValues(alpha: 0.18 * factor),
+        BlendMode.softLight,
+      ),
+      child: ColorFiltered(
+        colorFilter: ColorFilter.matrix(_beautyColorMatrix(factor)),
+        child: child,
+      ),
+    );
+  }
+
+  static List<double> _beautyColorMatrix(double factor) {
+    final contrast = 1.0 - (0.18 * factor);
+    final brightness = 16.0 * factor;
+    final warm = 10.0 * factor;
+    return <double>[
+      contrast, 0, 0, 0, brightness + warm,
+      0, contrast, 0, 0, brightness,
+      0, 0, contrast, 0, brightness - (warm * 0.4),
+      0, 0, 0, 1, 0,
+    ];
   }
 }

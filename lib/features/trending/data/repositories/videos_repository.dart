@@ -541,6 +541,17 @@ class VideosRepository {
       ReelHelpers.cacheMergedClips(finalVideoUrl, finalMergedClipUrls);
       newReelItem['mergedClipPaths'] = finalMergedClipUrls;
     }
+    if (resolvedMusicUrl != null && resolvedMusicUrl.isNotEmpty) {
+      final musicMeta = ReelMusicMeta(
+        url: resolvedMusicUrl,
+        name: resolvedMusicName ?? '',
+        startSeconds: musicStartSeconds ?? 0,
+        durationSeconds: musicCropDuration ?? 0,
+      );
+      if (createdId != 'N/A' && createdId.isNotEmpty) {
+        ReelHelpers.cacheMusic(createdId, musicMeta);
+      }
+    }
     final uploadedFilter = ReelHelpers.resolveFilter(
       filterId: filterId,
       beautyOn: beautyOn ?? false,

@@ -362,4 +362,99 @@ abstract final class ReelHelpers {
     } catch (_) {}
     return null;
   }
+
+  static final Map<String, ReelMusicMeta> _musicCache = {};
+
+  static void cacheMusic(String? key, ReelMusicMeta? music) {
+    if (key == null || key.trim().isEmpty || music == null) return;
+    final url = music.url.trim();
+    if (url.isEmpty || url == 'null') return;
+    final cleanKey = key.trim();
+    final meta = ReelMusicMeta(
+      url: url,
+      name: music.name.trim(),
+      startSeconds: music.startSeconds,
+      durationSeconds: music.durationSeconds,
+    );
+    _musicCache[cleanKey] = meta;
+    final withoutHost = cleanKey.replaceFirst(RegExp(r'^https?://[^/]+'), '');
+    if (withoutHost.isNotEmpty && withoutHost != cleanKey) {
+      _musicCache[withoutHost] = meta;
+    }
+    try {
+      final jsonStr = jsonEncode(meta.toJson());
+      LocalStorage.setString('cached_music_$cleanKey', jsonStr);
+      if (withoutHost.isNotEmpty && withoutHost != cleanKey) {
+        LocalStorage.setString('cached_music_$withoutHost', jsonStr);
+      }
+    } catch (_) {}
+  }
+
+  static ReelMusicMeta? getCachedMusic(String? key) {
+    if (key == null || key.trim().isEmpty) return null;
+    final cleanKey = key.trim();
+    if (_musicCache.containsKey(cleanKey)) return _musicCache[cleanKey];
+    final withoutHost = cleanKey.replaceFirst(RegExp(r'^https?://[^/]+'), '');
+    if (withoutHost.isNotEmpty && _musicCache.containsKey(withoutHost)) {
+      return _musicCache[withoutHost];
+    }
+    try {
+      final rawPrefs = LocalStorage.rawPrefs;
+      final saved = rawPrefs?.getString('cached_music_$cleanKey') ??
+          (withoutHost.isNotEmpty ? rawPrefs?.getString('cached_music_$withoutHost') : null);
+      if (saved != null && saved.isNotEmpty) {
+        final decoded = jsonDecode(saved);
+        if (decoded is Map) {
+          final meta = ReelMusicMeta.fromJson(decoded);
+          if (meta.url.isNotEmpty) {
+            _musicCache[cleanKey] = meta;
+            return meta;
+          }
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Prefer description embed, then direct fields, then cache by video id only.
+  /// Never uses videoUrl as a cache key for lookup — that leaked one reel's
+  /// track onto others when URLs shared path prefixes / hosts.
+  static ReelMusicMeta? resolveMusic({
+    String? description,
+    String? musicUrl,
+    String? musicName,
+    double? startSeconds,
+    double? durationSeconds,
+    String? videoId,
+    String? videoUrl,
+  }) {
+    final fromDesc = parseDescriptionMusic(description);
+    final direct = (musicUrl ?? '').trim();
+    final named = (musicName ?? '').trim();
+    ReelMusicMeta? meta;
+    if (fromDesc != null && fromDesc.url.isNotEmpty) {
+      meta = fromDesc;
+    } else if (direct.isNotEmpty && direct != 'null') {
+      meta = ReelMusicMeta(
+        url: direct,
+        name: named,
+        startSeconds: startSeconds ?? 0,
+        durationSeconds: durationSeconds ?? 0,
+      );
+    } else if (videoId != null && videoId.trim().isNotEmpty) {
+      meta = getCachedMusic(videoId);
+    }
+    if (meta != null && meta.url.isNotEmpty) {
+      if (meta.name.isEmpty && named.isNotEmpty && !named.startsWith('Original Sound')) {
+        meta = ReelMusicMeta(
+          url: meta.url,
+          name: named,
+          startSeconds: meta.startSeconds,
+          durationSeconds: meta.durationSeconds,
+        );
+      }
+      cacheMusic(videoId, meta);
+    }
+    return meta;
+  }
 }

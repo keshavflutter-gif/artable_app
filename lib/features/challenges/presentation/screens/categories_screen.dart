@@ -5,7 +5,10 @@ import 'package:go_router/go_router.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_typography.dart';
+import 'package:artable_app/core/network/network_utils.dart';
+import 'package:artable_app/core/widgets/no_internet_dialog.dart';
 import 'package:artable_app/features/challenges/presentation/bloc/challenges_cubit.dart';
+import 'package:artable_app/features/challenges/presentation/bloc/challenges_state.dart';
 import 'package:artable_app/features/shell/presentation/widgets/app_shell.dart';
 import 'package:artable_app/features/challenges/presentation/widgets/category_card.dart';
 import 'package:artable_app/core/widgets/search_bar_widget.dart';
@@ -19,6 +22,8 @@ class CategoriesScreen extends StatefulWidget {
 }
 
 class _CategoriesScreenState extends State<CategoriesScreen> {
+  bool _isNoInternetDialogShowing = false;
+
   @override
   void initState() {
     super.initState();
@@ -29,13 +34,38 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
     });
   }
 
+  void _retryCategories() {
+    context.read<ChallengesCubit>().loadCategories(forceRefresh: true);
+  }
+
+  void _showNoInternetIfNeeded(String? error, bool hasCategories) {
+    if (hasCategories || error == null || error.isEmpty) return;
+    if (!NetworkUtils.isNetworkError(error)) return;
+    if (_isNoInternetDialogShowing) return;
+    _isNoInternetDialogShowing = true;
+    NoInternetDialog.show(
+      context,
+      onRetry: () {
+        _isNoInternetDialogShowing = false;
+        _retryCategories();
+      },
+    ).then((_) {
+      _isNoInternetDialogShowing = false;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<ChallengesCubit>();
     final categories = provider.filteredCategories;
     final summary = provider.categorySummary;
-    final isLoading =
-        provider.isLoadingCategories && !provider.hasLoadedCategories;
+    final errorMessage = provider.categoriesErrorMessage;
+    final isNetworkError = NetworkUtils.isNetworkError(errorMessage);
+    final isLoading = provider.isLoadingCategories && categories.isEmpty;
+    final showError = !isLoading &&
+        categories.isEmpty &&
+        errorMessage != null &&
+        errorMessage.isNotEmpty;
 
     return PopScope(
       canPop: false,
@@ -45,7 +75,18 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
       },
       child: AppShell(
         currentPath: '/categories',
-        body: Column(
+        body: BlocListener<ChallengesCubit, ChallengesState>(
+          listenWhen: (prev, curr) =>
+              curr.categoriesErrorMessage != prev.categoriesErrorMessage &&
+              curr.categoriesErrorMessage != null &&
+              !curr.isLoadingCategories,
+          listener: (context, state) {
+            _showNoInternetIfNeeded(
+              state.categoriesErrorMessage,
+              (state.categoriesResponse?.data.isNotEmpty ?? false),
+            );
+          },
+          child: Column(
           children: [
             AppPageHeader(
               title: 'Challenge Categories',
@@ -89,6 +130,12 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                         child: Center(
                           child: CircularProgressIndicator(),
                         ),
+                      )
+                    else if (showError)
+                      _CategoriesErrorState(
+                        isNetworkError: isNetworkError,
+                        message: errorMessage ?? 'Failed to load categories.',
+                        onRetry: _retryCategories,
                       )
                     else if (categories.isEmpty)
                       Padding(
@@ -138,8 +185,71 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
         ],
       ),
     ),
+    ),
   );
 }
+}
+
+class _CategoriesErrorState extends StatelessWidget {
+  const _CategoriesErrorState({
+    required this.isNetworkError,
+    required this.message,
+    required this.onRetry,
+  });
+
+  final bool isNetworkError;
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 12),
+      child: Column(
+        children: [
+          Icon(
+            isNetworkError ? Icons.wifi_off_rounded : Icons.error_outline,
+            size: 48,
+            color: AppColors.textSoft.withValues(alpha: 0.6),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            isNetworkError ? 'No Internet Connection' : 'Couldn\'t load categories',
+            textAlign: TextAlign.center,
+            style: AppTypography.body(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: AppColors.text,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            isNetworkError
+                ? NetworkUtils.noInternetMessage
+                : message,
+            textAlign: TextAlign.center,
+            style: AppTypography.body(
+              fontSize: 13,
+              color: AppColors.textSoft,
+              height: 1.45,
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextButton(
+            onPressed: onRetry,
+            child: Text(
+              'Try Again',
+              style: AppTypography.body(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: AppColors.purple,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _CategoryHero extends StatelessWidget {

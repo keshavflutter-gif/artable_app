@@ -25,6 +25,8 @@ class ApiConstants {
   static const String profileStats = '/app/profile/stats';
   static const String achievements = '/app/profile/achievements';
   static const String profile = '/app/profile';
+  static const String profileVideos = '/app/profile/videos';
+  static const String studioDrafts = '/app/studio/drafts';
   static const String rewards = '/app/rewards';
   static const String dailyBonusCalendar = '/app/daily-bonus/calendar';
   static const String dailyBonusClaim = '/app/daily-bonus/claim';

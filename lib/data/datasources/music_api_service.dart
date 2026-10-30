@@ -134,6 +134,35 @@ class MusicApiService {
 
   static List<FreeToUseTrack>? get cachedTracks => _cachedTracks;
 
+  /// Resolve a track by display name (title — artist) when selectedTrack is missing.
+  static FreeToUseTrack? resolveByName(String? musicStr) {
+    if (musicStr == null || musicStr.trim().isEmpty) return null;
+    final allTracks =
+        (_cachedTracks != null && _cachedTracks!.isNotEmpty) ? _cachedTracks! : fallbackTracks;
+    final targetLower = musicStr.trim().toLowerCase();
+    for (final t in allTracks) {
+      final titleArtist = '${t.title} — ${t.artist}'.toLowerCase();
+      if (titleArtist == targetLower ||
+          t.title.toLowerCase() == targetLower ||
+          targetLower.contains(t.title.toLowerCase())) {
+        return t;
+      }
+    }
+    return null;
+  }
+
+  /// Resolve by audio URL (for draft / cached music restore).
+  static FreeToUseTrack? resolveByUrl(String? url) {
+    final clean = url?.trim() ?? '';
+    if (clean.isEmpty || clean == 'null') return null;
+    final allTracks =
+        (_cachedTracks != null && _cachedTracks!.isNotEmpty) ? _cachedTracks! : fallbackTracks;
+    for (final t in allTracks) {
+      if (t.audioUrl.trim() == clean) return t;
+    }
+    return null;
+  }
+
   /// Starts loading tracks in the background so the music screen opens instantly.
   static void prefetchTracks() {
     if (_cachedTracks != null || _inflight != null) return;

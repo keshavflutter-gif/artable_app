@@ -30,7 +30,7 @@ class ProfileVideosRepository {
   Future<MyVideosResponse> getMyVideos({
     String tab = 'ALL',
     int page = 1,
-    int limit = 20,
+    int limit = 50,
     String? sessionToken,
     String? refreshToken,
   }) async {

@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:artable_app/core/network/api_exception.dart';
+import 'package:artable_app/core/network/network_utils.dart';
 import 'package:artable_app/features/challenges/data/models/categories_response.dart';
 import 'package:artable_app/features/challenges/data/models/challenge_detail_response.dart';
 import 'package:artable_app/features/challenges/data/repositories/categories_repository.dart';
@@ -130,12 +132,36 @@ class ChallengesCubit extends Cubit<ChallengesState> {
         clearCategoryError: true,
       ));
     } catch (e) {
+      final message = await _categoriesErrorMessage(e);
+      if (isClosed) return;
       emit(state.copyWith(
         isLoadingCategories: false,
         hasLoadedCategories: true,
-        categoriesErrorMessage: e.toString(),
+        categoriesErrorMessage: message,
       ));
     }
+  }
+
+  Future<String> _categoriesErrorMessage(Object error) async {
+    final apiError = error is ApiException ? error : null;
+    final raw = (apiError?.message ?? error.toString())
+        .replaceAll('Exception: ', '')
+        .trim();
+    final hasHttpStatus = apiError?.statusCode != null;
+    final looksLikeNetwork =
+        NetworkUtils.isNetworkError(error) || NetworkUtils.isNetworkError(raw);
+
+    if (hasHttpStatus) {
+      return raw.isNotEmpty ? raw : 'Failed to load categories.';
+    }
+    if (looksLikeNetwork) {
+      return NetworkUtils.noInternetMessage;
+    }
+    final online = await NetworkUtils.hasInternet();
+    if (!online) {
+      return NetworkUtils.noInternetMessage;
+    }
+    return raw.isNotEmpty ? raw : 'Failed to load categories.';
   }
 
   Future<List<ChallengeDetailData>> loadTabChallenges(

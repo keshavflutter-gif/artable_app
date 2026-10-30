@@ -41,6 +41,7 @@ class StudioState {
     this.isLoadingDrafts = false,
     this.mergedClipPaths,
     this.mergedClipDurations,
+    this.mergedClipFilterIds,
     this.activeDraftId,
     List<Map<String, dynamic>>? drafts,
   }) : drafts = drafts ?? const [];
@@ -86,6 +87,7 @@ class StudioState {
   final bool isLoadingDrafts;
   final List<String>? mergedClipPaths;
   final List<double>? mergedClipDurations;
+  final List<String>? mergedClipFilterIds;
   final String? activeDraftId;
 
   final List<Map<String, dynamic>> drafts;
@@ -139,6 +141,7 @@ class StudioState {
     bool? isLoadingDrafts,
     List<String>? mergedClipPaths,
     List<double>? mergedClipDurations,
+    List<String>? mergedClipFilterIds,
     String? activeDraftId,
     List<Map<String, dynamic>>? drafts,
     bool clearRecordedVideoPath = false,
@@ -187,6 +190,7 @@ class StudioState {
       isLoadingDrafts: isLoadingDrafts ?? this.isLoadingDrafts,
       mergedClipPaths: clearMergedClipPaths ? null : (mergedClipPaths ?? this.mergedClipPaths),
       mergedClipDurations: clearMergedClipPaths ? null : (mergedClipDurations ?? this.mergedClipDurations),
+      mergedClipFilterIds: clearMergedClipPaths ? null : (mergedClipFilterIds ?? this.mergedClipFilterIds),
       activeDraftId: clearActiveDraftId ? null : (activeDraftId ?? this.activeDraftId),
       drafts: drafts ?? this.drafts,
     );

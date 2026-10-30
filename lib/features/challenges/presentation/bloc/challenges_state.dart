@@ -69,7 +69,7 @@ class ChallengesState {
     if (categoriesResponse != null) {
       return categoriesResponse!.data.map((c) => c.toUiMap()).toList();
     }
-    return List<Map<String, dynamic>>.from(MockData.CATEGORIES);
+    return const [];
   }
 
   List<Map<String, dynamic>> get filteredCategories {

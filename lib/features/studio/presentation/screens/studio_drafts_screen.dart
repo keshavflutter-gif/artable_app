@@ -46,9 +46,7 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final studio = context.read<StudioCubit>();
-      studio.fetchDraftsList(
-        forceRefresh: studio.state.drafts.isEmpty,
-      );
+      studio.fetchDraftsList(forceRefresh: true);
     });
   }
 
@@ -103,6 +101,7 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
       final combinedPaths = <String>[];
       final combinedThumbs = <String>[];
       final combinedDurs = <double>[];
+      final combinedFilters = <String>[];
 
       for (final d in selected) {
         if (d['mergedClipPaths'] is List && (d['mergedClipPaths'] as List).isNotEmpty) {
@@ -113,10 +112,12 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
           final subD = (d['mergedClipDurations'] is List)
               ? (d['mergedClipDurations'] as List).map((e) => (e as num).toDouble()).toList()
               : <double>[];
+          final subF = StudioCubit.clipFilterIdsOfDraft(d, pathCount: subP.length);
           for (int i = 0; i < subP.length; i++) {
             combinedPaths.add(subP[i]);
             combinedThumbs.add(i < subT.length ? subT[i] : (d['thumbnailPath']?.toString() ?? ''));
             combinedDurs.add(i < subD.length ? subD[i] : 15.0);
+            combinedFilters.add(i < subF.length ? subF[i] : StudioCubit.filterIdOfDraft(d));
           }
         } else {
           final p = (d['videoPath']?.toString() ?? d['videoUrl']?.toString() ?? '').trim();
@@ -124,6 +125,7 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
             combinedPaths.add(p);
             combinedThumbs.add((d['thumbnailPath']?.toString() ?? d['thumbnailUrl']?.toString() ?? '').trim());
             combinedDurs.add((d['durationSeconds'] as num?)?.toDouble() ?? 15.0);
+            combinedFilters.add(StudioCubit.filterIdOfDraft(d));
           }
         }
       }
@@ -138,6 +140,7 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
         'mergedClipPaths': combinedPaths,
         'mergedClipThumbnails': combinedThumbs,
         'mergedClipDurations': combinedDurs,
+        'mergedClipFilterIds': combinedFilters,
       });
       return;
     }
@@ -191,7 +194,13 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
     final drafts = studio.state.drafts;
     final isLoading = studio.state.isLoadingDrafts;
 
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        _onBack();
+      },
+      child: Scaffold(
       backgroundColor: AppColors.bg,
       bottomNavigationBar: _isSelectionMode
           ? Container(
@@ -311,7 +320,10 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
           children: [
             Column(
               children: [
-                const AppScreenHeader(title: 'My Videos'),
+                AppScreenHeader(
+                  title: 'My Videos',
+                  onBack: _onBack,
+                ),
             if (drafts.length >= StudioCubit.maxDraftsLimit)
               Container(
                 margin: const EdgeInsets.symmetric(horizontal: 22, vertical: 8),
@@ -483,6 +495,21 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
                                       final clips = draft['mergedClipPaths'] is List
                                           ? List<String>.from(draft['mergedClipPaths'] as List)
                                           : null;
+                                      final durs = draft['mergedClipDurations'] is List
+                                          ? (draft['mergedClipDurations'] as List)
+                                              .map((e) => (e as num).toDouble())
+                                              .toList()
+                                          : null;
+                                      if (clips != null && clips.isNotEmpty) {
+                                        studio.setMergedClipPaths(
+                                          clips,
+                                          durs,
+                                          StudioCubit.clipFilterIdsOfDraft(
+                                            draft,
+                                            pathCount: clips.length,
+                                          ),
+                                        );
+                                      }
                                       studio.setRecordedVideoPath(
                                         path,
                                         mergedClipPaths: clips,
@@ -558,7 +585,18 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
       ],
     ),
   ),
-);
+      ),
+    );
+  }
+
+  void _onBack() {
+    if (!mounted) return;
+    unawaited(StudioMusicPlaybackService.stop());
+    if (context.canPop()) {
+      context.pop();
+      return;
+    }
+    context.go(AppRoutes.home);
   }
 
   Future<bool?> _showDeleteConfirmDialog(BuildContext context) {
@@ -690,13 +728,28 @@ class _DraftCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    String thumbnailUrl = (draft['thumbnailUrl'] as String?) ?? (draft['imageUrl'] as String?) ?? '';
+    String thumbnailUrl = (draft['thumbnailPath'] as String?) ??
+        (draft['thumbnailUrl'] as String?) ??
+        (draft['imageUrl'] as String?) ??
+        '';
+    if (thumbnailUrl.isEmpty &&
+        draft['mergedClipThumbnails'] is List &&
+        (draft['mergedClipThumbnails'] as List).isNotEmpty) {
+      thumbnailUrl = (draft['mergedClipThumbnails'] as List)
+          .map((e) => e?.toString().trim() ?? '')
+          .firstWhere((e) => e.isNotEmpty, orElse: () => '');
+    }
     final challengeId = (draft['challengeId'] as String?) ?? '';
-    if (thumbnailUrl.isEmpty || thumbnailUrl.contains('storage.example')) {
+    if (thumbnailUrl.isEmpty ||
+        thumbnailUrl.contains('storage.example') ||
+        thumbnailUrl.toLowerCase().endsWith('.mp4') ||
+        thumbnailUrl.toLowerCase().endsWith('.mov') ||
+        thumbnailUrl.toLowerCase().endsWith('.m4v')) {
       if (challengeId.isNotEmpty) {
         final challenge = ReelHelpers.challengeById(challengeId);
         if (challenge != null) {
-          thumbnailUrl = (challenge['bannerUrl'] as String?) ?? (challenge['imageUrl'] as String?) ?? '';
+          final banner = (challenge['bannerUrl'] as String?) ?? (challenge['imageUrl'] as String?) ?? '';
+          if (banner.isNotEmpty) thumbnailUrl = banner;
         }
       }
     }

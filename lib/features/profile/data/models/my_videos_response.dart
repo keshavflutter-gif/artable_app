@@ -21,22 +21,25 @@ class MyVideosResponse {
   final MyVideoPagination? pagination;
 
   factory MyVideosResponse.fromJson(Map<String, dynamic> json) {
+    final nested = json['data'] is Map
+        ? Map<String, dynamic>.from(json['data'] as Map)
+        : null;
     final userRaw = json['user'] is Map
         ? Map<String, dynamic>.from(json['user'] as Map)
-        : null;
-    final listRaw = json['data'];
+        : (nested?['user'] is Map
+            ? Map<String, dynamic>.from(nested!['user'] as Map)
+            : null);
+
     final dataList = <MyVideoItem>[];
-    if (listRaw is List) {
-      for (final item in listRaw) {
-        if (item is Map<String, dynamic>) {
-          dataList.add(MyVideoItem.fromJson(item, fallbackUser: userRaw));
-        } else if (item is Map) {
-          dataList.add(MyVideoItem.fromJson(Map<String, dynamic>.from(item), fallbackUser: userRaw));
-        }
+    for (final item in _extractVideoList(json)) {
+      if (item is Map<String, dynamic>) {
+        dataList.add(MyVideoItem.fromJson(item, fallbackUser: userRaw));
+      } else if (item is Map) {
+        dataList.add(MyVideoItem.fromJson(Map<String, dynamic>.from(item), fallbackUser: userRaw));
       }
     }
 
-    final tabsRaw = json['tabs'];
+    final tabsRaw = json['tabs'] ?? nested?['tabs'];
     final tabsList = <MyVideoTabItem>[];
     if (tabsRaw is List) {
       for (final item in tabsRaw) {
@@ -48,19 +51,46 @@ class MyVideosResponse {
       }
     }
 
+    final emptyRaw = json['emptyState'] ?? nested?['emptyState'];
+    final paginationRaw = json['pagination'] ?? nested?['pagination'];
+
     return MyVideosResponse(
       success: json['success'] == true,
       message: json['message']?.toString(),
       data: dataList,
       tabs: tabsList,
-      activeTab: json['activeTab']?.toString() ?? 'ALL',
-      emptyState: json['emptyState'] is Map
-          ? MyVideoEmptyState.fromJson(Map<String, dynamic>.from(json['emptyState'] as Map))
+      activeTab: json['activeTab']?.toString() ??
+          nested?['activeTab']?.toString() ??
+          'ALL',
+      emptyState: emptyRaw is Map
+          ? MyVideoEmptyState.fromJson(Map<String, dynamic>.from(emptyRaw))
           : null,
-      pagination: json['pagination'] is Map
-          ? MyVideoPagination.fromJson(Map<String, dynamic>.from(json['pagination'] as Map))
+      pagination: paginationRaw is Map
+          ? MyVideoPagination.fromJson(Map<String, dynamic>.from(paginationRaw))
           : null,
     );
+  }
+
+  static List<dynamic> _extractVideoList(Map<String, dynamic> json) {
+    dynamic listRaw = json['data'];
+    if (listRaw is Map) {
+      final nested = Map<String, dynamic>.from(listRaw);
+      listRaw = nested['videos'] ??
+          nested['items'] ??
+          nested['results'] ??
+          nested['list'] ??
+          nested['data'] ??
+          nested['recentVideos'] ??
+          nested['approvedVideos'];
+    }
+    if (listRaw is! List) {
+      listRaw = json['videos'] ??
+          json['items'] ??
+          json['results'] ??
+          json['recentVideos'] ??
+          json['approvedVideos'];
+    }
+    return listRaw is List ? listRaw : const [];
   }
 
   MyVideosResponse copyWith({

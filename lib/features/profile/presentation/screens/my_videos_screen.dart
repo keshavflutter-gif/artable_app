@@ -43,13 +43,10 @@ class _MyVideosScreenState extends State<MyVideosScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      context.read<MyVideosCubit>().loadMyVideos(
-            tab: widget.initialTab,
-            forceRefresh: true,
-          );
-    });
+    context.read<MyVideosCubit>().loadMyVideos(
+          tab: widget.initialTab,
+          forceRefresh: true,
+        );
   }
 
   @override
@@ -92,11 +89,17 @@ class _MyVideosScreenState extends State<MyVideosScreen> {
             ? Icons.bookmark_border_rounded
             : Icons.video_library_outlined;
 
-        return AppScreen(
+        return PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, result) {
+            if (didPop) return;
+            _onBack();
+          },
+          child: AppScreen(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const AppBackHeader(title: 'My Videos'),
+              AppBackHeader(title: 'My Videos', onBack: _onBack),
               const SizedBox(height: 6),
               FilterPills(
                 items: dynamicTabs.map((f) => f.$2).toList(),
@@ -108,55 +111,59 @@ class _MyVideosScreenState extends State<MyVideosScreen> {
               ),
               const SizedBox(height: 14),
               Expanded(
-                child: RefreshIndicator(
-                  color: AppColors.purple,
-                  onRefresh: () => cubit.loadMyVideos(forceRefresh: true),
-                  child: state.isLoading && list.isEmpty
-                      ? const Center(
-                          child: CircularProgressIndicator(color: AppColors.purple),
-                        )
-                      : list.isEmpty
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    RefreshIndicator(
+                      color: AppColors.purple,
+                      onRefresh: () => cubit.loadMyVideos(forceRefresh: true),
+                      child: list.isEmpty
                           ? ListView(
+                              physics: const AlwaysScrollableScrollPhysics(),
                               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
                               children: [
-                                Container(
-                                  width: double.infinity,
-                                  padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 20),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFF9F8FC),
-                                    borderRadius: BorderRadius.circular(18),
-                                    border: Border.all(color: const Color(0xFFECE8F5), width: 1.2),
-                                  ),
-                                  child: Column(
-                                    children: [
-                                      Icon(emptyIcon, size: 44, color: AppColors.purple),
-                                      const SizedBox(height: 10),
-                                      Text(
-                                        emptyTitle,
-                                        style: const TextStyle(
-                                          fontFamily: 'Poppins',
-                                          fontSize: 15,
-                                          fontWeight: FontWeight.w800,
-                                          color: AppColors.text,
+                                if (!state.isLoading)
+                                  Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 20),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF9F8FC),
+                                      borderRadius: BorderRadius.circular(18),
+                                      border: Border.all(color: const Color(0xFFECE8F5), width: 1.2),
+                                    ),
+                                    child: Column(
+                                      children: [
+                                        Icon(emptyIcon, size: 44, color: AppColors.purple),
+                                        const SizedBox(height: 10),
+                                        Text(
+                                          emptyTitle,
+                                          style: const TextStyle(
+                                            fontFamily: 'Poppins',
+                                            fontSize: 15,
+                                            fontWeight: FontWeight.w800,
+                                            color: AppColors.text,
+                                          ),
                                         ),
-                                      ),
-                                      const SizedBox(height: 5),
-                                      Text(
-                                        emptyMsg,
-                                        textAlign: TextAlign.center,
-                                        style: const TextStyle(
-                                          fontFamily: 'Inter',
-                                          fontSize: 12.5,
-                                          color: AppColors.textSoft,
+                                        const SizedBox(height: 5),
+                                        Text(
+                                          emptyMsg,
+                                          textAlign: TextAlign.center,
+                                          style: const TextStyle(
+                                            fontFamily: 'Inter',
+                                            fontSize: 12.5,
+                                            color: AppColors.textSoft,
+                                          ),
                                         ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
+                                      ],
+                                    ),
+                                  )
+                                else
+                                  const SizedBox(height: 240),
                               ],
                             )
                           : GridView.builder(
                               padding: const EdgeInsets.fromLTRB(20, 0, 20, 30),
+                              physics: const AlwaysScrollableScrollPhysics(),
                               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                                 crossAxisCount: 2,
                                 crossAxisSpacing: 12,
@@ -166,13 +173,35 @@ class _MyVideosScreenState extends State<MyVideosScreen> {
                               itemCount: list.length,
                               itemBuilder: (context, i) => _FigmaMyVideoCard(item: list[i]),
                             ),
+                    ),
+                    if (state.isLoading)
+                      const ColoredBox(
+                        color: Color(0xF2FFFFFF),
+                        child: Center(
+                          child: CircularProgressIndicator(
+                            color: AppColors.purple,
+                            strokeWidth: 3,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
             ],
           ),
+        ),
         );
       },
     );
+  }
+
+  void _onBack() {
+    if (!mounted) return;
+    if (context.canPop()) {
+      context.pop();
+      return;
+    }
+    context.go(AppRoutes.home);
   }
 }
 

@@ -129,6 +129,7 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
 
     if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
       unawaited(WakelockPlus.disable());
+      unawaited(StudioMusicPlaybackService.pause());
       unawaited(_detachAndDisposeCamera(_cameraController));
     } else if (state == AppLifecycleState.resumed) {
       unawaited(WakelockPlus.enable());
@@ -512,7 +513,7 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
     // 3. Release camera hardware
     await _releaseCameraForPlayback();
     // Give CameraX / MediaCodec time to fully release before ExoPlayer opens the file.
-    await Future<void>.delayed(const Duration(milliseconds: 350));
+    await Future<void>.delayed(const Duration(milliseconds: 500));
     _isStoppingRecording = false;
 
     if (!mounted) return;
@@ -535,6 +536,10 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
     }
 
     final durationSecs = _seconds > 0 ? _seconds.toDouble() : 10.0;
+    final playablePath =
+        await StudioVideoPlayerUtils.prepareLocalRecordingForPlayback(savedPath) ??
+            savedPath;
+    savedPath = playablePath;
     context.read<StudioCubit>().setRecordedVideoPath(savedPath, clearMergedClips: true);
     setRecordedDuration(_timerText);
 

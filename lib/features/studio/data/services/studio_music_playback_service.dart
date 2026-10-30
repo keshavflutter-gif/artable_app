@@ -32,7 +32,9 @@ class StudioMusicPlaybackService {
     return result;
   }
 
-  static AudioPlayer _ensurePlayer() => _player ??= AudioPlayer();
+  static AudioPlayer _ensurePlayer() => _player ??= AudioPlayer(
+        handleInterruptions: false,
+      );
 
   static Future<void> _configureSession() async {
     if (_sessionConfigured) return;
@@ -48,8 +50,7 @@ class StudioMusicPlaybackService {
             contentType: AndroidAudioContentType.music,
             usage: AndroidAudioUsage.media,
           ),
-          androidAudioFocusGainType:
-              AndroidAudioFocusGainType.gainTransientMayDuck,
+          androidAudioFocusGainType: AndroidAudioFocusGainType.gainTransientMayDuck,
           androidWillPauseWhenDucked: false,
         ),
       );
@@ -61,24 +62,7 @@ class StudioMusicPlaybackService {
 
   static FreeToUseTrack? _resolveTrack(StudioCubit studio) {
     if (studio.selectedTrack != null) return studio.selectedTrack;
-    final musicStr = studio.selectedMusic;
-    if (musicStr == null || musicStr.trim().isEmpty) return null;
-
-    final cached = MusicApiService.cachedTracks;
-    final fallbacks = MusicApiService.fallbackTracks;
-    final allTracks =
-        cached != null && cached.isNotEmpty ? cached : fallbacks;
-
-    final targetLower = musicStr.trim().toLowerCase();
-    for (final t in allTracks) {
-      final titleArtist = '${t.title} — ${t.artist}'.toLowerCase();
-      if (titleArtist == targetLower ||
-          t.title.toLowerCase() == targetLower ||
-          targetLower.contains(t.title.toLowerCase())) {
-        return t;
-      }
-    }
-    return null;
+    return MusicApiService.resolveByName(studio.selectedMusic);
   }
 
   /// Call when the user picks a different track so the next play reloads audio.
@@ -159,10 +143,12 @@ class StudioMusicPlaybackService {
   static bool get isPlaying => _player?.playing ?? false;
 
   /// Plays background music for the editor starting at [globalPositionMs].
+  /// Set [forceSeek] on video loop / restart so BGM rewinds with the video.
   static Future<void> playForEditor(
     StudioCubit studio,
-    int globalPositionMs,
-  ) async {
+    int globalPositionMs, {
+    bool forceSeek = false,
+  }) async {
     final epoch = _playEpoch;
     await _enqueue(() async {
       if (epoch != _playEpoch) return;
@@ -206,9 +192,10 @@ class StudioMusicPlaybackService {
       final seekMs = effectiveMs.clamp(0, 3600000);
 
       final speedMultiplier = studio.speedMultiplier.clamp(0.4, 4.0);
+      final drift = (player.position.inMilliseconds - seekMs).abs();
 
       if (epoch != _playEpoch) return;
-      if (!player.playing) {
+      if (!player.playing || forceSeek || drift > 1800) {
         try {
           await player.seek(Duration(milliseconds: seekMs));
           await player.setSpeed(speedMultiplier);
@@ -217,19 +204,15 @@ class StudioMusicPlaybackService {
         // Do NOT await player.play()! In just_audio, play() returns a Future that
         // only completes when playback finishes or is paused/stopped.
         // Awaiting it inside the serial queue causes a permanent deadlock.
-        unawaited(player.play());
+        if (!player.playing) {
+          unawaited(player.play());
+        }
       } else {
         try {
           if ((player.speed - speedMultiplier).abs() > 0.05) {
             await player.setSpeed(speedMultiplier);
           }
         } catch (_) {}
-        final currentAudioMs = player.position.inMilliseconds;
-        if ((currentAudioMs - seekMs).abs() > 1200) {
-          try {
-            await player.seek(Duration(milliseconds: seekMs));
-          } catch (_) {}
-        }
       }
     });
   }
@@ -261,6 +244,7 @@ class StudioMusicPlaybackService {
   }
 
   static Future<void> pause() async {
+    _playEpoch++;
     directPause();
     await _enqueue(() async {
       final player = _player;
@@ -289,8 +273,20 @@ class StudioMusicPlaybackService {
 
   static int _lastSyncCheckMs = 0;
 
-  /// Keeps background music strictly in sync with video position.
-  /// Throttled to prevent audio stutter/clicks.
+  /// Resume BGM if it dropped out, without seeking (seeking breaks the track).
+  static void ensurePlaying() {
+    try {
+      final p = _player;
+      if (p != null && !p.playing && !_isLoading) {
+        unawaited(p.play());
+      }
+    } catch (e) {
+      debugPrint('StudioMusicPlaybackService ensurePlaying error: $e');
+    }
+  }
+
+  /// Keeps background music loosely in sync with video position.
+  /// Does not restart or seek during normal playback.
   static Future<void> checkAndSyncVideoPosition(
     StudioCubit studio,
     int videoPositionMs,
@@ -300,17 +296,14 @@ class StudioMusicPlaybackService {
     if (track == null || epoch != _playEpoch) return;
 
     final player = _player;
-    // Auto-resume audio if paused or not started during video playback
     if (player == null || !player.playing) {
-      if (!_isLoading) {
-        await playForEditor(studio, videoPositionMs);
-      }
+      ensurePlaying();
       return;
     }
 
     final now = DateTime.now().millisecondsSinceEpoch;
-    // Throttle to at most once every 350ms to ensure butter-smooth playback without micro-stutters
-    if (now - _lastSyncCheckMs < 350) return;
+    // Soft sync only — aggressive seeking is what makes draft-continue music break.
+    if (now - _lastSyncCheckMs < 1200) return;
     _lastSyncCheckMs = now;
 
     final speedMultiplier = studio.speedMultiplier.clamp(0.4, 4.0);
@@ -335,8 +328,8 @@ class StudioMusicPlaybackService {
           ? targetMs % trackDurMs
           : targetMs;
       final currentAudioMs = player.position.inMilliseconds;
-      // Only seek if audio has drifted significantly from video position (> 1200ms)
-      if ((currentAudioMs - effectiveMs).abs() > 1200) {
+      // Only seek on huge drift (e.g. clip loop). Small drift seeking breaks BGM.
+      if ((currentAudioMs - effectiveMs).abs() > 2500) {
         await seekToMs(effectiveMs);
       }
     } catch (e) {

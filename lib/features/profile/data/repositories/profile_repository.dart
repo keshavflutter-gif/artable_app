@@ -42,22 +42,44 @@ class ProfileRepository {
           )
         : null;
 
+    ProfileResponse? profile;
     try {
       final data = await _apiClient.get(
+        '/app/profile',
+        headers: headers,
+      );
+      profile = ProfileResponse.fromJson(data);
+    } catch (_) {}
+
+    Map<String, dynamic>? userJson;
+    try {
+      userJson = await _apiClient.get(
         '/user',
         headers: headers,
       );
-      if (data['data'] != null || data['user'] != null || data['id'] != null) {
-        return ProfileResponse.fromJson(data);
-      }
     } catch (_) {}
 
-    final data = await _apiClient.get(
-      '/app/profile',
-      headers: headers,
-    );
+    if (profile != null) {
+      if (userJson == null) return profile;
+      final userProfile = ProfileResponse.fromJson(userJson);
+      if (userProfile.data.recentVideos.isEmpty) return profile;
+      final existingIds = profile.data.recentVideos.map((v) => v.id).toSet();
+      final mergedVideos = [
+        ...profile.data.recentVideos,
+        ...userProfile.data.recentVideos.where((v) => v.id.isNotEmpty && existingIds.add(v.id)),
+      ];
+      return ProfileResponse(
+        success: profile.success,
+        message: profile.message,
+        data: profile.data.copyWith(recentVideos: mergedVideos),
+      );
+    }
 
-    return ProfileResponse.fromJson(data);
+    if (userJson != null) {
+      return ProfileResponse.fromJson(userJson);
+    }
+
+    throw Exception('Failed to load profile');
   }
 
   Future<FollowResponse> toggleFollow({

@@ -11,6 +11,9 @@ class EditorClip {
     this.thumbnailPath,
     this.thumbnailBytes,
     this.isMerging = false,
+    this.filterId = 'natural',
+    this.beautyOn = false,
+    this.beautyIntensity = 50,
   })  : trimStart = trimStart ?? Duration.zero,
         trimEnd = trimEnd ?? originalDuration,
         thumbnailColors = _generateColors(filePath);
@@ -23,6 +26,9 @@ class EditorClip {
   final String? thumbnailPath;
   final Uint8List? thumbnailBytes;
   final bool isMerging;
+  final String filterId;
+  final bool beautyOn;
+  final double beautyIntensity;
 
   /// Stable list of placeholder colors keyed to this clip
   final List<int> thumbnailColors;
@@ -41,6 +47,9 @@ class EditorClip {
     String? thumbnailPath,
     Uint8List? thumbnailBytes,
     bool? isMerging,
+    String? filterId,
+    bool? beautyOn,
+    double? beautyIntensity,
   }) {
     return EditorClip(
       id: id,
@@ -51,6 +60,9 @@ class EditorClip {
       thumbnailPath: thumbnailPath ?? this.thumbnailPath,
       thumbnailBytes: thumbnailBytes ?? this.thumbnailBytes,
       isMerging: isMerging ?? this.isMerging,
+      filterId: filterId ?? this.filterId,
+      beautyOn: beautyOn ?? this.beautyOn,
+      beautyIntensity: beautyIntensity ?? this.beautyIntensity,
     );
   }
 

@@ -7,7 +7,6 @@ import 'package:go_router/go_router.dart';
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_text_styles.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
-import 'package:artable_app/core/utils/reel_helpers.dart';
 import 'package:artable_app/core/widgets/app_screen_header.dart';
 import 'package:artable_app/features/studio/presentation/bloc/studio_cubit.dart';
 import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
@@ -15,6 +14,7 @@ import 'package:artable_app/features/home/presentation/bloc/home_cubit.dart';
 import 'package:artable_app/features/trending/presentation/bloc/trending_videos_cubit.dart';
 import 'package:artable_app/features/trending/data/repositories/videos_repository.dart';
 import 'package:artable_app/core/utils/validators.dart';
+import 'package:artable_app/data/datasources/music_api_service.dart';
 import 'package:artable_app/features/profile/presentation/bloc/profile_cubit.dart';
 import 'package:artable_app/features/profile/presentation/bloc/my_videos_cubit.dart';
 
@@ -134,8 +134,8 @@ class _StudioUploadScreenState extends State<StudioUploadScreen> {
       final challengeId = Validators.isRealDatabaseId(rawChal) ? rawChal : null;
 
       setState(() {
-        _percent = 60;
-        _stepIndex = 2;
+        _percent = 30;
+        _stepIndex = 1;
       });
 
       // Call Repository createVideo (which executes Presigned URL + Storage PUT upload + Create Video API)
@@ -151,7 +151,8 @@ class _StudioUploadScreenState extends State<StudioUploadScreen> {
           : (profileUser?.profilePhotoUrl ?? '');
       final realUserId = authCubit.userId ?? profileUser?.id;
 
-      final selectedTrack = studioCubit.selectedTrack;
+      final selectedTrack = studioCubit.selectedTrack ??
+          MusicApiService.resolveByName(studioCubit.selectedMusic);
       final resolvedMusicName = studioCubit.selectedMusic ??
           (selectedTrack != null ? '${selectedTrack.title} — ${selectedTrack.artist}' : null);
       final res = await videosRepo.createVideo(
@@ -171,9 +172,9 @@ class _StudioUploadScreenState extends State<StudioUploadScreen> {
         mergedClipPaths: mergedClips.length > 1 ? mergedClips : null,
         onUploadProgress: (sent, total) {
           if (!mounted || total <= 0) return;
-          final pct = 30 + ((sent / total) * 50).round();
+          final pct = 30 + ((sent / total) * 55).round();
           setState(() {
-            _percent = pct.clamp(30, 80);
+            if (pct > _percent) _percent = pct.clamp(30, 85);
             _stepIndex = 2;
           });
         },
@@ -233,7 +234,16 @@ class _StudioUploadScreenState extends State<StudioUploadScreen> {
       });
 
       if (mounted) {
-        context.go('${AppRoutes.studioSuccess}?id=${widget.challengeId ?? 'c1'}');
+        final successId = challengeId ??
+            (Validators.isRealDatabaseId(studioCubit.videoChallengeId)
+                ? studioCubit.videoChallengeId
+                : null) ??
+            studioCubit.state.studioSetup?.challenge.id;
+        if (successId != null && successId.trim().isNotEmpty) {
+          context.go('${AppRoutes.studioSuccess}?id=${successId.trim()}');
+        } else {
+          context.go(AppRoutes.studioSuccess);
+        }
       }
     } catch (e) {
       debugPrint('StudioUploadScreen error during upload pipeline: $e');
@@ -247,10 +257,8 @@ class _StudioUploadScreenState extends State<StudioUploadScreen> {
     }
   }
 
-  @override
+      @override
   Widget build(BuildContext context) {
-    ReelHelpers.challengeById(widget.challengeId ?? 'c1');
-
     return Scaffold(
       backgroundColor: AppColors.bg,
       body: SafeArea(
@@ -279,16 +287,33 @@ class _StudioUploadScreenState extends State<StudioUploadScreen> {
                       ),
                       child: Column(
                         children: [
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(999),
-                            child: LinearProgressIndicator(
-                              value: _percent / 100,
-                              minHeight: 10,
-                              backgroundColor: const Color(0xFFF0ECFA),
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                _hasError ? Colors.red : const Color(0xFFFF3D77),
-                              ),
-                            ),
+                          LayoutBuilder(
+                            builder: (context, constraints) {
+                              final width = constraints.maxWidth *
+                                  ((_percent.clamp(0, 100)) / 100);
+                              return ClipRRect(
+                                borderRadius: BorderRadius.circular(999),
+                                child: SizedBox(
+                                  height: 10,
+                                  child: Stack(
+                                    children: [
+                                      const SizedBox.expand(
+                                        child: ColoredBox(color: Color(0xFFF0ECFA)),
+                                      ),
+                                      AnimatedContainer(
+                                        duration: const Duration(milliseconds: 280),
+                                        curve: Curves.easeOut,
+                                        height: 10,
+                                        width: width,
+                                        color: _hasError
+                                            ? Colors.red
+                                            : const Color(0xFFFF3D77),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
                           ),
                           const SizedBox(height: 10),
                           Text(

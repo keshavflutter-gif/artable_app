@@ -7,6 +7,7 @@ import 'package:video_player/video_player.dart';
 
 import 'package:http/http.dart' as http;
 
+import 'package:artable_app/core/utils/media_url_utils.dart';
 import 'package:artable_app/core/utils/mp4_merger.dart';
 
 /// Initializes a local recorded video after releasing music/camera audio resources.
@@ -140,13 +141,45 @@ class StudioVideoPlayerUtils {
     if (cleanPath.startsWith('file://')) {
       cleanPath = cleanPath.replaceFirst('file://', '');
     }
+    cleanPath = MediaUrlUtils.resolve(cleanPath).trim();
+    if (cleanPath.isEmpty) return null;
+
+    final isRemote = cleanPath.startsWith('http://') || cleanPath.startsWith('https://');
+    if (!isRemote) {
+      final local = File(cleanPath);
+      final alreadyReady = local.existsSync() && local.lengthSync() > 1024;
+      if (!alreadyReady) {
+        final ready = await prepareLocalRecordingForPlayback(
+          cleanPath,
+          copyToStableTemp: false,
+        );
+        if (ready != null && ready.isNotEmpty) {
+          cleanPath = ready;
+        }
+      }
+    }
 
     try {
-      final controller = cleanPath.startsWith('http://') || cleanPath.startsWith('https://')
-          ? VideoPlayerController.networkUrl(Uri.parse(cleanPath))
-          : VideoPlayerController.file(File(cleanPath));
+      final mix = VideoPlayerOptions(mixWithOthers: true);
+      final controller = isRemote
+          ? VideoPlayerController.networkUrl(
+              Uri.parse(cleanPath),
+              videoPlayerOptions: mix,
+            )
+          : VideoPlayerController.file(
+              File(cleanPath),
+              videoPlayerOptions: mix,
+            );
 
-      await controller.initialize();
+      await controller.initialize().timeout(
+        const Duration(seconds: 8),
+        onTimeout: () => throw TimeoutException('Clip init timed out'),
+      );
+      if (!controller.value.isInitialized ||
+          controller.value.duration.inMilliseconds <= 0) {
+        await controller.dispose();
+        return null;
+      }
       await controller.setLooping(loop);
       if (autoPlay) {
         await controller.play();
@@ -171,7 +204,10 @@ class StudioVideoPlayerUtils {
 
     if (cleanPath.startsWith('http://') || cleanPath.startsWith('https://')) {
       try {
-        final controller = VideoPlayerController.networkUrl(Uri.parse(cleanPath));
+        final controller = VideoPlayerController.networkUrl(
+          Uri.parse(cleanPath),
+          videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
+        );
         await controller.initialize();
         await controller.setLooping(loop);
         if (autoPlay) {
@@ -215,7 +251,10 @@ class StudioVideoPlayerUtils {
 
     for (int attempt = 1; attempt <= 5; attempt++) {
       try {
-        final fileController = VideoPlayerController.file(file);
+        final fileController = VideoPlayerController.file(
+          file,
+          videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
+        );
         await fileController.initialize().timeout(
           const Duration(seconds: 12),
           onTimeout: () => throw TimeoutException('Video initialization timed out'),
@@ -250,6 +289,38 @@ class StudioVideoPlayerUtils {
     }
 
     return null;
+  }
+
+  /// Waits for a just-recorded camera file to finish writing, then copies it
+  /// off the CameraX cache path so Edit/ExoPlayer can play it reliably.
+  static Future<String?> prepareLocalRecordingForPlayback(
+    String path, {
+    bool copyToStableTemp = true,
+  }) async {
+    var cleanPath = path.trim();
+    if (cleanPath.startsWith('file://')) {
+      cleanPath = cleanPath.replaceFirst('file://', '');
+    }
+    if (cleanPath.isEmpty ||
+        cleanPath.startsWith('http://') ||
+        cleanPath.startsWith('https://')) {
+      return cleanPath.isEmpty ? null : cleanPath;
+    }
+
+    final file = File(cleanPath);
+    if (!await _waitForRecordedFile(file)) {
+      debugPrint('prepareLocalRecordingForPlayback: file not ready at $cleanPath');
+      return file.existsSync() && file.lengthSync() > 0 ? file.path : null;
+    }
+    final alreadyStable = cleanPath.contains('preview_') ||
+        cleanPath.contains('studio_recordings');
+    if (!copyToStableTemp || alreadyStable) return file.path;
+    final stable = await _copyToStableTemp(file);
+    if (stable != null) {
+      debugPrint('prepareLocalRecordingForPlayback: ${file.path} -> ${stable.path}');
+      return stable.path;
+    }
+    return file.path;
   }
 
   static Future<File?> _copyToStableTemp(File source) async {

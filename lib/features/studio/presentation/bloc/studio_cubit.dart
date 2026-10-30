@@ -88,9 +88,14 @@ class StudioCubit extends Cubit<StudioState> {
       );
 
       if (res != null && res.success) {
+        final setup = res.data;
+        final setupChallengeId = setup?.challenge.id.trim() ?? '';
+        final setupCategoryId = setup?.challenge.category?.id.trim() ?? '';
         emit(state.copyWith(
-          studioSetup: res.data,
+          studioSetup: setup,
           isSetupLoading: false,
+          videoChallengeId: setupChallengeId.isNotEmpty ? setupChallengeId : null,
+          videoCategoryId: setupCategoryId.isNotEmpty ? setupCategoryId : null,
         ));
       } else {
         emit(state.copyWith(isSetupLoading: false));
@@ -166,12 +171,14 @@ class StudioCubit extends Cubit<StudioState> {
     final mergedClipPaths = <String>[];
     final mergedClipDurations = <double>[];
     final mergedClipThumbnails = <String>[];
+    final mergedClipFilterIds = <String>[];
     double totalSecs = 0.0;
 
     // 1st Clip: Current active video recording ONLY IF it's an unsaved recording not in drafts
     final recPath = currentRecPath;
     if (shouldPrependCurrentRec && recPath != null) {
       mergedClipPaths.add(recPath);
+      mergedClipFilterIds.add(normalizeFilterId(state.recordingFilter));
       mergedClipThumbnails.add(state.selectedThumbnailPath ?? '');
       double recDur = 0.0;
       final parts = state.recordedDuration.split(':');
@@ -214,10 +221,14 @@ class StudioCubit extends Cubit<StudioState> {
         final subThumbs = (d['mergedClipThumbnails'] is List)
             ? List<String>.from(d['mergedClipThumbnails'] as List)
             : <String>[];
+        final subFilters = clipFilterIdsOfDraft(d, pathCount: subPaths.length);
         for (int i = 0; i < subPaths.length; i++) {
           final p = subPaths[i].trim();
           if (p.isNotEmpty) {
             mergedClipPaths.add(p);
+            mergedClipFilterIds.add(
+              i < subFilters.length ? subFilters[i] : filterIdOfDraft(d),
+            );
             final dur = (i < subDurs.length && subDurs[i] > 0) ? subDurs[i] : (draftDur / subPaths.length);
             mergedClipDurations.add(dur);
             final t = (i < subThumbs.length && subThumbs[i].isNotEmpty) ? subThumbs[i] : dThumb;
@@ -229,6 +240,7 @@ class StudioCubit extends Cubit<StudioState> {
         final p = (d['videoPath']?.toString() ?? d['videoUrl']?.toString() ?? '').trim();
         if (p.isNotEmpty) {
           mergedClipPaths.add(p);
+          mergedClipFilterIds.add(filterIdOfDraft(d));
           mergedClipDurations.add(draftDur);
           mergedClipThumbnails.add(dThumb);
           totalSecs += draftDur;
@@ -244,7 +256,44 @@ class StudioCubit extends Cubit<StudioState> {
 
     String resolvedThumb = state.selectedThumbnailPath ?? '';
     if (resolvedThumb.isEmpty && selectedDrafts.isNotEmpty) {
-      resolvedThumb = selectedDrafts.first['thumbnailUrl']?.toString() ?? selectedDrafts.first['imageUrl']?.toString() ?? '';
+      resolvedThumb = selectedDrafts.first['thumbnailPath']?.toString() ??
+          selectedDrafts.first['thumbnailUrl']?.toString() ??
+          selectedDrafts.first['imageUrl']?.toString() ??
+          '';
+    }
+
+    // Fill missing per-clip thumbs so the editor filmstrip / draft card have images.
+    for (int i = 0; i < mergedClipPaths.length; i++) {
+      final existing = i < mergedClipThumbnails.length ? mergedClipThumbnails[i].trim() : '';
+      final looksLikeImage = existing.isNotEmpty &&
+          !existing.toLowerCase().endsWith('.mp4') &&
+          !existing.toLowerCase().endsWith('.mov') &&
+          !existing.toLowerCase().endsWith('.m4v');
+      if (looksLikeImage) continue;
+      try {
+        final thumbFile = await VideoThumbnailGenerator.generateThumbnailFromVideo(
+          mergedClipPaths[i],
+          timeMs: 200,
+        );
+        if (thumbFile != null && await thumbFile.exists()) {
+          final path = thumbFile.path;
+          if (i < mergedClipThumbnails.length) {
+            mergedClipThumbnails[i] = path;
+          } else {
+            mergedClipThumbnails.add(path);
+          }
+          if (resolvedThumb.isEmpty ||
+              resolvedThumb.toLowerCase().endsWith('.mp4') ||
+              resolvedThumb.toLowerCase().endsWith('.mov')) {
+            resolvedThumb = path;
+          }
+        }
+      } catch (e) {
+        debugPrint('mergeDrafts thumbnail generate warning for clip $i: $e');
+      }
+    }
+    while (mergedClipThumbnails.length < mergedClipPaths.length) {
+      mergedClipThumbnails.add('');
     }
 
     final totalSecsInt = totalSecs.round();
@@ -256,6 +305,14 @@ class StudioCubit extends Cubit<StudioState> {
     // seamlessly as a playlist using mergedClipPaths. Actual file merge is deferred to upload.
     final finalVideoPath = (mergedClipPaths.isNotEmpty ? mergedClipPaths.first : '');
 
+    final mergedPrimaryFilter = mergedClipFilterIds.isNotEmpty
+        ? mergedClipFilterIds.first
+        : normalizeFilterId(state.recordingFilter);
+
+    if (resolvedThumb.isNotEmpty) {
+      setSelectedThumbnailPath(resolvedThumb);
+    }
+
     emit(state.copyWith(
       recordedDuration: formattedDur,
       videoTrimStartSeconds: 0.0,
@@ -263,6 +320,9 @@ class StudioCubit extends Cubit<StudioState> {
       recordedVideoPath: finalVideoPath.isNotEmpty ? finalVideoPath : null,
       mergedClipPaths: mergedClipPaths,
       mergedClipDurations: mergedClipDurations,
+      mergedClipFilterIds: mergedClipFilterIds,
+      recordingFilter: mergedPrimaryFilter,
+      selectedThumbnailPath: resolvedThumb.isNotEmpty ? resolvedThumb : null,
     ));
 
     final mergedDraftId = 'merged_${DateTime.now().millisecondsSinceEpoch}';
@@ -273,23 +333,33 @@ class StudioCubit extends Cubit<StudioState> {
       'challengeId': cleanChallengeId,
       'challengeTitle': mergedTitle,
       'title': mergedTitle,
-      'description': _descriptionWithFilter('Merged video from ${selectedDrafts.length} drafts'),
+      'description': _descriptionWithFilter(
+        'Merged video from ${selectedDrafts.length} drafts',
+        filterId: mergedPrimaryFilter,
+      ),
       'duration': formattedDur,
       'durationSeconds': totalSecsInt,
       'recordedAt': DateTime.now().toIso8601String(),
       'thumbnailUrl': resolvedThumb.isNotEmpty
           ? resolvedThumb
-          : (first['thumbnailUrl']?.toString() ?? finalVideoPath),
+          : (first['thumbnailUrl']?.toString() ?? ''),
+      'thumbnailPath': resolvedThumb.isNotEmpty ? resolvedThumb : null,
       'videoPath': finalVideoPath,
       'videoUrl': finalVideoPath,
       'mergedClipPaths': mergedClipPaths,
       'mergedClipDurations': mergedClipDurations,
       'mergedClipThumbnails': mergedClipThumbnails,
+      'mergedClipFilterIds': mergedClipFilterIds,
       'videoTrimStartSeconds': 0.0,
       'videoTrimEndSeconds': totalSecs,
       ...state.recordingEffectsPayload,
+      'filterId': mergedPrimaryFilter,
     };
-    _attachFilterToDraftMap(mergedDraft, videoUrl: finalVideoPath);
+    _attachFilterToDraftMap(
+      mergedDraft,
+      videoUrl: finalVideoPath,
+      filterId: mergedPrimaryFilter,
+    );
 
     addDraft(mergedDraft);
     setActiveDraftId(mergedDraftId);
@@ -706,6 +776,8 @@ class StudioCubit extends Cubit<StudioState> {
 
       final filterFields = Map<String, dynamic>.from(_filterPersistFields());
       final embeddedDescription = _descriptionWithFilter(draftDescription);
+      final draftTrack =
+          state.selectedTrack ?? MusicApiService.resolveByName(state.selectedMusic);
       final localId = 'd${DateTime.now().millisecondsSinceEpoch}';
       final localDraft = <String, dynamic>{
         'id': localId,
@@ -723,9 +795,29 @@ class StudioCubit extends Cubit<StudioState> {
         if (state.mergedClipPaths != null) 'mergedClipPaths': state.mergedClipPaths,
         if (state.mergedClipDurations != null)
           'mergedClipDurations': state.mergedClipDurations,
+        if (state.mergedClipFilterIds != null)
+          'mergedClipFilterIds': state.mergedClipFilterIds,
+        if (draftTrack != null) ...{
+          'musicUrl': draftTrack.audioUrl,
+          'musicName':
+              state.selectedMusic ?? '${draftTrack.title} — ${draftTrack.artist}',
+          'musicStartSeconds': state.musicStartSeconds,
+          'musicCropDuration': state.musicCropDuration,
+        },
         ...state.recordingEffectsPayload,
       };
       _attachFilterToDraftMap(localDraft, videoUrl: recVideoPath);
+      if (draftTrack != null) {
+        ReelHelpers.cacheMusic(
+          localId,
+          ReelMusicMeta(
+            url: draftTrack.audioUrl,
+            name: state.selectedMusic ?? '${draftTrack.title} — ${draftTrack.artist}',
+            startSeconds: state.musicStartSeconds,
+            durationSeconds: state.musicCropDuration,
+          ),
+        );
+      }
 
       final updated = List<Map<String, dynamic>>.from(state.drafts)..insert(0, localDraft);
       emit(state.copyWith(
@@ -818,6 +910,9 @@ class StudioCubit extends Cubit<StudioState> {
       }
       if (state.mergedClipDurations != null && state.mergedClipDurations!.isNotEmpty) {
         localPatch['mergedClipDurations'] = state.mergedClipDurations;
+      }
+      if (state.mergedClipFilterIds != null && state.mergedClipFilterIds!.isNotEmpty) {
+        localPatch['mergedClipFilterIds'] = state.mergedClipFilterIds;
       }
       _attachFilterToDraftMap(localPatch, videoUrl: recVideoPath);
 
@@ -1095,6 +1190,40 @@ class StudioCubit extends Cubit<StudioState> {
     ));
   }
 
+  static String normalizeFilterId(String? id) {
+    final v = (id ?? '').trim();
+    return v.isEmpty ? 'natural' : v;
+  }
+
+  static String filterIdOfDraft(Map<String, dynamic> d) {
+    final meta = ReelHelpers.resolveFilter(
+      filterId: d['filterId']?.toString() ?? d['filter_id']?.toString(),
+      beautyOn: d['beautyOn'] == true || d['beauty_on'] == true,
+      beautyIntensity: (d['beautyIntensity'] as num?)?.toDouble() ??
+          (d['beauty_intensity'] as num?)?.toDouble(),
+      description: d['description']?.toString(),
+      videoId: d['id']?.toString(),
+      videoUrl: (d['videoUrl'] ?? d['videoPath'])?.toString(),
+    );
+    return normalizeFilterId(meta?.filterId ?? d['filterId']?.toString());
+  }
+
+  static List<String> clipFilterIdsOfDraft(Map<String, dynamic> d, {int? pathCount}) {
+    final n = pathCount ??
+        ((d['mergedClipPaths'] is List && (d['mergedClipPaths'] as List).isNotEmpty)
+            ? (d['mergedClipPaths'] as List).length
+            : 1);
+    final count = n < 1 ? 1 : n;
+    final raw = d['mergedClipFilterIds'];
+    if (raw is List && raw.isNotEmpty) {
+      final ids = raw.map((e) => normalizeFilterId(e?.toString())).toList();
+      if (ids.length >= count) return ids.sublist(0, count);
+      final fallback = filterIdOfDraft(d);
+      return [...ids, ...List<String>.filled(count - ids.length, fallback)];
+    }
+    return List<String>.filled(count, filterIdOfDraft(d));
+  }
+
   void applyDraftFilterToSession(Map<String, dynamic>? draft) {
     if (draft == null) return;
     final meta = ReelHelpers.resolveFilter(
@@ -1111,6 +1240,42 @@ class StudioCubit extends Cubit<StudioState> {
       beautyOn: meta?.beautyOn ?? false,
       beautyIntensity: meta?.beautyIntensity ?? 0,
     );
+    _restoreMusicFromDraft(draft);
+  }
+
+  void _restoreMusicFromDraft(Map<String, dynamic> draft) {
+    final music = ReelHelpers.resolveMusic(
+      description: draft['description']?.toString(),
+      musicUrl: draft['musicUrl']?.toString() ?? draft['music_url']?.toString(),
+      musicName: draft['musicName']?.toString() ?? draft['music']?.toString(),
+      startSeconds: (draft['musicStartSeconds'] as num?)?.toDouble(),
+      durationSeconds: (draft['musicCropDuration'] as num?)?.toDouble(),
+      videoId: draft['id']?.toString(),
+      videoUrl: (draft['videoUrl'] ?? draft['videoPath'])?.toString(),
+    );
+    if (music == null || music.url.isEmpty) return;
+    final resolved = MusicApiService.resolveByUrl(music.url) ??
+        MusicApiService.resolveByName(
+          music.name.isNotEmpty ? music.name : state.selectedMusic,
+        );
+    final track = resolved ??
+        FreeToUseTrack(
+          id: 'draft_music',
+          title: music.name.isNotEmpty ? music.name.split(' — ').first : 'Track',
+          artist: music.name.contains(' — ')
+              ? music.name.split(' — ').skip(1).join(' — ')
+              : 'Unknown',
+          duration: music.durationSeconds > 0 ? music.durationSeconds : 180,
+          coverUrl: '',
+          audioUrl: music.url,
+          waveform: const [],
+          category: 'All',
+        );
+    setSelectedTrack(
+      track,
+      start: music.startSeconds,
+      duration: music.durationSeconds > 0 ? music.durationSeconds : null,
+    );
   }
 
   Map<String, dynamic> _filterPersistFields() {
@@ -1122,17 +1287,31 @@ class StudioCubit extends Cubit<StudioState> {
     };
   }
 
-  String _descriptionWithFilter(String? description) {
-    return ReelHelpers.embedFilterInDescription(
+  String _descriptionWithFilter(String? description, {String? filterId}) {
+    final withFilter = ReelHelpers.embedFilterInDescription(
       description,
-      filterId: state.recordingFilter,
+      filterId: filterId ?? state.recordingFilter,
       beautyOn: state.recordingBeautyOn,
       beautyIntensity: state.recordingBeautyIntensity,
     );
+    final track = state.selectedTrack ?? MusicApiService.resolveByName(state.selectedMusic);
+    if (track == null || track.audioUrl.trim().isEmpty) return withFilter;
+    return ReelHelpers.embedMusicInDescription(
+      withFilter,
+      ReelMusicMeta(
+        url: track.audioUrl.trim(),
+        name: state.selectedMusic ?? '${track.title} — ${track.artist}',
+        startSeconds: state.musicStartSeconds,
+        durationSeconds: state.musicCropDuration,
+      ),
+    );
   }
 
-  void _attachFilterToDraftMap(Map<String, dynamic> draft, {String? videoUrl}) {
-    final fields = _filterPersistFields();
+  void _attachFilterToDraftMap(Map<String, dynamic> draft, {String? videoUrl, String? filterId}) {
+    final fields = Map<String, dynamic>.from(_filterPersistFields());
+    if (filterId != null) {
+      fields['filterId'] = normalizeFilterId(filterId);
+    }
     draft.addAll(fields);
     final id = draft['id']?.toString();
     final url = videoUrl ?? draft['videoUrl']?.toString() ?? draft['videoPath']?.toString();
@@ -1195,7 +1374,7 @@ class StudioCubit extends Cubit<StudioState> {
     }
   }
 
-  void setMergedClipPaths(List<String>? paths, [List<double>? durations]) {
+  void setMergedClipPaths(List<String>? paths, [List<double>? durations, List<String>? filterIds]) {
     if (paths == null || paths.isEmpty) {
       emit(state.copyWith(
         clearMergedClipPaths: true,
@@ -1204,6 +1383,7 @@ class StudioCubit extends Cubit<StudioState> {
       emit(state.copyWith(
         mergedClipPaths: paths,
         mergedClipDurations: durations,
+        mergedClipFilterIds: filterIds,
       ));
     }
   }

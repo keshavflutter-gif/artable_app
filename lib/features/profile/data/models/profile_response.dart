@@ -119,20 +119,38 @@ class ProfileData {
       }
     }
 
-    final videosRaw = root['recentVideos'] ??
-        root['videos'] ??
-        (root['user'] is Map ? (root['user'] as Map)['recentVideos'] ?? (root['user'] as Map)['videos'] : null) ??
-        (root['data'] is Map ? (root['data'] as Map)['recentVideos'] ?? (root['data'] as Map)['videos'] : null);
     final fallbackUserMap = userRaw is Map ? Map<String, dynamic>.from(userRaw) : null;
     final videosList = <MyVideoItem>[];
-    if (videosRaw is List) {
+    final seenVideoIds = <String>{};
+    void addVideos(dynamic videosRaw) {
+      if (videosRaw is! List) return;
       for (final item in videosRaw) {
-        if (item is Map<String, dynamic>) {
-          videosList.add(MyVideoItem.fromJson(item, fallbackUser: fallbackUserMap));
-        } else if (item is Map) {
-          videosList.add(MyVideoItem.fromJson(Map<String, dynamic>.from(item), fallbackUser: fallbackUserMap));
-        }
+        if (item is! Map) continue;
+        final parsed = MyVideoItem.fromJson(
+          Map<String, dynamic>.from(item),
+          fallbackUser: fallbackUserMap,
+        );
+        if (parsed.id.isEmpty || seenVideoIds.contains(parsed.id)) continue;
+        seenVideoIds.add(parsed.id);
+        videosList.add(parsed);
       }
+    }
+
+    addVideos(root['recentVideos']);
+    addVideos(root['videos']);
+    addVideos(root['approvedVideos']);
+    addVideos(root['liveVideos']);
+    if (root['user'] is Map) {
+      final userMap = Map<String, dynamic>.from(root['user'] as Map);
+      addVideos(userMap['recentVideos']);
+      addVideos(userMap['videos']);
+      addVideos(userMap['approvedVideos']);
+    }
+    if (root['data'] is Map) {
+      final dataMap = Map<String, dynamic>.from(root['data'] as Map);
+      addVideos(dataMap['recentVideos']);
+      addVideos(dataMap['videos']);
+      addVideos(dataMap['approvedVideos']);
     }
 
     final badgesRaw = root['badges'];
@@ -321,8 +339,8 @@ class ProfileStats {
     }
 
     return ProfileStats(
-      totalVideos: (json['totalVideos'] as num?)?.toInt() ?? 0,
-      approvedVideos: (json['approvedVideos'] as num?)?.toInt() ?? 0,
+      totalVideos: _readInt(json, const ['totalVideos', 'total_videos', 'videoCount', 'videosCount']),
+      approvedVideos: _readApprovedVideosCount(json),
       totalLikes: (json['totalLikes'] as num?)?.toInt() ?? 0,
       totalViews: (json['totalViews'] as num?)?.toInt() ?? 0,
       talentScore: parsedTalentScore,
@@ -340,6 +358,33 @@ class ProfileStats {
 
   factory ProfileStats.empty() {
     return const ProfileStats();
+  }
+
+  static int _readInt(Map<String, dynamic> json, List<String> keys) {
+    for (final key in keys) {
+      final value = json[key];
+      if (value is num) return value.toInt();
+      if (value is String) {
+        final parsed = int.tryParse(value);
+        if (parsed != null) return parsed;
+      }
+    }
+    return 0;
+  }
+
+  static int _readApprovedVideosCount(Map<String, dynamic> json) {
+    final fromKeys = _readInt(json, const [
+      'approvedVideos',
+      'approved_videos',
+      'approvedVideoCount',
+      'liveVideos',
+      'liveVideoCount',
+    ]);
+    if (fromKeys > 0) return fromKeys;
+    final videos = json['videos'];
+    if (videos is num) return videos.toInt();
+    if (videos is String) return int.tryParse(videos) ?? 0;
+    return 0;
   }
 
   ProfileStats copyWith({

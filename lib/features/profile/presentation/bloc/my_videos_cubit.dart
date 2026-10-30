@@ -6,7 +6,9 @@ import 'package:artable_app/core/utils/formatters.dart';
 import 'package:artable_app/core/utils/media_url_utils.dart';
 import 'package:artable_app/features/profile/data/models/my_videos_response.dart';
 import 'package:artable_app/features/profile/data/repositories/profile_videos_repository.dart';
+import 'package:artable_app/features/studio/data/models/save_studio_draft_response.dart';
 import 'package:artable_app/features/studio/data/repositories/studio_repository.dart';
+import 'package:artable_app/features/studio/presentation/bloc/studio_cubit.dart';
 import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
 import 'package:artable_app/features/auth/presentation/bloc/auth_state.dart';
 import 'package:artable_app/features/reels/presentation/bloc/reels_cubit.dart';
@@ -16,11 +18,13 @@ class MyVideosCubit extends Cubit<MyVideosState> {
   MyVideosCubit({
     required AuthCubit authCubit,
     ReelsCubit? reelsCubit,
+    StudioCubit? studioCubit,
     ProfileVideosRepository? repository,
     StudioRepository? studioRepository,
   })  : _authCubit = authCubit,
         // ignore: prefer_initializing_formals
         _reelsCubit = reelsCubit,
+        _studioCubit = studioCubit,
         _repository = repository ??
             ProfileVideosRepository(
               onTokensRefreshed: authCubit.applyRefreshedTokens,
@@ -37,10 +41,12 @@ class MyVideosCubit extends Cubit<MyVideosState> {
 
   final AuthCubit _authCubit;
   final ReelsCubit? _reelsCubit;
+  final StudioCubit? _studioCubit;
   final ProfileVideosRepository _repository;
   final StudioRepository _studioRepository;
   StreamSubscription<AuthState>? _authSubscription;
   String? _lastSessionToken;
+  int _loadRequestId = 0;
 
   MyVideosResponse? get response => state.response;
   List<MyVideoItem> get videos => state.videos;
@@ -67,16 +73,19 @@ class MyVideosCubit extends Cubit<MyVideosState> {
     bool forceRefresh = false,
   }) async {
     final targetTab = tab ?? state.activeTab;
-    if (state.isLoading) return;
     if (state.hasLoaded && !forceRefresh && tab == null) return;
 
+    final requestId = ++_loadRequestId;
     final token = _authCubit.sessionToken;
     final refresh = _authCubit.refreshToken;
+    final sessionToken = (token != null && token != 'design_preview') ? token : null;
+    final refreshToken = (refresh != null && refresh != 'design_preview') ? refresh : null;
 
     emit(state.copyWith(
       isLoading: true,
       activeTab: targetTab,
       clearError: true,
+      clearResponse: forceRefresh,
     ));
 
     debugPrint('====================================================');
@@ -86,10 +95,11 @@ class MyVideosCubit extends Cubit<MyVideosState> {
       var response = await _repository.getMyVideos(
         tab: targetTab,
         page: 1,
-        limit: 20,
-        sessionToken: (token != null && token != 'design_preview') ? token : null,
-        refreshToken: (refresh != null && refresh != 'design_preview') ? refresh : null,
+        limit: 50,
+        sessionToken: sessionToken,
+        refreshToken: refreshToken,
       );
+      if (requestId != _loadRequestId) return;
 
       final isAllTab = targetTab.toUpperCase() == 'ALL';
       final isDraftsTab = targetTab.toUpperCase() == 'DRAFTS' || targetTab.toUpperCase() == 'DRAFT';
@@ -102,86 +112,62 @@ class MyVideosCubit extends Cubit<MyVideosState> {
 
       List<MyVideoItem> items = List<MyVideoItem>.from(response.data);
 
-      if (isAllTab) {
-        // In "ALL" tab, show all videos (Live, Drafts, Under Review, Rejected).
-        // Also merge any local studio drafts not already in response.data so nothing is missed.
-        try {
-          final studioRes = await _studioRepository.getDraftsList(
-            sessionToken: (token != null && token != 'design_preview') ? token : null,
-            refreshToken: (refresh != null && refresh != 'design_preview') ? refresh : null,
-          );
-          if (studioRes.success && studioRes.data.isNotEmpty) {
-            final existingIds = items.map((v) => v.id).toSet();
-            for (final d in studioRes.data) {
-              if (!existingIds.contains(d.id)) {
-                final challengeObj = d.challengeId != null
-                    ? {'id': d.challengeId, 'title': d.title}
-                    : null;
-                final formattedDate = (d.createdAt != null && d.createdAt!.isNotEmpty)
-                    ? AppFormatters.formatDate(d.createdAt!)
-                    : '';
-                items.add(MyVideoItem(
-                  id: d.id,
-                  title: d.title.isNotEmpty ? d.title : 'Draft Entry',
-                  description: d.description,
-                  thumbnailUrl: d.thumbnailUrl,
-                  videoUrl: d.videoUrl,
-                  status: 'DRAFT',
-                  statusLabel: 'DRAFT',
-                  durationSeconds: d.durationSeconds,
-                  viewsLabel: '${d.views}',
-                  likesLabel: '${d.likes}',
-                  talentScoreLabel: d.averageRating,
-                  dateLabel: formattedDate,
-                  isLive: false,
-                  canContinueDraft: true,
-                  challenge: challengeObj,
-                ));
-              }
-            }
-          }
-        } catch (e) {
-          debugPrint('[MY_VIDEOS_CUBIT] Error merging studio drafts in ALL tab: $e');
-        }
-      } else if (isLiveTab) {
+      if (isLiveTab) {
         items = items.where((v) => v.isVideoLive && !v.isDraft).toList();
-      } else if (isDraftsTab) {
-        items = items.where((v) => v.isDraft || v.status.toLowerCase().contains('draft') || v.canContinueDraft).toList();
-        if (items.isEmpty) {
+        if (items.isEmpty && targetTab.toUpperCase() != 'APPROVED') {
           try {
-            final studioRes = await _studioRepository.getDraftsList(
-              sessionToken: (token != null && token != 'design_preview') ? token : null,
-              refreshToken: (refresh != null && refresh != 'design_preview') ? refresh : null,
+            final approved = await _repository.getMyVideos(
+              tab: 'APPROVED',
+              page: 1,
+              limit: 50,
+              sessionToken: sessionToken,
+              refreshToken: refreshToken,
             );
-            if (studioRes.success && studioRes.data.isNotEmpty) {
-              items = studioRes.data.map((d) {
-                final challengeObj = d.challengeId != null
-                    ? {'id': d.challengeId, 'title': d.title}
-                    : null;
-                final formattedDate = (d.createdAt != null && d.createdAt!.isNotEmpty)
-                    ? AppFormatters.formatDate(d.createdAt!)
-                    : '';
-                return MyVideoItem(
-                  id: d.id,
-                  title: d.title.isNotEmpty ? d.title : 'Draft Entry',
-                  description: d.description,
-                  thumbnailUrl: d.thumbnailUrl,
-                  videoUrl: d.videoUrl,
-                  status: 'DRAFT',
-                  statusLabel: 'DRAFT',
-                  durationSeconds: d.durationSeconds,
-                  viewsLabel: '${d.views}',
-                  likesLabel: '${d.likes}',
-                  talentScoreLabel: d.averageRating,
-                  dateLabel: formattedDate,
-                  isLive: false,
-                  canContinueDraft: true,
-                  challenge: challengeObj,
-                );
-              }).toList();
-            }
+            if (requestId != _loadRequestId) return;
+            items = approved.data.where((v) => v.isVideoLive && !v.isDraft).toList();
           } catch (e) {
-            debugPrint('[MY_VIDEOS_CUBIT] Error fetching studio drafts fallback: $e');
+            debugPrint('[MY_VIDEOS_CUBIT] APPROVED tab fallback failed: $e');
+          }
+        }
+      } else if (isDraftsTab) {
+        items = items
+            .where((v) => v.isDraft || v.status.toLowerCase().contains('draft') || v.canContinueDraft)
+            .toList();
+        items = await _mergeStudioDrafts(
+          items,
+          sessionToken: sessionToken,
+          refreshToken: refreshToken,
+        );
+        if (requestId != _loadRequestId) return;
+      } else if (isAllTab) {
+        items = await _mergeStudioDrafts(
+          items,
+          sessionToken: sessionToken,
+          refreshToken: refreshToken,
+        );
+        if (requestId != _loadRequestId) return;
+        final liveCount = items.where((v) => v.isVideoLive && !v.isDraft).length;
+        if (liveCount == 0) {
+          for (final alt in ['LIVE', 'APPROVED']) {
+            try {
+              final extra = await _repository.getMyVideos(
+                tab: alt,
+                page: 1,
+                limit: 50,
+                sessionToken: sessionToken,
+                refreshToken: refreshToken,
+              );
+              if (requestId != _loadRequestId) return;
+              final existingIds = items.map((v) => v.id).toSet();
+              for (final v in extra.data) {
+                if (v.id.isNotEmpty && !existingIds.contains(v.id)) {
+                  existingIds.add(v.id);
+                  items.add(v);
+                }
+              }
+            } catch (e) {
+              debugPrint('[MY_VIDEOS_CUBIT] $alt fallback failed: $e');
+            }
           }
         }
       } else if (isUnderReviewTab) {
@@ -244,6 +230,7 @@ class MyVideosCubit extends Cubit<MyVideosState> {
       }
       debugPrint('====================================================');
 
+      if (requestId != _loadRequestId) return;
       emit(state.copyWith(
         response: response,
         activeTab: response.activeTab.isNotEmpty ? response.activeTab : targetTab,
@@ -254,6 +241,34 @@ class MyVideosCubit extends Cubit<MyVideosState> {
     } catch (e) {
       debugPrint('[MY_VIDEOS_CUBIT] Error fetching videos: $e');
       debugPrint('====================================================');
+      if (requestId != _loadRequestId) return;
+      final tabKey = targetTab.toUpperCase();
+      if (tabKey == 'ALL' || tabKey == 'DRAFTS' || tabKey == 'DRAFT') {
+        try {
+          final drafts = await _mergeStudioDrafts(
+            const [],
+            sessionToken: sessionToken,
+            refreshToken: refreshToken,
+          );
+          if (requestId != _loadRequestId) return;
+          if (drafts.isNotEmpty) {
+            emit(state.copyWith(
+              response: MyVideosResponse(
+                success: true,
+                message: 'Showing saved drafts',
+                data: drafts,
+                tabs: const [],
+                activeTab: targetTab,
+              ),
+              activeTab: targetTab,
+              isLoading: false,
+              hasLoaded: true,
+              clearError: true,
+            ));
+            return;
+          }
+        } catch (_) {}
+      }
       emit(state.copyWith(
         isLoading: false,
         hasLoaded: true,
@@ -298,6 +313,108 @@ class MyVideosCubit extends Cubit<MyVideosState> {
       await loadMyVideos(tab: state.activeTab, forceRefresh: true);
       return false;
     }
+  }
+
+  Future<List<MyVideoItem>> _mergeStudioDrafts(
+    List<MyVideoItem> current, {
+    String? sessionToken,
+    String? refreshToken,
+  }) async {
+    final merged = List<MyVideoItem>.from(current);
+    final existingIds = merged.map((v) => v.id).toSet();
+
+    void addDraft(MyVideoItem draft) {
+      if (draft.id.isEmpty) return;
+      if (existingIds.contains(draft.id)) {
+        final index = merged.indexWhere((v) => v.id == draft.id);
+        if (index >= 0 && merged[index].thumbnailUrl.isEmpty && draft.thumbnailUrl.isNotEmpty) {
+          merged[index] = draft;
+        }
+        return;
+      }
+      existingIds.add(draft.id);
+      merged.add(draft);
+    }
+
+    final localDrafts = _studioCubit?.state.drafts ?? const <Map<String, dynamic>>[];
+    for (final draft in localDrafts) {
+      addDraft(_draftMapToMyVideo(draft));
+    }
+
+    try {
+      final studioRes = await _studioRepository.getDraftsList(
+        sessionToken: sessionToken,
+        refreshToken: refreshToken,
+      );
+      if (studioRes.success) {
+        for (final d in studioRes.data) {
+          addDraft(_studioItemToMyVideo(d));
+        }
+      }
+    } catch (e) {
+      debugPrint('[MY_VIDEOS_CUBIT] Error merging studio drafts: $e');
+    }
+
+    return merged;
+  }
+
+  MyVideoItem _studioItemToMyVideo(StudioDraftItem draft) {
+    final challengeObj = draft.challengeId != null
+        ? {'id': draft.challengeId, 'title': draft.title}
+        : null;
+    final formattedDate = (draft.createdAt != null && draft.createdAt!.isNotEmpty)
+        ? AppFormatters.formatDate(draft.createdAt!)
+        : '';
+    return MyVideoItem(
+      id: draft.id,
+      title: draft.title.isNotEmpty ? draft.title : 'Draft Entry',
+      description: draft.description,
+      thumbnailUrl: draft.thumbnailUrl,
+      videoUrl: draft.videoUrl,
+      status: 'DRAFT',
+      statusLabel: 'DRAFT',
+      durationSeconds: draft.durationSeconds,
+      viewsLabel: '${draft.views}',
+      likesLabel: '${draft.likes}',
+      talentScoreLabel: draft.averageRating,
+      dateLabel: formattedDate,
+      isLive: false,
+      canContinueDraft: true,
+      challenge: challengeObj,
+      filterId: draft.filterId,
+      beautyOn: draft.beautyOn,
+      beautyIntensity: draft.beautyIntensity,
+    );
+  }
+
+  MyVideoItem _draftMapToMyVideo(Map<String, dynamic> draft) {
+    final challengeId = draft['challengeId']?.toString() ?? '';
+    final title = (draft['title']?.toString() ?? '').trim();
+    final createdAt = draft['createdAt']?.toString() ?? draft['recordedAt']?.toString() ?? '';
+    return MyVideoItem(
+      id: draft['id']?.toString() ?? '',
+      title: title.isNotEmpty ? title : 'Draft Entry',
+      description: draft['description']?.toString(),
+      thumbnailUrl: draft['thumbnailUrl']?.toString() ?? draft['imageUrl']?.toString() ?? '',
+      videoUrl: draft['videoUrl']?.toString() ?? draft['videoPath']?.toString(),
+      status: 'DRAFT',
+      statusLabel: 'DRAFT',
+      durationSeconds: draft['durationSeconds'] as num?,
+      viewsLabel: draft['views']?.toString() ?? '0',
+      likesLabel: draft['likes']?.toString() ?? '0',
+      talentScoreLabel: draft['averageRating']?.toString() ?? '0.0',
+      dateLabel: createdAt.isNotEmpty ? AppFormatters.formatDate(createdAt) : '',
+      isLive: false,
+      canContinueDraft: true,
+      challenge: challengeId.isNotEmpty
+          ? {'id': challengeId, 'title': title}
+          : (draft['challenge'] is Map
+              ? Map<String, dynamic>.from(draft['challenge'] as Map)
+              : null),
+      filterId: draft['filterId']?.toString(),
+      beautyOn: draft['beautyOn'] == true,
+      beautyIntensity: (draft['beautyIntensity'] as num?)?.toDouble() ?? 0,
+    );
   }
 
   @override

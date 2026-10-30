@@ -9,11 +9,12 @@ import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_gradients.dart';
 import 'package:artable_app/app/theme/app_text_styles.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
-import 'package:artable_app/core/utils/reel_helpers.dart';
-import 'package:artable_app/core/widgets/gradient_button.dart';
+import 'package:artable_app/core/utils/validators.dart';
 import 'package:artable_app/core/widgets/secondary_outline_button.dart';
+import 'package:artable_app/features/challenges/presentation/bloc/challenges_cubit.dart';
 import 'package:artable_app/features/home/presentation/bloc/home_cubit.dart';
 import 'package:artable_app/features/trending/presentation/bloc/trending_videos_cubit.dart';
+import 'package:artable_app/features/studio/presentation/bloc/studio_cubit.dart';
 import 'package:artable_app/features/studio/presentation/widgets/studio_shared_widgets.dart';
 
 class StudioSuccessScreen extends StatefulWidget {
@@ -26,10 +27,27 @@ class StudioSuccessScreen extends StatefulWidget {
 }
 
 class _StudioSuccessScreenState extends State<StudioSuccessScreen> {
+  Map<String, dynamic> _challenge = const {};
+  bool _loadingChallenge = true;
+
+  String get _resolvedChallengeId {
+    final studio = context.read<StudioCubit>();
+    final candidates = <String?>[
+      widget.challengeId,
+      studio.videoChallengeId,
+      studio.state.studioSetup?.challenge.id,
+    ];
+    for (final id in candidates) {
+      if (Validators.isRealDatabaseId(id)) return id!.trim();
+    }
+    return '';
+  }
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _loadSubmittedChallenge();
       await VideoInterstitialAd.instance.load();
       if (!mounted) return;
       await Future<void>.delayed(const Duration(milliseconds: 400));
@@ -38,9 +56,42 @@ class _StudioSuccessScreenState extends State<StudioSuccessScreen> {
     });
   }
 
+  Future<void> _loadSubmittedChallenge() async {
+    final studio = context.read<StudioCubit>();
+    final setupMap = studio.state.studioSetup?.challenge.toUiMap();
+    if (setupMap != null && (setupMap['title'] as String? ?? '').isNotEmpty) {
+      if (mounted) {
+        setState(() {
+          _challenge = setupMap;
+          _loadingChallenge = false;
+        });
+      }
+    }
+
+    final id = _resolvedChallengeId;
+    if (id.isEmpty) {
+      if (mounted) setState(() => _loadingChallenge = false);
+      return;
+    }
+
+    final cubit = context.read<ChallengesCubit>();
+    var detail = cubit.getChallengeDetail(id);
+    detail ??= await cubit.loadChallengeDetail(id);
+    if (!mounted) return;
+    if (detail != null) {
+      final mapped = detail.toUiMap();
+      setState(() {
+        _challenge = mapped;
+        _loadingChallenge = false;
+      });
+      return;
+    }
+    if (mounted) setState(() => _loadingChallenge = false);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final challenge = ReelHelpers.challengeById(widget.challengeId ?? 'c1')!;
+    final hasCard = (_challenge['title'] as String? ?? '').trim().isNotEmpty;
 
     return Scaffold(
       backgroundColor: AppColors.bg,
@@ -78,15 +129,14 @@ class _StudioSuccessScreenState extends State<StudioSuccessScreen> {
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 22),
-              ChallengeSummaryCard(challenge: challenge),
+              if (_loadingChallenge && !hasCard)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 24),
+                  child: CircularProgressIndicator(),
+                )
+              else if (hasCard)
+                ChallengeSummaryCard(challenge: _challenge),
               const SizedBox(height: 20),
-              GradientButton(
-                label: 'View Entry',
-                onPressed: () => context.push(
-                  '${AppRoutes.challengeDetail}?id=${challenge['id']}',
-                ),
-              ),
-              const SizedBox(height: 12),
               SecondaryOutlineButton(
                 label: 'Join More Challenges',
                 height: 50,

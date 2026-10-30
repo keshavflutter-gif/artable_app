@@ -47,10 +47,16 @@ class AppBlocs {
             authCubit: context.read<AuthCubit>(),
           ),
         ),
+        BlocProvider<StudioCubit>(
+          create: (context) => StudioCubit(
+            authCubit: context.read<AuthCubit>(),
+          ),
+        ),
         BlocProvider<MyVideosCubit>(
           create: (context) => MyVideosCubit(
             authCubit: context.read<AuthCubit>(),
             reelsCubit: context.read<ReelsCubit>(),
+            studioCubit: context.read<StudioCubit>(),
           ),
         ),
         BlocProvider<ChallengesCubit>(
@@ -60,11 +66,6 @@ class AppBlocs {
         ),
         BlocProvider<RewardsCubit>(
           create: (context) => RewardsCubit(
-            authCubit: context.read<AuthCubit>(),
-          ),
-        ),
-        BlocProvider<StudioCubit>(
-          create: (context) => StudioCubit(
             authCubit: context.read<AuthCubit>(),
           ),
         ),

@@ -552,7 +552,7 @@ class _ClipFilmstripStripState extends State<_ClipFilmstripStrip> {
     );
   }
 
-  bool _hasFilmstrip(List<Uint8List>? frames) => frames != null && frames.length > 1;
+  bool _hasFilmstrip(List<Uint8List>? frames) => frames != null && frames.isNotEmpty;
 
   @override
   void initState() {
@@ -578,24 +578,25 @@ class _ClipFilmstripStripState extends State<_ClipFilmstripStrip> {
       extra: oldWidget.clip.id,
     );
     final newKey = _cacheKey();
+    final cached = _framesCache[newKey] ?? VideoThumbnailGenerator.getCachedFilmstripFrames(newKey);
+
+    if (_hasFilmstrip(cached)) {
+      _framesCache[newKey] = cached!;
+      if (_isLoading) {
+        setState(() => _isLoading = false);
+      }
+      return;
+    }
 
     if (oldKey != newKey ||
         oldWidget.clip.isMerging != widget.clip.isMerging ||
         oldWidget.isMerging != widget.isMerging) {
-      final cached = _framesCache[newKey] ?? VideoThumbnailGenerator.getCachedFilmstripFrames(newKey);
-      if (_hasFilmstrip(cached)) {
-        _framesCache[newKey] = cached!;
-        if (_isLoading) {
-          setState(() => _isLoading = false);
-        }
-      } else if (!widget.isMerging && !widget.clip.isMerging) {
+      if (!widget.isMerging && !widget.clip.isMerging) {
         if (!_isLoading) {
           setState(() => _isLoading = true);
         }
         _loadThumbnails();
       }
-    } else if (_isLoading && _hasFilmstrip(_framesCache[newKey])) {
-      setState(() => _isLoading = false);
     }
   }
 
@@ -652,11 +653,10 @@ class _ClipFilmstripStripState extends State<_ClipFilmstripStrip> {
 
   Widget _withRecordingFilter(Widget child) {
     try {
-      final studio = context.read<StudioCubit>();
       return AppFilterUtils.wrap(
-        filterId: studio.recordingFilter,
-        beautyOn: studio.recordingBeautyOn,
-        beautyIntensity: studio.recordingBeautyIntensity,
+        filterId: StudioCubit.normalizeFilterId(widget.clip.filterId),
+        beautyOn: widget.clip.beautyOn,
+        beautyIntensity: widget.clip.beautyIntensity,
         child: child,
       );
     } catch (_) {
@@ -666,6 +666,19 @@ class _ClipFilmstripStripState extends State<_ClipFilmstripStrip> {
 
   Widget _buildCell(int index, int totalCount, List<Uint8List>? frames) {
     if (frames == null || frames.isEmpty) {
+      final seed = widget.clip.thumbnailBytes;
+      if (seed != null && seed.isNotEmpty) {
+        return _withRecordingFilter(
+          Image.memory(
+            seed,
+            fit: BoxFit.cover,
+            width: double.infinity,
+            height: double.infinity,
+            gaplessPlayback: true,
+            filterQuality: FilterQuality.low,
+          ),
+        );
+      }
       if (_isLoading) return const _FilmstripCellLoader();
       return const ColoredBox(color: Color(0xFF1E1435));
     }

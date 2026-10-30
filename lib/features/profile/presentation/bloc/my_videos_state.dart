@@ -27,9 +27,10 @@ class MyVideosState {
     bool? hasLoaded,
     String? errorMessage,
     bool clearError = false,
+    bool clearResponse = false,
   }) {
     return MyVideosState(
-      response: response ?? this.response,
+      response: clearResponse ? null : (response ?? this.response),
       activeTab: activeTab ?? this.activeTab,
       isLoading: isLoading ?? this.isLoading,
       hasLoaded: hasLoaded ?? this.hasLoaded,

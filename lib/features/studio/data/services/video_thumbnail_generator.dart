@@ -3,6 +3,8 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
 
+import 'package:artable_app/core/utils/media_url_utils.dart';
+
 /// Generates a real frame thumbnail from a local recorded video.
 class VideoThumbnailGenerator {
   VideoThumbnailGenerator._();
@@ -17,6 +19,8 @@ class VideoThumbnailGenerator {
       if (cleanPath.startsWith('file://')) {
         cleanPath = cleanPath.replaceFirst('file://', '');
       }
+      cleanPath = MediaUrlUtils.resolve(cleanPath).trim();
+      if (cleanPath.isEmpty) return null;
       final isRemote = cleanPath.startsWith('http://') || cleanPath.startsWith('https://');
       if (!isRemote) {
         final videoFile = File(cleanPath);
@@ -150,7 +154,7 @@ class VideoThumbnailGenerator {
     try {
       var clean = videoPath.trim();
       if (clean.startsWith('file://')) clean = clean.substring(7);
-      clean = clean.replaceAll('\\', '/');
+      clean = MediaUrlUtils.resolve(clean).trim().replaceAll('\\', '/');
       if (clean.isEmpty) return null;
 
       final data = await VideoThumbnail.thumbnailData(
@@ -264,7 +268,7 @@ class VideoThumbnailGenerator {
       if (cleanPath.startsWith('file://')) {
         cleanPath = cleanPath.substring(7);
       }
-      cleanPath = cleanPath.replaceAll('\\', '/');
+      cleanPath = MediaUrlUtils.resolve(cleanPath).trim().replaceAll('\\', '/');
       if (cleanPath.isEmpty) return const [];
 
       final int count = targetCount.clamp(1, 8);

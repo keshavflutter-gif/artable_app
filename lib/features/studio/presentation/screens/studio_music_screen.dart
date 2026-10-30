@@ -23,7 +23,8 @@ class StudioMusicScreen extends StatefulWidget {
   State<StudioMusicScreen> createState() => _StudioMusicScreenState();
 }
 
-class _StudioMusicScreenState extends State<StudioMusicScreen> {
+class _StudioMusicScreenState extends State<StudioMusicScreen>
+    with WidgetsBindingObserver {
   List<FreeToUseTrack> _tracks = [];
   bool _isRefreshing = false;
   bool _isInitialLoad = true;
@@ -39,6 +40,7 @@ class _StudioMusicScreenState extends State<StudioMusicScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initAudioPlayer();
     final cached = MusicApiService.cachedTracks;
     _tracks = (cached != null && cached.isNotEmpty)
@@ -62,7 +64,22 @@ class _StudioMusicScreenState extends State<StudioMusicScreen> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      try {
+        _audioPlayer?.pause();
+      } catch (_) {}
+      if (mounted && _playingTrackId != null) {
+        setState(() => _playingTrackId = null);
+      }
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _playerStateSub?.cancel();
     try {
       _audioPlayer?.stop();

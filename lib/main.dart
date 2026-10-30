@@ -35,7 +35,7 @@ void main() async {
   };
 
   // 2. Safe Firebase & NotificationService Initialization
-  try {
+    try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
