@@ -138,6 +138,10 @@ class MyVideoItem {
     this.challenge,
     this.category,
     this.mergedClipPaths,
+    this.musicUrl,
+    this.musicName,
+    this.musicStartSeconds,
+    this.musicCropDuration,
     this.userId,
     this.username,
     this.handle,
@@ -171,6 +175,10 @@ class MyVideoItem {
   final Map<String, dynamic>? challenge;
   final Map<String, dynamic>? category;
   final List<String>? mergedClipPaths;
+  final String? musicUrl;
+  final String? musicName;
+  final double? musicStartSeconds;
+  final double? musicCropDuration;
   final String? userId;
   final String? username;
   final String? handle;
@@ -358,6 +366,18 @@ class MyVideoItem {
       videoUrl: finalVideoUrl,
     );
 
+    final musicMeta = ReelHelpers.resolveMusic(
+      description: rawDesc,
+      musicUrl: json['musicUrl']?.toString() ??
+          json['music_url']?.toString() ??
+          json['audioUrl']?.toString(),
+      musicName: json['musicName']?.toString() ?? json['music']?.toString(),
+      startSeconds: (json['musicStartSeconds'] as num?)?.toDouble(),
+      durationSeconds: (json['musicCropDuration'] as num?)?.toDouble(),
+      videoId: idStr,
+      videoUrl: finalVideoUrl,
+    );
+
     return MyVideoItem(
       id: idStr,
       title: titleStr,
@@ -383,6 +403,12 @@ class MyVideoItem {
       challenge: challengeObj,
       category: categoryObj,
       mergedClipPaths: effectiveMergedClips,
+      musicUrl: musicMeta?.url,
+      musicName: (musicMeta?.name != null && musicMeta!.name.isNotEmpty)
+          ? musicMeta.name
+          : json['musicName']?.toString(),
+      musicStartSeconds: musicMeta?.startSeconds,
+      musicCropDuration: musicMeta?.durationSeconds,
       userId: userIdStr,
       username: usernameStr.isNotEmpty ? usernameStr : null,
       handle: usernameStr.isNotEmpty ? (usernameStr.startsWith('@') ? usernameStr : '@$usernameStr') : null,
@@ -453,6 +479,10 @@ class MyVideoItem {
       'videoUrl': videoUrl ?? '',
       if (resolvedClips != null && resolvedClips.isNotEmpty)
         'mergedClipPaths': resolvedClips,
+      if (musicUrl != null && musicUrl!.trim().isNotEmpty) 'musicUrl': musicUrl,
+      if (musicName != null && musicName!.trim().isNotEmpty) 'musicName': musicName,
+      if (musicStartSeconds != null) 'musicStartSeconds': musicStartSeconds,
+      if (musicCropDuration != null) 'musicCropDuration': musicCropDuration,
       'status': status.toLowerCase(),
       'statusLabel': statusLabel ?? statusBadge?.label ?? status,
       'statusTone': statusBadge?.tone ?? 'success',

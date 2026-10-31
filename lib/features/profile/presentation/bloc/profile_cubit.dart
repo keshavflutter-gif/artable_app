@@ -53,12 +53,15 @@ class ProfileCubit extends Cubit<ProfileState> {
     }
   }
 
+  int _loadRequestId = 0;
+
   Future<void> loadProfile({bool forceRefresh = false}) async {
-    if (state.isLoading) return;
+    if (state.isLoading && !forceRefresh) return;
     if (state.hasLoaded && !forceRefresh) return;
 
     final token = _authCubit.sessionToken;
     final refresh = _authCubit.refreshToken;
+    final requestId = ++_loadRequestId;
 
     if (token != null &&
         token.isNotEmpty &&
@@ -72,6 +75,7 @@ class ProfileCubit extends Cubit<ProfileState> {
           sessionToken: token,
           refreshToken: refresh,
         );
+        if (requestId != _loadRequestId) return;
         emit(state.copyWith(
           response: response,
           isLoading: false,
@@ -79,6 +83,7 @@ class ProfileCubit extends Cubit<ProfileState> {
           clearError: true,
         ));
       } catch (e) {
+        if (requestId != _loadRequestId) return;
         emit(state.copyWith(
           isLoading: false,
           hasLoaded: true,
@@ -88,7 +93,9 @@ class ProfileCubit extends Cubit<ProfileState> {
       return;
     }
 
+    if (requestId != _loadRequestId) return;
     emit(state.copyWith(
+      isLoading: false,
       hasLoaded: true,
       clearError: true,
     ));

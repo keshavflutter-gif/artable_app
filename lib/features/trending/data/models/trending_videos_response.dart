@@ -351,7 +351,17 @@ class TrendingVideoItem {
 
   String get playableVideoUrl {
     if (videoUrl != null && videoUrl!.trim().isNotEmpty && videoUrl!.trim() != 'null') {
-      return videoUrl!.trim();
+      final direct = videoUrl!.trim();
+      if (!MediaUrlUtils.looksLikeImageUrl(direct)) return direct;
+    }
+    // Multi-clip uploads often only persist clip paths — use the first clip.
+    if (mergedClipPaths != null && mergedClipPaths!.isNotEmpty) {
+      for (final raw in mergedClipPaths!) {
+        final first = raw.trim();
+        if (first.isEmpty || first == 'null') continue;
+        if (MediaUrlUtils.looksLikeImageUrl(first)) continue;
+        return first;
+      }
     }
     return '';
   }

@@ -19,7 +19,10 @@ import 'package:artable_app/features/reels/presentation/bloc/reels_cubit.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
 
 class MyProfileScreen extends StatefulWidget {
-  const MyProfileScreen({super.key});
+  const MyProfileScreen({super.key, this.isActive = true});
+
+  /// When hosted in [MainTabShell], only true while the Profile tab is selected.
+  final bool isActive;
 
   @override
   State<MyProfileScreen> createState() => _MyProfileScreenState();
@@ -32,12 +35,26 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        context.read<ProfileCubit>().loadProfile(forceRefresh: true);
-        context.read<MyVideosCubit>().loadMyVideos(forceRefresh: true);
-        context.read<AuthCubit>().fetchUserDetails();
+      if (mounted && widget.isActive) {
+        _refreshLiveData();
       }
     });
+  }
+
+  @override
+  void didUpdateWidget(covariant MyProfileScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isActive && !oldWidget.isActive) {
+      _refreshLiveData();
+    }
+  }
+
+  void _refreshLiveData() {
+    // No blocking loader — show profile UI immediately (auth/cache fallback),
+    // then quietly refresh live API data.
+    context.read<ProfileCubit>().loadProfile(forceRefresh: true);
+    context.read<MyVideosCubit>().loadMyVideos(forceRefresh: true);
+    context.read<AuthCubit>().fetchUserDetails();
   }
 
   @override
@@ -852,6 +869,23 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
     if (uiMap['userId'] == null || (uiMap['userId'] as String).isEmpty) {
       uiMap['userId'] = realUserId ?? '';
       uiMap['user_id'] = realUserId ?? '';
+    }
+    // Ensure Full Reel / stage have a non-image playable URL when API omits videoUrl.
+    final rawVideo = uiMap['videoUrl']?.toString().trim() ?? '';
+    final needsVideo = rawVideo.isEmpty ||
+        rawVideo == 'null' ||
+        MediaUrlUtils.looksLikeImageUrl(rawVideo);
+    if (needsVideo) {
+      final clips = uiMap['mergedClipPaths'];
+      if (clips is List) {
+        for (final c in clips) {
+          final resolved = MediaUrlUtils.resolve(c.toString()).trim();
+          if (resolved.isNotEmpty && !MediaUrlUtils.looksLikeImageUrl(resolved)) {
+            uiMap['videoUrl'] = resolved;
+            break;
+          }
+        }
+      }
     }
     uiMap['isMyVideo'] = true;
     return uiMap;

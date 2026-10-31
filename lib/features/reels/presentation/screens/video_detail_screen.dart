@@ -22,6 +22,8 @@ import 'package:video_player/video_player.dart';
 import 'package:artable_app/core/utils/video_cache_manager.dart';
 import 'package:artable_app/core/utils/media_url_utils.dart';
 import 'package:artable_app/core/services/video_interstitial_ad.dart';
+import 'package:artable_app/data/datasources/music_api_service.dart';
+import 'package:artable_app/features/reels/data/services/reel_bgm_playback_service.dart';
 import 'package:artable_app/features/trending/data/repositories/videos_repository.dart';
 
 class VideoDetailScreen extends StatefulWidget {
@@ -43,14 +45,45 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
   bool _isStageUserPaused = false;
   bool _hasStageError = false;
   String? _currentLoadedVideoUrl;
+  int _stageInitGeneration = 0;
+
+  bool _mapHasPlayableVideo(Map<String, dynamic>? map) {
+    if (map == null || map.isEmpty) return false;
+    final direct = map['videoUrl']?.toString().trim() ?? '';
+    if (direct.isNotEmpty &&
+        direct != 'null' &&
+        !MediaUrlUtils.looksLikeImageUrl(direct)) {
+      return true;
+    }
+    final path = map['videoPath']?.toString().trim() ?? '';
+    if (path.isNotEmpty &&
+        path != 'null' &&
+        !MediaUrlUtils.looksLikeImageUrl(path)) {
+      return true;
+    }
+    if (map['mergedClipPaths'] is List) {
+      for (final raw in (map['mergedClipPaths'] as List)) {
+        final clip = raw.toString().trim();
+        if (clip.isEmpty || clip == 'null') continue;
+        if (!MediaUrlUtils.looksLikeImageUrl(clip)) return true;
+      }
+    }
+    return false;
+  }
 
   Map<String, dynamic> get _reel {
+    final initial = widget.initialReelData;
+    // Always merge cubit/API onto the map we opened with, so a stub without
+    // videoUrl cannot win over the profile extra payload.
     if (_apiReel != null && _apiReel!.isNotEmpty) {
+      if (initial != null && initial.isNotEmpty) {
+        return ReelHelpers.mergeReelMaps(_apiReel!, initial);
+      }
       return _apiReel!;
     }
 
-    if (widget.initialReelData != null && widget.initialReelData!.isNotEmpty) {
-      return widget.initialReelData!;
+    if (initial != null && initial.isNotEmpty) {
+      return initial;
     }
 
     final targetId = widget.reelId?.trim() ?? '';
@@ -67,13 +100,22 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
 
     if (targetId.isNotEmpty) {
       final match = ReelHelpers.reelById(targetId, availableReels: available);
-      if (match != null) return match;
+      if (match != null && _mapHasPlayableVideo(match)) return match;
 
       final singleItem = trendingCubit.getVideoById(targetId);
-      if (singleItem != null) return singleItem.toUiMap();
+      if (singleItem != null && singleItem.playableVideoUrl.isNotEmpty) {
+        return singleItem.toUiMap();
+      }
 
       final reelsMatch = reelsCubit.getVideo(targetId);
+      if (reelsMatch != null && _mapHasPlayableVideo(reelsMatch)) {
+        return reelsMatch;
+      }
+      // Prefer any match even without URL so UI can still show metadata;
+      // playback will wait for getVideoById.
+      if (match != null) return match;
       if (reelsMatch != null) return reelsMatch;
+      if (singleItem != null) return singleItem.toUiMap();
     }
 
     if (available.isEmpty) {
@@ -82,8 +124,12 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
       };
     }
 
-    final baseMap = available.first;
+    // Never fall back to an unrelated first feed item when we have a target id.
+    if (targetId.isNotEmpty) {
+      return <String, dynamic>{'id': targetId};
+    }
 
+    final baseMap = available.first;
     final res = Map<String, dynamic>.from(baseMap);
     final id = res['id']?.toString() ?? res['_id']?.toString() ?? targetId;
     final vUrl = res['videoUrl']?.toString() ?? '';
@@ -116,12 +162,37 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
 
   bool _lastStageBuffering = false;
   bool _lastStagePlaying = false;
+  int _lastStagePosMs = -1;
+  DateTime? _lastStageBgmLoopAt;
 
   void _onStageControllerUpdate() {
     if (!mounted || _stageController == null) return;
     final value = _stageController!.value;
     final buffering = value.isBuffering;
     final playing = value.isPlaying;
+    final posMs = value.position.inMilliseconds;
+    final durMs = value.duration.inMilliseconds;
+
+    // When native looping restarts the video, restart BGM with it.
+    if (!_isStageUserPaused && _isStageInitialized) {
+      final prev = _lastStagePosMs;
+      _lastStagePosMs = posMs;
+      final looped = prev >= 0 && (prev - posMs) >= 700 && posMs <= 450;
+      final completedRestart =
+          prev >= 0 && durMs > 0 && prev >= (durMs - 350) && posMs <= 450;
+      if (looped || completedRestart) {
+        final now = DateTime.now();
+        if (_lastStageBgmLoopAt == null ||
+            now.difference(_lastStageBgmLoopAt!) >=
+                const Duration(milliseconds: 350)) {
+          _lastStageBgmLoopAt = now;
+          _syncStageBgm(play: true);
+        }
+      }
+    } else {
+      _lastStagePosMs = posMs;
+    }
+
     if (buffering == _lastStageBuffering && playing == _lastStagePlaying) {
       return;
     }
@@ -130,16 +201,155 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     setState(() {});
   }
 
-  Future<void> _initStageVideo() async {
-    final reelMap = _reel;
-    final vUrl = (reelMap['videoUrl'] as String?) ?? (reelMap['videoPath'] as String?) ?? '';
-    final cleanUrl = MediaUrlUtils.resolve(vUrl).trim();
+  ReelMusicMeta? _resolveReelMusic([Map<String, dynamic>? reelMap]) {
+    final reel = reelMap ?? _reel;
+    return ReelHelpers.resolveMusic(
+      description: (reel['description'] ?? reel['caption'])?.toString(),
+      musicUrl: reel['musicUrl']?.toString() ?? reel['music_url']?.toString(),
+      musicName: reel['musicName']?.toString() ?? reel['music']?.toString(),
+      startSeconds: (reel['musicStartSeconds'] as num?)?.toDouble(),
+      durationSeconds: (reel['musicCropDuration'] as num?)?.toDouble(),
+      videoId: reel['id']?.toString() ?? reel['_id']?.toString() ?? widget.reelId,
+      videoUrl: reel['videoUrl']?.toString(),
+      resolveAudioUrl: (name) => MusicApiService.resolveByName(name)?.audioUrl,
+    );
+  }
 
-    if (cleanUrl.isEmpty) return;
-    if (cleanUrl == _currentLoadedVideoUrl && _stageController != null && _stageController!.value.isInitialized) {
+  String _stagePlayableUrl(Map<String, dynamic> reelMap) {
+    final direct = (reelMap['videoUrl'] ?? reelMap['videoPath'])?.toString().trim() ?? '';
+    if (direct.isNotEmpty && direct != 'null' && !MediaUrlUtils.looksLikeImageUrl(direct)) {
+      return MediaUrlUtils.resolve(direct).trim();
+    }
+    if (reelMap['mergedClipPaths'] is List) {
+      for (final raw in (reelMap['mergedClipPaths'] as List)) {
+        final clip = raw.toString().trim();
+        if (clip.isEmpty || clip == 'null') continue;
+        if (MediaUrlUtils.looksLikeImageUrl(clip)) continue;
+        final resolved = MediaUrlUtils.resolve(clip).trim();
+        if (resolved.isNotEmpty) return resolved;
+      }
+    }
+    final id = reelMap['id']?.toString() ?? reelMap['_id']?.toString() ?? widget.reelId;
+    final cached = ReelHelpers.getCachedMergedClips(id);
+    if (cached != null) {
+      for (final clip in cached) {
+        if (clip.trim().isEmpty || MediaUrlUtils.looksLikeImageUrl(clip)) continue;
+        final resolved = MediaUrlUtils.resolve(clip).trim();
+        if (resolved.isNotEmpty) return resolved;
+      }
+    }
+    return '';
+  }
+
+  void _syncStageBgm({required bool play}) {
+    final music = _resolveReelMusic();
+    final url = music?.url.trim() ?? '';
+    final reelId = _reel['id']?.toString() ??
+        _reel['_id']?.toString() ??
+        widget.reelId ??
+        'detail';
+    if (!play || _isStageUserPaused || url.isEmpty) {
+      ReelBgmPlaybackService.killNow();
+      unawaited(ReelBgmPlaybackService.deactivate(reelId));
       return;
     }
-    _currentLoadedVideoUrl = cleanUrl;
+    final posMs = _stageController?.value.isInitialized == true
+        ? _stageController!.value.position.inMilliseconds
+        : 0;
+    unawaited(ReelBgmPlaybackService.sync(
+      reelId: reelId,
+      url: url,
+      startMs: ((music?.startSeconds ?? 0) * 1000).round(),
+      videoPositionMs: posMs,
+      shouldPlay: true,
+      forceSeek: true,
+      cropDurationMs: ((music?.durationSeconds ?? 0) * 1000).round(),
+    ));
+  }
+
+  Future<void> _releaseStagePlayer() async {
+    _stageInitGeneration++;
+    ReelBgmPlaybackService.killNow();
+    unawaited(ReelBgmPlaybackService.halt());
+    final old = _stageController;
+    _stageController = null;
+    _isStageInitialized = false;
+    _currentLoadedVideoUrl = null;
+    old?.removeListener(_onStageControllerUpdate);
+    try {
+      await old?.pause();
+    } catch (_) {}
+    try {
+      await old?.dispose();
+    } catch (_) {}
+  }
+
+  List<String> _stageUrlCandidates(Map<String, dynamic> reelMap) {
+    final out = <String>[];
+    void add(String? raw) {
+      final v = raw?.trim() ?? '';
+      if (v.isEmpty || v == 'null') return;
+      if (MediaUrlUtils.looksLikeImageUrl(v)) return;
+      final resolved = MediaUrlUtils.resolve(v).trim();
+      if (resolved.isEmpty || MediaUrlUtils.looksLikeImageUrl(resolved)) return;
+      if (!out.contains(resolved)) out.add(resolved);
+    }
+
+    add(reelMap['videoUrl']?.toString());
+    add(reelMap['videoPath']?.toString());
+    if (reelMap['mergedClipPaths'] is List) {
+      for (final raw in (reelMap['mergedClipPaths'] as List)) {
+        add(raw.toString());
+      }
+    }
+    final id = reelMap['id']?.toString() ?? reelMap['_id']?.toString() ?? widget.reelId;
+    final cached = ReelHelpers.getCachedMergedClips(id);
+    if (cached != null) {
+      for (final clip in cached) {
+        add(clip);
+      }
+    }
+    return out;
+  }
+
+  Future<void> _initStageVideo({bool force = false}) async {
+    final reelMap = _reel;
+    final candidates = _stageUrlCandidates(reelMap);
+
+    if (candidates.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _isStageLoading = false;
+          _hasStageError = true;
+          _isStageInitialized = false;
+        });
+      }
+      return;
+    }
+
+    final preferred = candidates.first;
+    if (!force &&
+        preferred == _currentLoadedVideoUrl &&
+        _stageController != null &&
+        _stageController!.value.isInitialized &&
+        !_hasStageError) {
+      return;
+    }
+    // Never kill an in-flight load of the same URL — getVideoById used to
+    // force-restart and leave Retry Video on screen.
+    if (_isStageLoading && preferred == _currentLoadedVideoUrl && !force) {
+      return;
+    }
+    if (_isStageLoading &&
+        preferred == _currentLoadedVideoUrl &&
+        force &&
+        !_hasStageError) {
+      return;
+    }
+
+    final gen = ++_stageInitGeneration;
+    _currentLoadedVideoUrl = preferred;
+    final hadError = _hasStageError;
 
     if (mounted) {
       setState(() {
@@ -149,33 +359,73 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     }
 
     try {
-      final old = _stageController;
-      _stageController = null;
-      old?.removeListener(_onStageControllerUpdate);
-      await old?.dispose();
+      // Keep the previous controller on screen until a new one is ready so we
+      // never flash Retry / empty stage during a refresh.
+      final previous = _stageController;
 
-      final controller = await VideoCacheManager.createAndInitController(
-        cleanUrl,
-      );
-      if (!mounted) {
-        controller?.dispose();
+      VideoPlayerController? controller;
+      String? usedUrl;
+      for (var i = 0; i < candidates.length; i++) {
+        final url = candidates[i];
+        if (gen != _stageInitGeneration || !mounted) {
+          try {
+            await controller?.dispose();
+          } catch (_) {}
+          return;
+        }
+        VideoCacheManager.cancelPrecache(url);
+        debugPrint('[VideoDetailScreen] Trying stage URL: $url');
+        // First attempt: cache OK. After a Retry / prior error: prefer network.
+        controller = await VideoCacheManager.createAndInitController(
+          url,
+          timeout: const Duration(seconds: 25),
+          preferNetwork: force || hadError || i > 0,
+          primeBuffer: false,
+        );
+        if (controller != null && controller.value.isInitialized) {
+          usedUrl = url;
+          break;
+        }
+        controller = null;
+      }
+
+      if (gen != _stageInitGeneration || !mounted) {
+        try {
+          await controller?.dispose();
+        } catch (_) {}
         return;
       }
 
       if (controller != null && controller.value.isInitialized) {
+        previous?.removeListener(_onStageControllerUpdate);
         _stageController = controller;
+        _currentLoadedVideoUrl = usedUrl ?? preferred;
         controller.addListener(_onStageControllerUpdate);
         await controller.setLooping(true);
-        await controller.setVolume(1.0);
+        final hasBgm = _resolveReelMusic(reelMap)?.url.isNotEmpty == true;
+        await controller.setVolume(hasBgm ? 0.0 : 1.0);
         await controller.play();
 
-        if (mounted) {
-          setState(() {
-            _isStageInitialized = true;
-            _isStageLoading = false;
-            _isStageUserPaused = false;
-            _hasStageError = false;
-          });
+        if (!mounted || gen != _stageInitGeneration) {
+          try {
+            await controller.dispose();
+          } catch (_) {}
+          return;
+        }
+        setState(() {
+          _isStageInitialized = true;
+          _isStageLoading = false;
+          _isStageUserPaused = false;
+          _hasStageError = false;
+        });
+        _syncStageBgm(play: true);
+        if (previous != null && !identical(previous, controller)) {
+          try {
+            await previous.pause();
+          } catch (_) {}
+          try {
+            await previous.dispose();
+          } catch (_) {}
         }
         return;
       }
@@ -183,16 +433,19 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
       debugPrint('[VideoDetailScreen] Video stage init error: $e');
     }
 
-    if (mounted) {
+    if (mounted && gen == _stageInitGeneration) {
       setState(() {
         _isStageLoading = false;
         _hasStageError = true;
+        _isStageInitialized = _stageController?.value.isInitialized == true;
       });
     }
   }
 
   @override
   void dispose() {
+    ReelBgmPlaybackService.killNow();
+    unawaited(ReelBgmPlaybackService.stop());
     _stageController?.removeListener(_onStageControllerUpdate);
     _stageController?.dispose();
     _stageController = null;
@@ -212,14 +465,63 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
         refreshToken: authCubit.refreshToken != 'design_preview' ? authCubit.refreshToken : null,
       );
       if (item != null && mounted) {
-        final uiMap = item.toUiMap();
+        // Prefer the map we already opened with (profile/list) so a partial
+        // API detail payload cannot wipe a working videoUrl / clips / music.
+        final uiMap = ReelHelpers.mergeReelMaps(
+          widget.initialReelData ?? _apiReel ?? item.toUiMap(),
+          item.toUiMap(),
+        );
+        // Re-apply API fields that are authoritative when present.
+        final apiMap = item.toUiMap();
+        for (final key in ['title', 'description', 'caption', 'likes', 'likesCount', 'views', 'viewsCount', 'comments', 'commentsCount']) {
+          final v = apiMap[key]?.toString().trim() ?? '';
+          if (v.isNotEmpty && v != 'null') uiMap[key] = apiMap[key];
+        }
+        final existingVideo = uiMap['videoUrl']?.toString().trim() ?? '';
+        final apiVideo = apiMap['videoUrl']?.toString().trim() ?? '';
+        final existingPlayable = existingVideo.isNotEmpty &&
+            existingVideo != 'null' &&
+            !MediaUrlUtils.looksLikeImageUrl(existingVideo);
+        if (!existingPlayable &&
+            apiVideo.isNotEmpty &&
+            apiVideo != 'null' &&
+            !MediaUrlUtils.looksLikeImageUrl(apiVideo)) {
+          uiMap['videoUrl'] = MediaUrlUtils.resolve(apiVideo);
+        }
+        final music = ReelHelpers.resolveMusic(
+          description: (uiMap['description'] ?? uiMap['caption'])?.toString(),
+          musicUrl: uiMap['musicUrl']?.toString(),
+          musicName: uiMap['musicName']?.toString(),
+          startSeconds: (uiMap['musicStartSeconds'] as num?)?.toDouble(),
+          durationSeconds: (uiMap['musicCropDuration'] as num?)?.toDouble(),
+          videoId: uiMap['id']?.toString(),
+          videoUrl: uiMap['videoUrl']?.toString(),
+          resolveAudioUrl: (name) => MusicApiService.resolveByName(name)?.audioUrl,
+        );
+        if (music != null && music.url.isNotEmpty) {
+          uiMap['musicUrl'] = music.url;
+          if (music.name.isNotEmpty) uiMap['musicName'] = music.name;
+          ReelHelpers.cacheMusic(uiMap['id']?.toString(), music);
+        }
         context.read<ReelsCubit>().syncVideos([uiMap]);
         setState(() {
           _apiReel = uiMap;
         });
-        final newUrl = MediaUrlUtils.resolve(uiMap['videoUrl']?.toString() ?? '').trim();
-        if (newUrl.isNotEmpty && newUrl != _currentLoadedVideoUrl) {
-          _initStageVideo();
+        final playable = _stagePlayableUrl(uiMap);
+        final alreadyPlaying = _isStageInitialized &&
+            _stageController != null &&
+            _stageController!.value.isInitialized &&
+            !_hasStageError;
+        final sameUrlLoading = _isStageLoading &&
+            playable.isNotEmpty &&
+            playable == _currentLoadedVideoUrl;
+        if (alreadyPlaying) {
+          if (!_isStageUserPaused) _syncStageBgm(play: true);
+        } else if (sameUrlLoading) {
+          // Let the first open finish — do not restart and show Retry Video.
+        } else if (playable.isNotEmpty) {
+          final urlChanged = playable != _currentLoadedVideoUrl;
+          unawaited(_initStageVideo(force: _hasStageError || urlChanged));
         }
       }
     } catch (e) {
@@ -264,6 +566,9 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
   Future<void> _onBackRefresh() async {
     if (_exitingWithAd) return;
     _exitingWithAd = true;
+    // Kill BGM immediately — interstitial / dispose must not leave music running.
+    ReelBgmPlaybackService.killNow();
+    await _releaseStagePlayer();
     await VideoInterstitialAd.instance.show();
     if (!mounted) return;
     context.read<TrendingVideosCubit>().loadTrendingVideos(forceRefresh: true);
@@ -413,21 +718,40 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     final imageUrl = (reel['imageUrl'] as String?) ?? (reel['thumbnailUrl'] as String?) ?? '';
     final isSaved = context.watch<ReelsCubit>().isBookmarked(reelId);
 
-    void openReelsFeed() {
-      _stageController?.pause();
-      if (reelId.isNotEmpty) {
-        final effectiveClips = reel['mergedClipPaths'] is List
-            ? List<String>.from(reel['mergedClipPaths'] as List)
-            : ReelHelpers.getCachedMergedClips(reelId);
-        if (effectiveClips != null && effectiveClips.isNotEmpty) {
-          ReelHelpers.cacheMergedClips(reelId, effectiveClips);
-          context.read<ReelsCubit>().syncVideos([reel]);
-        }
-        context.push('${AppRoutes.reelsFeed}?id=$reelId', extra: reel).then((_) {
-          if (mounted && _stageController != null && !_isStageUserPaused) {
-            _stageController?.play();
-          }
-        });
+    Future<void> openReelsFeed() async {
+      if (reelId.isEmpty) return;
+      final enriched = Map<String, dynamic>.from(reel);
+      final music = _resolveReelMusic(enriched);
+      if (music != null && music.url.isNotEmpty) {
+        enriched['musicUrl'] = music.url;
+        if (music.name.isNotEmpty) enriched['musicName'] = music.name;
+        enriched['musicStartSeconds'] = music.startSeconds;
+        enriched['musicCropDuration'] = music.durationSeconds;
+        ReelHelpers.cacheMusic(reelId, music);
+      }
+      final playable = _stagePlayableUrl(enriched);
+      if (playable.isNotEmpty) {
+        enriched['videoUrl'] = playable;
+      }
+      final effectiveClips = enriched['mergedClipPaths'] is List
+          ? List<String>.from(enriched['mergedClipPaths'] as List)
+          : ReelHelpers.getCachedMergedClips(reelId);
+      if (effectiveClips != null && effectiveClips.isNotEmpty) {
+        enriched['mergedClipPaths'] = effectiveClips;
+        ReelHelpers.cacheMergedClips(reelId, effectiveClips);
+      }
+      context.read<ReelsCubit>().syncVideos([enriched]);
+
+      // Release the inset player so Full Reel / Challenge Arena can open the
+      // same URL without decoder / file contention ("Tap to reload video").
+      await _releaseStagePlayer();
+      if (!mounted) return;
+      // Give ExoPlayer a beat to free the decoder / file handle.
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      if (!mounted) return;
+      await context.push('${AppRoutes.reelsFeed}?id=$reelId', extra: enriched);
+      if (mounted) {
+        await _initStageVideo();
       }
     }
 
@@ -440,13 +764,15 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
               if (_stageController!.value.isPlaying) {
                 _stageController!.pause();
                 _isStageUserPaused = true;
+                _syncStageBgm(play: false);
               } else {
                 _stageController!.play();
                 _isStageUserPaused = false;
+                _syncStageBgm(play: true);
               }
             });
-          } else {
-            openReelsFeed();
+          } else if (!_isStageLoading) {
+            unawaited(openReelsFeed());
           }
         },
         child: Container(
@@ -566,7 +892,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                 if (_hasStageError && !_isStageLoading && !_isStageInitialized)
                   Center(
                     child: GestureDetector(
-                      onTap: _initStageVideo,
+                      onTap: () => unawaited(_initStageVideo(force: true)),
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                         decoration: BoxDecoration(
@@ -690,7 +1016,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                   bottom: 12,
                   right: 12,
                   child: GestureDetector(
-                    onTap: openReelsFeed,
+                    onTap: () => unawaited(openReelsFeed()),
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                       decoration: BoxDecoration(

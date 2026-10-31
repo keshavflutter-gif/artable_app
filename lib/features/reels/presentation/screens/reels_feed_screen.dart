@@ -23,6 +23,7 @@ import 'package:artable_app/core/utils/video_share_helper.dart';
 import 'package:artable_app/core/utils/video_cache_manager.dart';
 import 'package:artable_app/core/utils/media_url_utils.dart';
 import 'package:artable_app/core/utils/app_filter_utils.dart';
+import 'package:artable_app/data/datasources/music_api_service.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 class ReelsFeedScreen extends StatefulWidget {
@@ -298,9 +299,19 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
     _seekController.value = null;
     _seekController.dispose();
     _pageController.dispose();
+    // Sync kill first so dispose cannot race a late sync restart.
+    ReelBgmPlaybackService.killNow();
     unawaited(ReelBgmPlaybackService.stop());
     unawaited(WakelockPlus.disable());
     super.dispose();
+  }
+
+  void _exitFeed() {
+    ReelBgmPlaybackService.killNow();
+    unawaited(ReelBgmPlaybackService.stop());
+    if (context.canPop()) {
+      context.pop();
+    }
   }
 
   @override
@@ -309,6 +320,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
         state == AppLifecycleState.hidden;
     if (background) {
       unawaited(WakelockPlus.disable());
+      ReelBgmPlaybackService.killNow();
       unawaited(ReelBgmPlaybackService.halt());
       if (mounted) setState(() => _appInBackground = true);
     } else if (state == AppLifecycleState.resumed) {
@@ -325,6 +337,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
 
   void _onSeekScrubStart() {
     _seekController.value?.pause();
+    ReelBgmPlaybackService.killNow();
     unawaited(ReelBgmPlaybackService.pause());
   }
 
@@ -349,6 +362,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
       durationSeconds: (reel['musicCropDuration'] as num?)?.toDouble(),
       videoId: reelId,
       videoUrl: reel['videoUrl']?.toString(),
+      resolveAudioUrl: (name) => MusicApiService.resolveByName(name)?.audioUrl,
     );
     final url = music?.url.trim();
     if (url == null || url.isEmpty) {
@@ -363,6 +377,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
       shouldPlay: true,
       speed: _playbackSpeed,
       forceSeek: true,
+      cropDurationMs: ((music?.durationSeconds ?? 0) * 1000).round(),
     ));
   }
 
@@ -378,8 +393,10 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
     });
     // Pause/resume BGM immediately — don't wait for child didUpdateWidget.
     if (willPause) {
+      ReelBgmPlaybackService.killNow();
       unawaited(ReelBgmPlaybackService.pause());
     }
+    // Resume path: child didUpdateWidget (forcePaused false) re-syncs this reel's BGM.
   }
 
   void _openRating(String reelId, [Map<String, dynamic>? reelMap]) {
@@ -597,16 +614,41 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
     );
   }
 
+  static const double _sliderHitHeight = 20.0;
+  static const double _viewsSliderGap = 18.0;
+
   @override
   Widget build(BuildContext context) {
     final reelsProvider = context.watch<ReelsCubit>();
     final items = _getItems(context);
     _scrollToInitialIfNeeded(items);
     final bottomInset = MediaQuery.paddingOf(context).bottom;
-    const sliderHitHeight = 20.0;
-    const viewsSliderGap = 18.0;
     final sliderBottom = bottomInset;
-    final captionBottom = sliderBottom + sliderHitHeight + viewsSliderGap;
+    final captionBottom = sliderBottom + _sliderHitHeight + _viewsSliderGap;
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        _exitFeed();
+      },
+      child: _buildFeedScaffold(
+        context: context,
+        reelsProvider: reelsProvider,
+        items: items,
+        sliderBottom: sliderBottom,
+        captionBottom: captionBottom,
+      ),
+    );
+  }
+
+  Widget _buildFeedScaffold({
+    required BuildContext context,
+    required ReelsCubit reelsProvider,
+    required List<_FeedItem> items,
+    required double sliderBottom,
+    required double captionBottom,
+  }) {
+    // Extracted so PopScope can halt BGM on system back before the route pops.
     final actionsBottom = captionBottom + 78;
 
     return Scaffold(
@@ -647,8 +689,9 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
             // its player while the current one is being watched.
             allowImplicitScrolling: true,
             onPageChanged: (page) {
-              // Always halt BGM on swipe. Ads have no player to re-sync; a reel
-              // page will sync its own track after rebuild.
+              // Always kill BGM on swipe. Ads stay silent; the newly active reel
+              // syncs only its own track after rebuild.
+              ReelBgmPlaybackService.killNow();
               unawaited(ReelBgmPlaybackService.halt());
               setState(() {
                 _currentPage = page;
@@ -669,13 +712,35 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
               }
               final rawReel = item.reel!;
               final reelId = rawReel['id']?.toString() ?? rawReel['_id']?.toString() ?? '';
-              final reel = reelsProvider.getVideo(reelId) ?? rawReel;
+              // Cubit may hold a stub (likes/comments) without videoUrl — fill
+              // blanks from the feed/raw map so Full Reel can actually play.
+              final fromCubit = reelsProvider.getVideo(reelId);
+              final reel = fromCubit == null
+                  ? rawReel
+                  : ReelHelpers.mergeReelMaps(fromCubit, rawReel);
               final challenge = ReelHelpers.challengeForReel(reel);
               final liked = reelsProvider.isLiked(reelId, fallbackVideo: reel);
               final saved = reelsProvider.isBookmarked(reelId);
-              final videoUrl = (reel['videoUrl'] as String?)?.isNotEmpty == true && reel['videoUrl'] != 'null'
+              String videoUrl = (reel['videoUrl'] as String?)?.isNotEmpty == true &&
+                      reel['videoUrl'] != 'null' &&
+                      !MediaUrlUtils.looksLikeImageUrl(reel['videoUrl'].toString())
                   ? reel['videoUrl'] as String
                   : '';
+              if (videoUrl.isEmpty && reel['mergedClipPaths'] is List) {
+                for (final raw in (reel['mergedClipPaths'] as List)) {
+                  final clip = raw.toString().trim();
+                  if (clip.isEmpty || clip == 'null') continue;
+                  if (MediaUrlUtils.looksLikeImageUrl(clip)) continue;
+                  videoUrl = clip;
+                  break;
+                }
+              }
+              if (videoUrl.isEmpty) {
+                final cachedClips = ReelHelpers.getCachedMergedClips(reelId);
+                if (cachedClips != null && cachedClips.isNotEmpty) {
+                  videoUrl = cachedClips.first;
+                }
+              }
               final imageUrl = reel['imageUrl'] as String? ?? reel['thumbnailUrl'] as String? ?? '';
               final isActive = index == _currentPage;
               final preloadNext = index == _currentPage + 1;
@@ -716,6 +781,8 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
                 durationSeconds: (reel['musicCropDuration'] as num?)?.toDouble(),
                 videoId: reel['id']?.toString() ?? reel['_id']?.toString(),
                 videoUrl: videoUrl,
+                resolveAudioUrl: (name) =>
+                    MusicApiService.resolveByName(name)?.audioUrl,
               );
               final String? musicName = resolvedMusic?.name.trim().isNotEmpty == true
                   ? resolvedMusic!.name.trim()
@@ -754,6 +821,8 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
                     musicUrl: resolvedMusic?.url,
                     musicStartSeconds: resolvedMusic?.startSeconds ??
                         (reel['musicStartSeconds'] as num?)?.toDouble(),
+                    musicCropDuration: resolvedMusic?.durationSeconds ??
+                        (reel['musicCropDuration'] as num?)?.toDouble(),
                     seekController: _seekController,
                   ),
                   const IgnorePointer(
@@ -794,7 +863,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
                           children: [
                             if (context.canPop()) ...[
                               GestureDetector(
-                                onTap: () => context.pop(),
+                                onTap: _exitFeed,
                                 child: Container(
                                   width: 32,
                                   height: 32,
@@ -1046,7 +1115,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
                   if (seek == null || !seek.controller.value.isInitialized) {
                     return const IgnorePointer(
                       child: SizedBox(
-                        height: sliderHitHeight,
+                        height: _sliderHitHeight,
                         width: double.infinity,
                         child: Align(
                           alignment: Alignment.topCenter,
@@ -1200,6 +1269,7 @@ class _ReelVideoPlayer extends StatefulWidget {
     this.mergedClipPaths,
     this.musicUrl,
     this.musicStartSeconds,
+    this.musicCropDuration,
     this.seekController,
     this.filterId,
     this.beautyOn = false,
@@ -1223,6 +1293,7 @@ class _ReelVideoPlayer extends StatefulWidget {
   final List<String>? mergedClipPaths;
   final String? musicUrl;
   final double? musicStartSeconds;
+  final double? musicCropDuration;
   final ValueNotifier<_ReelSeekInfo?>? seekController;
   final String? filterId;
   final bool beautyOn;
@@ -1255,6 +1326,10 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
   int _initGeneration = 0;
   int _lastPublishedPosMs = -1;
   DateTime? _lastSeekPublishAt;
+  /// Last observed video position — used to detect native loop wrap so BGM
+  /// can restart with the slider.
+  int _lastVideoPosMs = -1;
+  DateTime? _lastBgmLoopSyncAt;
 
   /// Whether this reel should hold an initialized player right now.
   bool get _shouldHoldPlayer =>
@@ -1523,6 +1598,19 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
           : null) ??
       0;
 
+  double get _bgmCropDurationSeconds {
+    final direct = widget.musicCropDuration;
+    if (direct != null && direct > 0) return direct;
+    final fromCaption =
+        ReelHelpers.parseDescriptionMusic(widget.caption)?.durationSeconds;
+    if (fromCaption != null && fromCaption > 0) return fromCaption;
+    if (widget.reelId != null) {
+      final cached = ReelHelpers.getCachedMusic(widget.reelId)?.durationSeconds;
+      if (cached != null && cached > 0) return cached;
+    }
+    return 0;
+  }
+
   bool get _hasBgm => _bgmUrl != null && _bgmUrl!.isNotEmpty;
 
   double get _videoVolume => _hasBgm ? 0.0 : 1.0;
@@ -1621,9 +1709,16 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
           : widget.videoUrl;
 
   void _syncBgm({bool play = true, bool forceSeek = false}) {
-    // User pause / inactive / forced pause — never leave BGM running.
-    if (!widget.isActive || !play || widget.forcePaused) {
+    // Soft leave — only stop BGM if THIS reel owns it (neighbor dispose must
+    // not cut the newly active reel's track).
+    if (!widget.isActive || !play) {
       unawaited(ReelBgmPlaybackService.deactivate(_bgmReelKey));
+      return;
+    }
+    // Explicit user / lifecycle pause on the active reel.
+    if (widget.forcePaused) {
+      ReelBgmPlaybackService.killNow();
+      unawaited(ReelBgmPlaybackService.pause());
       return;
     }
     final url = _bgmUrl;
@@ -1644,7 +1739,36 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
       shouldPlay: true,
       speed: widget.playbackSpeed,
       forceSeek: forceSeek,
+      cropDurationMs: (_bgmCropDurationSeconds * 1000).round(),
     ));
+  }
+
+  /// When ExoPlayer/native looping jumps position back near zero, restart BGM
+  /// so slider + video + music stay locked.
+  void _maybeResyncBgmOnVideoLoop(int posMs, int durMs) {
+    if (!widget.isActive || widget.forcePaused || !_hasBgm) {
+      _lastVideoPosMs = posMs;
+      return;
+    }
+    final prev = _lastVideoPosMs;
+    _lastVideoPosMs = posMs;
+    if (prev < 0) return;
+
+    final looped = (prev - posMs) >= 700 && posMs <= 450;
+    final completedRestart =
+        durMs > 0 && prev >= (durMs - 350) && posMs <= 450;
+    if (!looped && !completedRestart) return;
+
+    final now = DateTime.now();
+    if (_lastBgmLoopSyncAt != null &&
+        now.difference(_lastBgmLoopSyncAt!) < const Duration(milliseconds: 350)) {
+      return;
+    }
+    _lastBgmLoopSyncAt = now;
+    debugPrint(
+      '[ReelBgm] Video loop detected prev=$prev pos=$posMs — reseeding music',
+    );
+    _syncBgm(play: true, forceSeek: true);
   }
 
   @override
@@ -1787,7 +1911,8 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
       unawaited(_applyPlaybackSpeed(widget.playbackSpeed));
     } else if (widget.isActive &&
         (widget.musicUrl != oldWidget.musicUrl ||
-            widget.musicStartSeconds != oldWidget.musicStartSeconds)) {
+            widget.musicStartSeconds != oldWidget.musicStartSeconds ||
+            widget.musicCropDuration != oldWidget.musicCropDuration)) {
       unawaited(_activeController?.setVolume(_videoVolume));
       _syncBgm(play: true, forceSeek: true);
     }
@@ -1818,12 +1943,11 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
   }
 
   Future<VideoPlayerController?> _createAndInitController(String resolvedUrl) async {
-    // If this video is already being precached, reuse that download rather than
-    // opening a competing network stream. A pre-warm (not yet visible) can afford
-    // to wait for it; a visible reel only waits briefly before streaming.
+    // Free bandwidth / file locks so Full Reel can start after Video Detail.
+    VideoCacheManager.cancelPrecache(resolvedUrl);
     return VideoCacheManager.createAndInitController(
       resolvedUrl,
-      waitForInFlightDownload: Duration.zero,
+      waitForInFlightDownload: const Duration(milliseconds: 400),
     );
   }
 
@@ -1839,10 +1963,15 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
     final generation = _initGeneration;
 
     if (!_hasMultiClips) {
-      final targetUrl = widget.videoUrl.isNotEmpty
-          ? widget.videoUrl
-          : (_effectiveMergedClips.isNotEmpty ? _effectiveMergedClips.first : '');
-      var resolvedUrl = _resolvePlayableUrl(targetUrl);
+      final candidates = <String>[
+        if (widget.videoUrl.trim().isNotEmpty) widget.videoUrl.trim(),
+        ..._effectiveMergedClips,
+      ];
+      String? resolvedUrl;
+      for (final candidate in candidates) {
+        resolvedUrl = _resolvePlayableUrl(candidate);
+        if (resolvedUrl != null && resolvedUrl.isNotEmpty) break;
+      }
 
       if (resolvedUrl == null || resolvedUrl.isEmpty) {
         if (mounted) {
@@ -1870,52 +1999,71 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
         });
       }
 
-      try {
-        final controller = await _createAndInitController(resolvedUrl);
-        if (_discardIfStale(generation, controller)) return;
-
-        if (controller != null && controller.value.isInitialized) {
-          _controller = controller;
-          controller.addListener(_onVideoControllerUpdate);
-          unawaited(controller.setLooping(true));
-          unawaited(controller.setVolume(_videoVolume));
-
-          final trimStart = widget.trimStart ?? 0.0;
-          if (trimStart > 0) {
-            unawaited(controller.seekTo(Duration(milliseconds: (trimStart * 1000).round())));
-          }
-          if (widget.playbackSpeed != 1.0) {
-            unawaited(controller.setPlaybackSpeed(widget.playbackSpeed));
-          }
-          unawaited(controller.setVolume(_videoVolume));
-          unawaited(controller.pause());
-
-          _loadingHintTimer?.cancel();
-          if (mounted) {
-            setState(() {
-              _isInitialized = true;
-              _isInitializing = false;
-              _hasError = false;
-              _showSlowLoading = false;
-            });
-            _publishSeekController();
-          }
-          if (widget.isActive && !widget.forcePaused) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (!mounted || generation != _initGeneration) return;
-              if (!widget.isActive || widget.forcePaused) return;
-              final ready = _controller;
-              if (ready == null || !ready.value.isInitialized) return;
-              unawaited(ready.setVolume(_videoVolume));
-              unawaited(ready.play());
-              _syncBgm(play: true, forceSeek: true);
-            });
-          }
-          debugPrint('=== VIDEO PLAYBACK === Single player initialized: true');
-          return;
+      VideoPlayerController? controller;
+      Object? lastError;
+      final tried = <String>{};
+      for (final candidate in candidates) {
+        final url = _resolvePlayableUrl(candidate);
+        if (url == null || url.isEmpty || tried.contains(url)) continue;
+        tried.add(url);
+        resolvedUrl = url;
+        try {
+          controller = await _createAndInitController(url);
+          if (_discardIfStale(generation, controller)) return;
+          if (controller != null && controller.value.isInitialized) break;
+          try {
+            await controller?.dispose();
+          } catch (_) {}
+          controller = null;
+        } catch (e) {
+          lastError = e;
+          debugPrint('=== VIDEO PLAYBACK === Single player error ($url): $e');
+          controller = null;
         }
-      } catch (e) {
-        debugPrint('=== VIDEO PLAYBACK === Single player error: $e');
+      }
+
+      if (controller != null && controller.value.isInitialized) {
+        _controller = controller;
+        controller.addListener(_onVideoControllerUpdate);
+        unawaited(controller.setLooping(true));
+        unawaited(controller.setVolume(_videoVolume));
+
+        final trimStart = widget.trimStart ?? 0.0;
+        if (trimStart > 0) {
+          unawaited(controller.seekTo(Duration(milliseconds: (trimStart * 1000).round())));
+        }
+        if (widget.playbackSpeed != 1.0) {
+          unawaited(controller.setPlaybackSpeed(widget.playbackSpeed));
+        }
+        unawaited(controller.setVolume(_videoVolume));
+        unawaited(controller.pause());
+
+        _loadingHintTimer?.cancel();
+        if (mounted) {
+          setState(() {
+            _isInitialized = true;
+            _isInitializing = false;
+            _hasError = false;
+            _showSlowLoading = false;
+          });
+          _publishSeekController();
+        }
+        if (widget.isActive && !widget.forcePaused) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted || generation != _initGeneration) return;
+            if (!widget.isActive || widget.forcePaused) return;
+            final ready = _controller;
+            if (ready == null || !ready.value.isInitialized) return;
+            unawaited(ready.setVolume(_videoVolume));
+            unawaited(ready.play());
+            _syncBgm(play: true, forceSeek: true);
+          });
+        }
+        debugPrint('=== VIDEO PLAYBACK === Single player initialized: true ($resolvedUrl)');
+        return;
+      }
+      if (lastError != null) {
+        debugPrint('=== VIDEO PLAYBACK === All single-player candidates failed: $lastError');
       }
 
       // Only report the failure if this init is still the current one.
@@ -2102,13 +2250,19 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
 
     final trimStart = widget.trimStart ?? 0.0;
     final trimEnd = widget.trimEnd;
+    final posMs = controller.value.position.inMilliseconds;
+    final durMs = controller.value.duration.inMilliseconds;
+
+    // Native setLooping(true) wrap — keep music with the slider/video restart.
+    if (!_hasMultiClips) {
+      _maybeResyncBgmOnVideoLoop(posMs, durMs);
+    }
 
     // Smooth bounded looping for trimmed reels:
     // Only seek back to trimStart when playback has genuinely reached or exceeded trimEnd
     if (trimEnd != null && trimEnd > trimStart && !_hasMultiClips) {
       final startMs = (trimStart * 1000).round();
       final endMs = (trimEnd * 1000).round();
-      final posMs = controller.value.position.inMilliseconds;
 
       if (!_isSeekingToStart && posMs >= endMs - 50 && posMs > startMs + 300) {
         _isSeekingToStart = true;
@@ -2120,6 +2274,9 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
             if (controller.value.isPlaying) {
               controller.play();
             }
+            // Trim loop: video went back to start — music must too.
+            _lastVideoPosMs = startMs;
+            _syncBgm(play: true, forceSeek: true);
           }
         }).catchError((_) {
           if (mounted) _isSeekingToStart = false;
@@ -2128,8 +2285,6 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
     }
 
     if (_hasMultiClips && widget.isActive && !widget.forcePaused) {
-      final durMs = controller.value.duration.inMilliseconds;
-      final posMs = controller.value.position.inMilliseconds;
       final isPlaying = controller.value.isPlaying;
       final isCompleted = controller.value.isCompleted;
       final leadMargin = (90 * widget.playbackSpeed).clamp(60, 220).round();
@@ -2199,9 +2354,15 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
           _publishSeekController(force: true);
         }
 
-        // Do NOT resync/seek BGM on clip handoff — that causes audible + video stalls.
+        // Mid-playlist handoff: keep music flowing. Playlist wrap (last→first):
+        // restart music with the video/slider from the beginning.
         if (_hasBgm && widget.isActive && !widget.forcePaused) {
-          ReelBgmPlaybackService.ensurePlaying(reelId: _bgmReelKey);
+          if (nextIndex == 0 && oldIndex == clips.length - 1 && clips.length > 1) {
+            _lastVideoPosMs = 0;
+            _syncBgm(play: true, forceSeek: true);
+          } else {
+            ReelBgmPlaybackService.ensurePlaying(reelId: _bgmReelKey);
+          }
         } else if (widget.forcePaused || !widget.isActive) {
           unawaited(ReelBgmPlaybackService.pause());
         }
@@ -2255,6 +2416,8 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
             _clipControllers.values.any((c) => identical(current.controller, c)))) {
       notifier.value = null;
     }
+    // Only silence BGM if THIS reel owned it — never killNow here or a
+    // preloaded neighbor dispose would cut the active reel's music.
     _syncBgm(play: false);
     _initGeneration++;
     _loadingHintTimer?.cancel();

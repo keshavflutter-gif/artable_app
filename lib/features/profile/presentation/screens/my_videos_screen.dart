@@ -244,6 +244,22 @@ class _FigmaMyVideoCard extends StatelessWidget {
       uiMap['userId'] = realUserId ?? '';
       uiMap['user_id'] = realUserId ?? '';
     }
+    final rawVideo = uiMap['videoUrl']?.toString().trim() ?? '';
+    final needsVideo = rawVideo.isEmpty ||
+        rawVideo == 'null' ||
+        MediaUrlUtils.looksLikeImageUrl(rawVideo);
+    if (needsVideo) {
+      final clips = uiMap['mergedClipPaths'];
+      if (clips is List) {
+        for (final c in clips) {
+          final resolved = MediaUrlUtils.resolve(c.toString()).trim();
+          if (resolved.isNotEmpty && !MediaUrlUtils.looksLikeImageUrl(resolved)) {
+            uiMap['videoUrl'] = resolved;
+            break;
+          }
+        }
+      }
+    }
     uiMap['isMyVideo'] = true;
     return uiMap;
   }

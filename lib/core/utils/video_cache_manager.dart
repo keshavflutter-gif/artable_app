@@ -302,20 +302,70 @@ abstract final class VideoCacheManager {
   /// Creates an initialized [VideoPlayerController] using local cache when possible.
   /// Visible playback should pass [waitForInFlightDownload] = Duration.zero so
   /// ExoPlayer can Range-stream the first frame immediately.
+  ///
+  /// On corrupt/partial cache or short timeouts, falls back to network stream.
   static Future<VideoPlayerController?> createAndInitController(
     String rawUrl, {
-    Duration timeout = const Duration(seconds: 8),
+    Duration timeout = const Duration(seconds: 20),
     Duration waitForInFlightDownload = Duration.zero,
+    bool preferNetwork = false,
+    bool primeBuffer = true,
   }) async {
     final clean = rawUrl.trim();
     if (clean.isEmpty || clean == 'null') return null;
 
     final resolved = MediaUrlUtils.resolve(clean);
     if (resolved.isEmpty) return null;
+    if (MediaUrlUtils.looksLikeImageUrl(resolved)) {
+      debugPrint('[VideoCacheManager] Rejected image URL as video: $resolved');
+      return null;
+    }
 
-    var cached = await findCachedVideoFile(resolved);
+    Future<VideoPlayerController?> tryInit(VideoPlayerController controller) async {
+      try {
+        await controller.initialize().timeout(timeout);
+        if (!controller.value.isInitialized || controller.value.hasError) {
+          try {
+            await controller.dispose();
+          } catch (_) {}
+          return null;
+        }
+        return controller;
+      } catch (e) {
+        debugPrint('[VideoCacheManager] Init failed for $resolved: $e');
+        try {
+          await controller.dispose();
+        } catch (_) {}
+        return null;
+      }
+    }
 
-    if (cached == null && waitForInFlightDownload > Duration.zero) {
+    Future<VideoPlayerController?> tryNetwork() async {
+      if (!resolved.startsWith('http://') && !resolved.startsWith('https://')) {
+        return null;
+      }
+      cancelPrecache(resolved);
+      debugPrint('[VideoCacheManager] Streaming from NETWORK: $resolved');
+      final fromNetwork = await tryInit(VideoPlayerController.networkUrl(
+        Uri.parse(resolved),
+        formatHint: _formatHintFor(resolved),
+        videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
+      ));
+      if (fromNetwork == null) return null;
+      if (primeBuffer) {
+        await _primeNetworkBuffer(fromNetwork);
+      }
+      return fromNetwork;
+    }
+
+    if (preferNetwork) {
+      final networked = await tryNetwork();
+      if (networked != null) return networked;
+    }
+
+    var cached = preferNetwork ? null : await findCachedVideoFile(resolved);
+
+    if (cached == null && !preferNetwork && waitForInFlightDownload > Duration.zero) {
       final inFlight = _inFlightDownloads[computeHash(resolved.trim())];
       if (inFlight != null) {
         debugPrint('[VideoCacheManager] Waiting for in-flight precache: $resolved');
@@ -326,48 +376,41 @@ abstract final class VideoCacheManager {
       }
     }
 
-    VideoPlayerController controller;
-
     if (cached != null) {
       debugPrint('[VideoCacheManager] Playing from LOCAL CACHE: ${cached.path}');
-      controller = VideoPlayerController.file(
+      final fromCache = await tryInit(VideoPlayerController.file(
         cached,
         videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
-      );
-    } else {
-      var cleanFilePath = resolved.startsWith('file://')
-          ? resolved.replaceFirst('file://', '')
-          : resolved;
-      final localFile = File(cleanFilePath);
+      ));
+      if (fromCache != null) return fromCache;
+      debugPrint('[VideoCacheManager] Cache unusable — falling back to network');
+      try {
+        if (await cached.exists()) await cached.delete();
+      } catch (_) {}
+    }
 
-      if (resolved.startsWith('file://') ||
-          localFile.existsSync() ||
-          resolved.startsWith('/data/') ||
-          resolved.startsWith('/storage/')) {
-        debugPrint('[VideoCacheManager] Playing from LOCAL FILE: ${localFile.path}');
-        controller = VideoPlayerController.file(
-          localFile,
-          videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
-        );
-      } else {
-        // Visible playback: drop competing full-file download so ExoPlayer
-        // can use HTTP Range and start on the first frames.
-        cancelPrecache(resolved);
-        debugPrint('[VideoCacheManager] Streaming from NETWORK: $resolved');
-        controller = VideoPlayerController.networkUrl(
-          Uri.parse(resolved),
-          formatHint: _formatHintFor(resolved),
-          videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
-        );
+    var cleanFilePath = resolved.startsWith('file://')
+        ? resolved.replaceFirst('file://', '')
+        : resolved;
+    final localFile = File(cleanFilePath);
+
+    if (!preferNetwork &&
+        (resolved.startsWith('file://') ||
+            localFile.existsSync() ||
+            resolved.startsWith('/data/') ||
+            resolved.startsWith('/storage/'))) {
+      debugPrint('[VideoCacheManager] Playing from LOCAL FILE: ${localFile.path}');
+      final fromFile = await tryInit(VideoPlayerController.file(
+        localFile,
+        videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
+      ));
+      if (fromFile != null) return fromFile;
+      if (!resolved.startsWith('http://') && !resolved.startsWith('https://')) {
+        return null;
       }
     }
 
-    await controller.initialize().timeout(timeout);
-    if (cached == null &&
-        (resolved.startsWith('http://') || resolved.startsWith('https://'))) {
-      await _primeNetworkBuffer(controller);
-    }
-    return controller;
+    return tryNetwork();
   }
 
   static Duration _bufferedAhead(VideoPlayerController controller) {

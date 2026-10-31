@@ -42,37 +42,42 @@ class ProfileRepository {
           )
         : null;
 
-    ProfileResponse? profile;
-    try {
-      final data = await _apiClient.get(
-        '/app/profile',
-        headers: headers,
-      );
-      profile = ProfileResponse.fromJson(data);
-    } catch (_) {}
+    // Fire both endpoints together — sequential calls were doubling profile wait.
+    final results = await Future.wait<Object?>([
+      _apiClient
+          .get('/app/profile', headers: headers)
+          .then<Object?>((data) => ProfileResponse.fromJson(data))
+          .catchError((_) => null),
+      _apiClient
+          .get('/user', headers: headers)
+          .then<Object?>((data) => data)
+          .catchError((_) => null),
+    ]);
 
-    Map<String, dynamic>? userJson;
-    try {
-      userJson = await _apiClient.get(
-        '/user',
-        headers: headers,
-      );
-    } catch (_) {}
+    final profile = results[0] is ProfileResponse ? results[0] as ProfileResponse : null;
+    final userJson = results[1] is Map
+        ? Map<String, dynamic>.from(results[1] as Map)
+        : null;
 
     if (profile != null) {
       if (userJson == null) return profile;
-      final userProfile = ProfileResponse.fromJson(userJson);
-      if (userProfile.data.recentVideos.isEmpty) return profile;
-      final existingIds = profile.data.recentVideos.map((v) => v.id).toSet();
-      final mergedVideos = [
-        ...profile.data.recentVideos,
-        ...userProfile.data.recentVideos.where((v) => v.id.isNotEmpty && existingIds.add(v.id)),
-      ];
-      return ProfileResponse(
-        success: profile.success,
-        message: profile.message,
-        data: profile.data.copyWith(recentVideos: mergedVideos),
-      );
+      try {
+        final userProfile = ProfileResponse.fromJson(userJson);
+        if (userProfile.data.recentVideos.isEmpty) return profile;
+        final existingIds = profile.data.recentVideos.map((v) => v.id).toSet();
+        final mergedVideos = [
+          ...profile.data.recentVideos,
+          ...userProfile.data.recentVideos
+              .where((v) => v.id.isNotEmpty && existingIds.add(v.id)),
+        ];
+        return ProfileResponse(
+          success: profile.success,
+          message: profile.message,
+          data: profile.data.copyWith(recentVideos: mergedVideos),
+        );
+      } catch (_) {
+        return profile;
+      }
     }
 
     if (userJson != null) {

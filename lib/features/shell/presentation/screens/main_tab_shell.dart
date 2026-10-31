@@ -122,7 +122,7 @@ class _MainTabShellState extends State<MainTabShell> {
                 initialTab: widget.initialChallengesTab,
               ),
               const ActivityCenterScreen(showBackButton: false),
-              const MyProfileScreen(),
+              MyProfileScreen(isActive: _currentIndex == 4),
             ],
           ),
           bottomNavigationBar: ArtableBottomNav(

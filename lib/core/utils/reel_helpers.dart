@@ -419,6 +419,10 @@ abstract final class ReelHelpers {
   /// Prefer description embed, then direct fields, then cache by video id only.
   /// Never uses videoUrl as a cache key for lookup — that leaked one reel's
   /// track onto others when URLs shared path prefixes / hosts.
+  ///
+  /// [resolveAudioUrl] lets callers fill a missing URL from the music catalog
+  /// (e.g. MusicApiService.resolveByName) when the API kept the name but
+  /// stripped the stream URL / HTML comment.
   static ReelMusicMeta? resolveMusic({
     String? description,
     String? musicUrl,
@@ -427,6 +431,7 @@ abstract final class ReelHelpers {
     double? durationSeconds,
     String? videoId,
     String? videoUrl,
+    String? Function(String musicName)? resolveAudioUrl,
   }) {
     final fromDesc = parseDescriptionMusic(description);
     final direct = (musicUrl ?? '').trim();
@@ -444,6 +449,22 @@ abstract final class ReelHelpers {
     } else if (videoId != null && videoId.trim().isNotEmpty) {
       meta = getCachedMusic(videoId);
     }
+
+    if ((meta == null || meta.url.isEmpty) &&
+        named.isNotEmpty &&
+        !named.startsWith('Original Sound') &&
+        resolveAudioUrl != null) {
+      final resolved = resolveAudioUrl(named)?.trim() ?? '';
+      if (resolved.isNotEmpty && resolved != 'null') {
+        meta = ReelMusicMeta(
+          url: resolved,
+          name: named,
+          startSeconds: startSeconds ?? meta?.startSeconds ?? 0,
+          durationSeconds: durationSeconds ?? meta?.durationSeconds ?? 0,
+        );
+      }
+    }
+
     if (meta != null && meta.url.isNotEmpty) {
       if (meta.name.isEmpty && named.isNotEmpty && !named.startsWith('Original Sound')) {
         meta = ReelMusicMeta(
@@ -456,5 +477,75 @@ abstract final class ReelHelpers {
       cacheMusic(videoId, meta);
     }
     return meta;
+  }
+
+  /// Merge API video detail onto an existing reel map without dropping music /
+  /// clip metadata the API may have stripped.
+  static Map<String, dynamic> mergeReelMaps(
+    Map<String, dynamic> primary,
+    Map<String, dynamic>? fallback,
+  ) {
+    if (fallback == null || fallback.isEmpty) {
+      return Map<String, dynamic>.from(primary);
+    }
+    final out = Map<String, dynamic>.from(primary);
+
+    bool isImagePath(String s) {
+      final lower = s.toLowerCase().split('?').first;
+      return lower.endsWith('.jpg') ||
+          lower.endsWith('.jpeg') ||
+          lower.endsWith('.png') ||
+          lower.endsWith('.webp') ||
+          lower.endsWith('.gif') ||
+          lower.endsWith('.bmp');
+    }
+
+    String pick(String key, {bool rejectImage = false}) {
+      final a = out[key]?.toString().trim() ?? '';
+      if (a.isNotEmpty && a != 'null' && !(rejectImage && isImagePath(a))) {
+        return a;
+      }
+      final b = fallback[key]?.toString().trim() ?? '';
+      if (b.isNotEmpty && b != 'null' && !(rejectImage && isImagePath(b))) {
+        return b;
+      }
+      return '';
+    }
+
+    for (final key in [
+      'musicUrl',
+      'music_url',
+      'audioUrl',
+      'musicName',
+      'music',
+      'description',
+      'caption',
+      'thumbnailUrl',
+      'imageUrl',
+    ]) {
+      final v = pick(key);
+      if (v.isNotEmpty) out[key] = v;
+    }
+    for (final key in ['videoUrl', 'videoPath']) {
+      final v = pick(key, rejectImage: true);
+      if (v.isNotEmpty) {
+        out[key] = v;
+      } else if (isImagePath(out[key]?.toString().trim() ?? '')) {
+        out.remove(key);
+      }
+    }
+    if (out['musicStartSeconds'] == null && fallback['musicStartSeconds'] != null) {
+      out['musicStartSeconds'] = fallback['musicStartSeconds'];
+    }
+    if (out['musicCropDuration'] == null && fallback['musicCropDuration'] != null) {
+      out['musicCropDuration'] = fallback['musicCropDuration'];
+    }
+    final primaryClips = out['mergedClipPaths'];
+    final fallbackClips = fallback['mergedClipPaths'];
+    final primaryEmpty = primaryClips is! List || primaryClips.isEmpty;
+    if (primaryEmpty && fallbackClips is List && fallbackClips.isNotEmpty) {
+      out['mergedClipPaths'] = List<String>.from(fallbackClips.map((e) => e.toString()));
+    }
+    return out;
   }
 }

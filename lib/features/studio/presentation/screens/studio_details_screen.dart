@@ -8,9 +8,7 @@ import 'package:video_player/video_player.dart';
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_text_styles.dart';
 import 'package:artable_app/features/studio/presentation/bloc/studio_cubit.dart';
-import 'package:artable_app/data/datasources/mock_data.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
-import 'package:artable_app/core/utils/reel_helpers.dart';
 import 'package:artable_app/core/utils/studio_video_player_utils.dart';
 import 'package:artable_app/core/widgets/app_screen_header.dart';
 import 'package:artable_app/core/widgets/secondary_outline_button.dart';
@@ -95,10 +93,15 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
       final detail = challengesCubit.getChallengeDetail(_challengeId);
       if (detail == null) {
         challengesCubit.loadChallengeDetail(_challengeId).then((loadedDetail) {
-          if (mounted && loadedDetail != null && loadedDetail.category?.id != null && loadedDetail.category!.id.isNotEmpty) {
-            setState(() {
-              _categoryId = loadedDetail.category!.id;
-            });
+          if (!mounted || loadedDetail == null) return;
+          final catId = loadedDetail.category?.id;
+          if (Validators.isRealDatabaseId(catId)) {
+            final resolvedCatId = catId!;
+            setState(() => _categoryId = resolvedCatId);
+            _loadChallengesForCategory(
+              resolvedCatId,
+              keepSelectionIfPossible: true,
+            );
           }
         });
       } else if (detail.category?.id != null && detail.category!.id.isNotEmpty) {
@@ -123,6 +126,13 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
         _categoryId = '';
       }
     }
+
+    // Home → upload has category from API but no challenge yet — load by categoryId.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _bootstrapCategoryAndChallenges();
+    });
+
     _hashtagsController.addListener(() => setState(() {}));
     _titleController.addListener(() => setState(() {}));
     if (draft != null) {
@@ -1007,8 +1017,79 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
     );
   }
 
-  Map<String, dynamic> get _selectedChallenge =>
-      ReelHelpers.challengeById(_challengeId)!;
+  static const Map<String, dynamic> _emptyChallenge = {
+    'id': '',
+    'title': '',
+    'category': '',
+    'prize': '',
+    'endDate': '',
+    'imageUrl': '',
+    'bannerUrl': '',
+  };
+
+  Map<String, dynamic> _selectedChallengeOf(ChallengesCubit cubit) {
+    if (!Validators.isRealDatabaseId(_challengeId)) return _emptyChallenge;
+
+    final fromDetail = cubit.getChallengeById(_challengeId);
+    if (fromDetail != null) return fromDetail;
+
+    if (Validators.isRealDatabaseId(_categoryId)) {
+      for (final c in cubit.getChallengesForCategory(_categoryId)) {
+        if (c['id']?.toString() == _challengeId) return c;
+      }
+    }
+    return _emptyChallenge;
+  }
+
+  Future<void> _bootstrapCategoryAndChallenges() async {
+    final cubit = context.read<ChallengesCubit>();
+
+    if (!cubit.hasLoadedCategories) {
+      await cubit.loadCategories();
+      if (!mounted) return;
+    }
+
+    if (!Validators.isRealDatabaseId(_categoryId)) {
+      final cats = cubit.categoriesResponse?.data ?? [];
+      if (cats.isNotEmpty) {
+        setState(() => _categoryId = cats.first.id);
+      }
+    }
+
+    if (Validators.isRealDatabaseId(_categoryId)) {
+      await _loadChallengesForCategory(_categoryId);
+    }
+  }
+
+  Future<void> _loadChallengesForCategory(
+    String categoryId, {
+    bool keepSelectionIfPossible = true,
+  }) async {
+    if (!Validators.isRealDatabaseId(categoryId)) return;
+
+    final cubit = context.read<ChallengesCubit>();
+    final list = await cubit.loadChallengesByCategory(categoryId);
+    if (!mounted) return;
+
+    final ids = list.map((c) => c.id).where((id) => id.isNotEmpty).toList();
+    String nextChallengeId = '';
+    if (keepSelectionIfPossible &&
+        Validators.isRealDatabaseId(_challengeId) &&
+        ids.contains(_challengeId)) {
+      nextChallengeId = _challengeId;
+    } else if (ids.isNotEmpty) {
+      nextChallengeId = ids.first;
+    }
+
+    if (_challengeId != nextChallengeId || _categoryId != categoryId) {
+      setState(() {
+        _categoryId = categoryId;
+        _challengeId = nextChallengeId;
+      });
+    } else {
+      setState(() {});
+    }
+  }
 
   String _activeClipFilterId(StudioCubit studio) {
     if (_mergedClipFilterIds.isNotEmpty) {
@@ -1116,12 +1197,17 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
   }
 
   void _syncCategoryFromChallenge() {
-    final c = _selectedChallenge;
-    final match = MockData.CATEGORIES.firstWhere(
-      (cat) => cat['name'] == c['category'],
-      orElse: () => MockData.CATEGORIES.first,
-    );
-    setState(() => _categoryId = match['id'] as String);
+    final detail =
+        context.read<ChallengesCubit>().getChallengeDetail(_challengeId);
+    final catId = detail?.category?.id;
+    if (Validators.isRealDatabaseId(catId) && catId != _categoryId) {
+      final resolvedCatId = catId!;
+      setState(() => _categoryId = resolvedCatId);
+      _loadChallengesForCategory(
+        resolvedCatId,
+        keepSelectionIfPossible: true,
+      );
+    }
   }
 
   List<DropdownMenuItem<String>> _buildCategoryDropdownItems(
@@ -1189,33 +1275,31 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
 
     try {
       final challengesCubit = context.read<ChallengesCubit>();
-      for (final c in challengesCubit.challenges) {
-        final id = c['id']?.toString() ?? '';
-        final title = c['title']?.toString() ?? '';
-        if (id.isNotEmpty && title.isNotEmpty) challengeMap[id] = title;
+      final categoryId = Validators.isRealDatabaseId(_categoryId)
+          ? _categoryId
+          : '';
+
+      if (categoryId.isNotEmpty) {
+        for (final c in challengesCubit.getChallengesForCategory(categoryId)) {
+          final id = c['id']?.toString() ?? '';
+          final title = c['title']?.toString() ?? '';
+          if (id.isNotEmpty && title.isNotEmpty) challengeMap[id] = title;
+        }
       }
 
-      if (currentSelectedId != null && currentSelectedId.isNotEmpty) {
+      if (currentSelectedId != null &&
+          currentSelectedId.isNotEmpty &&
+          !challengeMap.containsKey(currentSelectedId)) {
         final detail = challengesCubit.getChallengeDetail(currentSelectedId);
         if (detail != null && detail.title.isNotEmpty) {
           challengeMap[currentSelectedId] = detail.title;
+        } else {
+          final mapped = challengesCubit.getChallengeById(currentSelectedId);
+          final title = mapped?['title']?.toString() ?? '';
+          if (title.isNotEmpty) challengeMap[currentSelectedId] = title;
         }
       }
     } catch (_) {}
-
-    if (currentSelectedId != null &&
-        currentSelectedId.isNotEmpty &&
-        !challengeMap.containsKey(currentSelectedId)) {
-      try {
-        final detail = context.read<ChallengesCubit>().getChallengeDetail(currentSelectedId);
-        final title = (detail?.title != null && detail!.title.isNotEmpty)
-            ? detail.title
-            : 'Monthly Mega Dance Battle';
-        challengeMap[currentSelectedId] = title;
-      } catch (_) {
-        challengeMap[currentSelectedId] = 'Monthly Mega Dance Battle';
-      }
-    }
 
     return challengeMap.entries
         .map((e) => DropdownMenuItem<String>(
@@ -1228,10 +1312,13 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
   @override
   Widget build(BuildContext context) {
     final studio = context.watch<StudioCubit>();
-    final challenge = _selectedChallenge;
+    final challengesCubit = context.watch<ChallengesCubit>();
+    final challenge = _selectedChallengeOf(challengesCubit);
     final music = studio.selectedMusic;
     final duration = _getDuration(studio);
     final isFrontCamera = studio.isFrontCamera;
+    final challengesLoading = Validators.isRealDatabaseId(_categoryId) &&
+        challengesCubit.isLoadingCategoryChallenges(_categoryId);
 
     final categoryItems = _buildCategoryDropdownItems(context, _categoryId);
     final challengeItems = _buildChallengeDropdownItems(context, _challengeId);
@@ -1244,7 +1331,7 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
     final selectedChallengeValue =
         challengeItems.any((item) => item.value == _challengeId)
             ? _challengeId
-            : (challengeItems.isNotEmpty ? challengeItems.first.value : null);
+            : null;
 
     return Scaffold(
       backgroundColor: AppColors.bg,
@@ -1363,9 +1450,24 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
                         child: DropdownButton<String>(
                           value: selectedCategoryValue,
                           isExpanded: true,
+                          hint: Text(
+                            'Select category',
+                            style: AppTextStyles.body.copyWith(
+                              fontSize: 14,
+                              color: AppColors.textFaint,
+                            ),
+                          ),
                           items: categoryItems,
                           onChanged: (v) {
-                            if (v != null) setState(() => _categoryId = v);
+                            if (v == null) return;
+                            setState(() {
+                              _categoryId = v;
+                              _challengeId = '';
+                            });
+                            _loadChallengesForCategory(
+                              v,
+                              keepSelectionIfPossible: false,
+                            );
                           },
                         ),
                       ),
@@ -1419,22 +1521,43 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
                     const SizedBox(height: 14),
                     _FieldLabel('Challenge'),
                     _AuthInput(
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
-                          value: selectedChallengeValue,
-                          isExpanded: true,
-                          items: challengeItems,
-                          onChanged: (v) {
-                            if (v != null) {
-                              setState(() => _challengeId = v);
-                              _syncCategoryFromChallenge();
-                            }
-                          },
-                        ),
-                      ),
+                      child: challengesLoading
+                          ? const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 4),
+                              child: SizedBox(
+                                height: 22,
+                                width: 22,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              ),
+                            )
+                          : DropdownButtonHideUnderline(
+                              child: DropdownButton<String>(
+                                value: selectedChallengeValue,
+                                isExpanded: true,
+                                hint: Text(
+                                  challengeItems.isEmpty
+                                      ? 'No challenges for this category'
+                                      : 'Select challenge',
+                                  style: AppTextStyles.body.copyWith(
+                                    fontSize: 14,
+                                    color: AppColors.textFaint,
+                                  ),
+                                ),
+                                items: challengeItems,
+                                onChanged: challengeItems.isEmpty
+                                    ? null
+                                    : (v) {
+                                        if (v == null) return;
+                                        setState(() => _challengeId = v);
+                                        _syncCategoryFromChallenge();
+                                      },
+                              ),
+                            ),
                     ),
-                    const SizedBox(height: 18),
-                    ChallengeSummaryCard(challenge: challenge),
+                    if ((challenge['title'] as String? ?? '').trim().isNotEmpty) ...[
+                      const SizedBox(height: 18),
+                      ChallengeSummaryCard(challenge: challenge),
+                    ],
                     const SizedBox(height: 26),
                     Text(
                       'Before You Submit',

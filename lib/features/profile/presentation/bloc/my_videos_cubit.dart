@@ -85,7 +85,8 @@ class MyVideosCubit extends Cubit<MyVideosState> {
       isLoading: true,
       activeTab: targetTab,
       clearError: true,
-      clearResponse: forceRefresh,
+      // Keep previous videos on refresh so Profile is not emptied while loading.
+      clearResponse: forceRefresh && state.videos.isEmpty,
     ));
 
     debugPrint('====================================================');

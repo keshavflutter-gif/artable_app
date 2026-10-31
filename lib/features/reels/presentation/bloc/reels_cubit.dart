@@ -104,6 +104,94 @@ class ReelsCubit extends Cubit<ReelsState> {
         changed = true;
       } else {
         final existing = currentVideos[idx];
+        bool isBlank(dynamic v) {
+          final s = v?.toString().trim() ?? '';
+          return s.isEmpty || s == 'null';
+        }
+        bool looksPlayable(dynamic v) {
+          if (isBlank(v)) return false;
+          final s = v.toString();
+          final lower = s.toLowerCase().split('?').first;
+          if (lower.endsWith('.jpg') ||
+              lower.endsWith('.jpeg') ||
+              lower.endsWith('.png') ||
+              lower.endsWith('.webp') ||
+              lower.endsWith('.gif') ||
+              lower.endsWith('.bmp')) {
+            return false;
+          }
+          return true;
+        }
+
+        void fillIfMissing(String key) {
+          if (!isBlank(nv[key]) && isBlank(existing[key])) {
+            existing[key] = nv[key];
+            changed = true;
+          }
+        }
+
+        void preferBetter(String key) {
+          if (isBlank(nv[key])) return;
+          if (isBlank(existing[key]) || existing[key] != nv[key]) {
+            // Always take a playable video URL when existing is blank/image.
+            if (key == 'videoUrl') {
+              if (looksPlayable(nv[key]) && !looksPlayable(existing[key])) {
+                existing[key] = nv[key];
+                changed = true;
+              } else if (looksPlayable(nv[key]) && isBlank(existing[key])) {
+                existing[key] = nv[key];
+                changed = true;
+              }
+              return;
+            }
+            if (isBlank(existing[key])) {
+              existing[key] = nv[key];
+              changed = true;
+            }
+          }
+        }
+
+        // Media fields were previously never updated on existing entries, so
+        // profile → Full Reel kept a stub without videoUrl → Tap to reload.
+        preferBetter('videoUrl');
+        preferBetter('videoPath');
+        preferBetter('musicUrl');
+        preferBetter('musicName');
+        preferBetter('musicStartSeconds');
+        preferBetter('musicCropDuration');
+        preferBetter('imageUrl');
+        preferBetter('thumbnailUrl');
+        preferBetter('description');
+        preferBetter('caption');
+        preferBetter('title');
+        if (nv['mergedClipPaths'] is List &&
+            (nv['mergedClipPaths'] as List).isNotEmpty &&
+            (existing['mergedClipPaths'] == null ||
+                existing['mergedClipPaths'] is! List ||
+                (existing['mergedClipPaths'] as List).isEmpty)) {
+          existing['mergedClipPaths'] =
+              List<String>.from((nv['mergedClipPaths'] as List).map((e) => e.toString()));
+          changed = true;
+        }
+        fillIfMissing('filterId');
+        if (nv.containsKey('beautyOn')) {
+          existing['beautyOn'] = nv['beautyOn'];
+          changed = true;
+        }
+        if (nv.containsKey('beautyIntensity')) {
+          existing['beautyIntensity'] = nv['beautyIntensity'];
+          changed = true;
+        }
+        if (nv.containsKey('status') && !isBlank(nv['status'])) {
+          existing['status'] = nv['status'];
+          changed = true;
+        }
+        if (nv.containsKey('isLive')) {
+          existing['isLive'] = nv['isLive'];
+          existing['is_live'] = nv['isLive'];
+          changed = true;
+        }
+
         if (existing['isLiked'] != nv['isLiked'] || existing['liked'] != nv['liked']) {
           existing['isLiked'] = nv['isLiked'] ?? nv['liked'];
           existing['liked'] = nv['liked'] ?? nv['isLiked'];
