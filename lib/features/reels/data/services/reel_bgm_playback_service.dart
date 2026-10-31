@@ -106,8 +106,9 @@ class ReelBgmPlaybackService {
   }
 
   /// Soft leave: pause only if [reelId] still owns the player.
+  /// Never kill when ownership is unset — that aborts an in-flight first [sync].
   static Future<void> deactivate(String reelId) async {
-    if (_activeReelId == null || _activeReelId == reelId) {
+    if (_activeReelId == reelId) {
       killNow();
     }
     await _enqueue(() => _deactivateLocked(reelId));
@@ -129,7 +130,12 @@ class ReelBgmPlaybackService {
   }
 
   static Future<void> _deactivateLocked(String reelId) async {
+    // Another reel already owns audio — leave it alone.
+    if (_activeReelId != null && _activeReelId != reelId) return;
     _wantPlaying = false;
+    if (_activeReelId == reelId) {
+      _activeReelId = null;
+    }
     await _pauseLocked();
   }
 
@@ -158,21 +164,13 @@ class ReelBgmPlaybackService {
       await player.stop();
     } catch (_) {}
     final safeStart = startMs < 0 ? 0 : startMs;
-    if (cropDurationMs > 250) {
-      // Loop only the cropped segment so BGM matches the video window.
-      await player.setAudioSource(
-        ClippingAudioSource(
-          start: Duration(milliseconds: safeStart),
-          end: Duration(milliseconds: safeStart + cropDurationMs),
-          child: AudioSource.uri(Uri.parse(url)),
-        ),
-      );
-    } else {
-      await player.setUrl(url).timeout(const Duration(seconds: 8));
-    }
+    // Prefer plain URL load — ClippingAudioSource often fails on remote MP3s
+    // (end beyond stream length), which left video muted with no BGM.
+    await player.setUrl(url).timeout(const Duration(seconds: 8));
     await player.setLoopMode(LoopMode.one);
     _loadedUrl = url;
     _loadedStartMs = safeStart;
+    // Crop is only used for video-window modulo when seeking, not for clipping.
     _loadedCropMs = cropDurationMs > 250 ? cropDurationMs : 0;
   }
 
@@ -221,9 +219,8 @@ class ReelBgmPlaybackService {
       final posInWindow = safeCrop > 0
           ? (videoPositionMs % safeCrop)
           : (videoPositionMs < 0 ? 0 : videoPositionMs);
-      // Clipped source starts at 0 = crop start; plain URL seeks absolute.
-      final targetMs = (_loadedCropMs > 0 ? posInWindow : (safeStart + posInWindow))
-          .clamp(0, 3600000);
+      // Absolute seek into the full track (startMs + offset in crop window).
+      final targetMs = (safeStart + posInWindow).clamp(0, 3600000);
 
       try {
         await player.setSpeed(speed.clamp(0.4, 4.0));

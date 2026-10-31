@@ -296,7 +296,13 @@ class StudioMusicPlaybackService {
     if (track == null || epoch != _playEpoch) return;
 
     final player = _player;
-    if (player == null || !player.playing) {
+    if (player == null) {
+      // First load never stuck (epoch abort / releaseForVideoPlayback) —
+      // reload instead of ensurePlaying() which is a no-op when _player is null.
+      unawaited(playForEditor(studio, videoPositionMs, forceSeek: true));
+      return;
+    }
+    if (!player.playing) {
       ensurePlaying();
       return;
     }

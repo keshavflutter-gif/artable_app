@@ -11,6 +11,7 @@ import 'package:artable_app/core/utils/validators.dart';
 import 'package:artable_app/core/utils/reel_helpers.dart';
 import 'package:artable_app/core/widgets/app_image.dart';
 import 'package:artable_app/core/utils/media_url_utils.dart';
+import 'package:artable_app/core/utils/studio_video_player_utils.dart';
 import 'package:artable_app/core/utils/video_cache_manager.dart';
 import '../models/trending_videos_response.dart';
 
@@ -219,8 +220,34 @@ class VideosRepository {
       return (url: url, bytes: bytes);
     }();
 
-    // 1. Ensure video URL is ready
-    String finalVideoUrl = videoPathOrUrl;
+    // 1. Draft merge → one playable file before upload (Trending/Profile need a
+    // single videoUrl; playlist metadata is often stripped by the API).
+    String primaryPathOrUrl = videoPathOrUrl;
+    List<String>? clipsForUpload = mergedClipPaths;
+    if (mergedClipPaths != null && mergedClipPaths.length > 1) {
+      try {
+        final mergedFile =
+            await StudioVideoPlayerUtils.combineVideoFiles(mergedClipPaths);
+        if (mergedFile != null &&
+            await mergedFile.exists() &&
+            (await mergedFile.length()) > 0) {
+          primaryPathOrUrl = mergedFile.path;
+          clipsForUpload = null;
+          debugPrint(
+            'createVideo: merged ${mergedClipPaths.length} draft clips → ${mergedFile.path}',
+          );
+        } else {
+          debugPrint(
+            'createVideo: merge unavailable; uploading clip playlist fallback',
+          );
+        }
+      } catch (e) {
+        debugPrint('createVideo: merge error, clip playlist fallback: $e');
+      }
+    }
+
+    // 2. Ensure video URL is ready
+    String finalVideoUrl = primaryPathOrUrl;
     final localPrimaryPath =
         (!finalVideoUrl.startsWith('http://') && !finalVideoUrl.startsWith('https://'))
             ? finalVideoUrl
@@ -235,15 +262,15 @@ class VideosRepository {
       );
     }
 
-    // 1b. Extra clips only — skip re-uploading the same primary video.
+    // 2b. Extra clips only when merge failed — never persist local paths.
     final List<String> finalMergedClipUrls = [];
-    if (mergedClipPaths != null && mergedClipPaths.length > 1) {
-      final mainNorm = _normPath(videoPathOrUrl);
+    if (clipsForUpload != null && clipsForUpload.length > 1) {
+      final mainNorm = _normPath(primaryPathOrUrl);
       final pending = <int, String>{};
-      final slots = List<String?>.filled(mergedClipPaths.length, null);
+      final slots = List<String?>.filled(clipsForUpload.length, null);
 
-      for (int i = 0; i < mergedClipPaths.length; i++) {
-        var cleanClip = mergedClipPaths[i].trim();
+      for (int i = 0; i < clipsForUpload.length; i++) {
+        var cleanClip = clipsForUpload[i].trim();
         if (cleanClip.startsWith('file://')) cleanClip = cleanClip.replaceFirst('file://', '');
         if (cleanClip.isEmpty) continue;
         if (cleanClip.startsWith('http://') || cleanClip.startsWith('https://')) {
@@ -272,23 +299,27 @@ class VideosRepository {
             );
           } catch (err) {
             debugPrint('Error uploading clip in createVideo: $err');
-            return e.value;
+            return '';
           }
         }));
         for (int j = 0; j < entries.length; j++) {
-          slots[entries[j].key] = uploaded[j].isNotEmpty ? uploaded[j] : entries[j].value;
-          if (uploaded[j].isNotEmpty) {
-            unawaited(VideoCacheManager.associateLocalFile(entries[j].value, uploaded[j]));
-          }
+          final remote = uploaded[j];
+          if (remote.isEmpty) continue;
+          slots[entries[j].key] = remote;
+          unawaited(VideoCacheManager.associateLocalFile(entries[j].value, remote));
         }
       }
 
       for (final url in slots) {
         if (url != null && url.isNotEmpty) finalMergedClipUrls.add(url);
       }
+      // Playlist only if we still have multiple remote URLs.
+      if (finalMergedClipUrls.length <= 1) {
+        finalMergedClipUrls.clear();
+      }
     }
 
-    // 2. Resolve Thumbnail (already started in parallel with video upload)
+    // 3. Resolve Thumbnail (already started in parallel with video upload)
     final thumbResult = await thumbTask;
     String finalThumbnailUrl = thumbResult.url;
     Uint8List? localThumbBytes = thumbResult.bytes;
@@ -297,7 +328,7 @@ class VideosRepository {
     if (finalThumbnailUrl.isEmpty) {
       try {
         final generatedFile =
-            await VideoThumbnailGenerator.generateThumbnailFromVideo(videoPathOrUrl);
+            await VideoThumbnailGenerator.generateThumbnailFromVideo(primaryPathOrUrl);
 
         if (generatedFile != null && await generatedFile.exists()) {
           localThumbBytes = await generatedFile.readAsBytes();
@@ -323,7 +354,7 @@ class VideosRepository {
       AppImage.cacheThumbnail(videoPathOrUrl, localThumbBytes);
     }
 
-    // 3. Call Create Video API (POST /app/videos) with ready videoUrl & thumbnailUrl
+    // 4. Call Create Video API (POST /app/videos) with ready videoUrl & thumbnailUrl
     final effectiveToken = (sessionToken != null && sessionToken.trim().isNotEmpty)
         ? sessionToken.trim()
         : await _storageService.getSessionToken();

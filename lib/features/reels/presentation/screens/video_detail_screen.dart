@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -215,10 +216,25 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     );
   }
 
+  bool _isUsableStageUrl(String resolved) {
+    if (resolved.isEmpty || MediaUrlUtils.looksLikeImageUrl(resolved)) {
+      return false;
+    }
+    if (resolved.startsWith('http://') || resolved.startsWith('https://')) {
+      return true;
+    }
+    try {
+      return File(resolved).existsSync();
+    } catch (_) {
+      return false;
+    }
+  }
+
   String _stagePlayableUrl(Map<String, dynamic> reelMap) {
     final direct = (reelMap['videoUrl'] ?? reelMap['videoPath'])?.toString().trim() ?? '';
     if (direct.isNotEmpty && direct != 'null' && !MediaUrlUtils.looksLikeImageUrl(direct)) {
-      return MediaUrlUtils.resolve(direct).trim();
+      final resolved = MediaUrlUtils.resolve(direct).trim();
+      if (_isUsableStageUrl(resolved)) return resolved;
     }
     if (reelMap['mergedClipPaths'] is List) {
       for (final raw in (reelMap['mergedClipPaths'] as List)) {
@@ -226,7 +242,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
         if (clip.isEmpty || clip == 'null') continue;
         if (MediaUrlUtils.looksLikeImageUrl(clip)) continue;
         final resolved = MediaUrlUtils.resolve(clip).trim();
-        if (resolved.isNotEmpty) return resolved;
+        if (_isUsableStageUrl(resolved)) return resolved;
       }
     }
     final id = reelMap['id']?.toString() ?? reelMap['_id']?.toString() ?? widget.reelId;
@@ -235,7 +251,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
       for (final clip in cached) {
         if (clip.trim().isEmpty || MediaUrlUtils.looksLikeImageUrl(clip)) continue;
         final resolved = MediaUrlUtils.resolve(clip).trim();
-        if (resolved.isNotEmpty) return resolved;
+        if (_isUsableStageUrl(resolved)) return resolved;
       }
     }
     return '';

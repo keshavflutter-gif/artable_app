@@ -405,6 +405,18 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
         unawaited(c.play());
       }
       unawaited(StudioMusicPlaybackService.playForEditor(studio, positionMs()));
+      // Retry once — first playForEditor can abort if camera/edit released the player.
+      Future<void>.delayed(const Duration(milliseconds: 450), () {
+        if (!mounted || _userPaused || !_playing) return;
+        if (StudioMusicPlaybackService.isPlaying) return;
+        unawaited(
+          StudioMusicPlaybackService.playForEditor(
+            studio,
+            positionMs(),
+            forceSeek: true,
+          ),
+        );
+      });
     });
   }
 
@@ -1143,7 +1155,14 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
 
     final studioCubit = context.read<StudioCubit>();
     final router = GoRouter.of(context);
-    _videoController?.pause();
+    // Stop preview audio before upload — delayed BGM retry / timer must not restart it.
+    _userPaused = true;
+    _playing = false;
+    _playbackTimer?.cancel();
+    try {
+      _videoController?.pause();
+    } catch (_) {}
+    StudioMusicPlaybackService.directPause();
     await StudioMusicPlaybackService.stop();
     final rawHashtags = _hashtagsController.text.trim();
     final effectiveHashtags = rawHashtags.isNotEmpty

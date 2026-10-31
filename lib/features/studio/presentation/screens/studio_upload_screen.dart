@@ -17,6 +17,8 @@ import 'package:artable_app/core/utils/validators.dart';
 import 'package:artable_app/data/datasources/music_api_service.dart';
 import 'package:artable_app/features/profile/presentation/bloc/profile_cubit.dart';
 import 'package:artable_app/features/profile/presentation/bloc/my_videos_cubit.dart';
+import 'package:artable_app/features/studio/data/services/studio_music_playback_service.dart';
+import 'package:artable_app/features/reels/data/services/reel_bgm_playback_service.dart';
 
 class StudioUploadScreen extends StatefulWidget {
   const StudioUploadScreen({super.key, this.challengeId, this.draftId});
@@ -45,13 +47,24 @@ class _StudioUploadScreenState extends State<StudioUploadScreen> {
   @override
   void initState() {
     super.initState();
+    // Details stays under this route — kill any leftover preview BGM immediately.
+    _silenceAllMusic();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _silenceAllMusic();
       _startUploadPipeline();
     });
   }
 
+  void _silenceAllMusic() {
+    StudioMusicPlaybackService.directPause();
+    unawaited(StudioMusicPlaybackService.stop());
+    ReelBgmPlaybackService.killNow();
+    unawaited(ReelBgmPlaybackService.halt());
+  }
+
   Future<void> _startUploadPipeline() async {
     if (_isUploading) return;
+    _silenceAllMusic();
     setState(() {
       _isUploading = true;
       _hasError = false;

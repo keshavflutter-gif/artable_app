@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -1550,26 +1551,53 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
   }
 
   List<String> get _effectiveMergedClips {
+    List<String> raw = const [];
     if (widget.mergedClipPaths != null && widget.mergedClipPaths!.length > 1) {
-      return widget.mergedClipPaths!;
-    }
-    if (widget.reelId != null && widget.reelId!.isNotEmpty) {
+      raw = widget.mergedClipPaths!;
+    } else if (widget.reelId != null && widget.reelId!.isNotEmpty) {
       final cachedById = ReelHelpers.getCachedMergedClips(widget.reelId);
       if (cachedById != null && cachedById.length > 1) {
-        return cachedById;
+        raw = cachedById;
       }
     }
-    final cached = ReelHelpers.getCachedMergedClips(widget.videoUrl);
-    if (cached != null && cached.length > 1) {
-      return cached;
+    if (raw.isEmpty) {
+      final cached = ReelHelpers.getCachedMergedClips(widget.videoUrl);
+      if (cached != null && cached.length > 1) {
+        raw = cached;
+      }
     }
-    if (widget.caption != null && widget.caption!.isNotEmpty) {
+    if (raw.isEmpty &&
+        widget.caption != null &&
+        widget.caption!.isNotEmpty) {
       final descClips = ReelHelpers.parseDescriptionClips(widget.caption).clips;
       if (descClips != null && descClips.length > 1) {
-        return descClips;
+        raw = descClips;
       }
     }
-    return widget.mergedClipPaths ?? const [];
+    if (raw.isEmpty) {
+      raw = widget.mergedClipPaths ?? const [];
+    }
+
+    // Drop missing local draft paths — they break Trending/Profile after upload.
+    // Prefer remote (or existing local) playable URLs only.
+    final playable = <String>[];
+    for (final c in raw) {
+      final url = _resolvePlayableUrl(c);
+      if (url == null || url.isEmpty) continue;
+      final isRemote =
+          url.startsWith('http://') || url.startsWith('https://');
+      if (!isRemote) {
+        try {
+          if (!File(url).existsSync()) continue;
+        } catch (_) {
+          continue;
+        }
+      }
+      playable.add(c);
+    }
+    // Need 2+ playable clips for playlist mode; else use single videoUrl.
+    if (playable.length <= 1) return const [];
+    return playable;
   }
 
   bool get _hasMultiClips => _effectiveMergedClips.length > 1;
@@ -2087,62 +2115,112 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
     }
 
     // 1. Initialize Clip 0 immediately so playback starts instantly
-    final firstUrl = _resolvePlayableUrl(clips[0]);
-    if (firstUrl != null && firstUrl.isNotEmpty) {
-      try {
-        final c0 = await _createAndInitController(firstUrl);
-        if (_discardIfStale(generation, c0)) return;
-        if (c0 != null && c0.value.isInitialized) {
-          _clipControllers[0] = c0;
-          c0.addListener(_onVideoControllerUpdate);
-          c0.setLooping(false);
-          c0.setVolume(_videoVolume);
-
-          // Mount VideoPlayer immediately on screen!
-          if (mounted) {
-            setState(() {
-              _isInitialized = true;
-              _isInitializing = false;
-            });
-            _publishSeekController();
+    final firstUrl = clips.isNotEmpty ? _resolvePlayableUrl(clips[0]) : null;
+    if (firstUrl == null || firstUrl.isEmpty) {
+      // Broken merge metadata — fall back to primary videoUrl single player.
+      debugPrint(
+        '=== VIDEO PLAYBACK === Multi-clip first URL missing; falling back to videoUrl',
+      );
+      if (mounted && generation == _initGeneration) {
+        // Force single-path retry using videoUrl only.
+        final fallback = _resolvePlayableUrl(widget.videoUrl);
+        if (fallback != null && fallback.isNotEmpty) {
+          try {
+            final c = await _createAndInitController(fallback);
+            if (_discardIfStale(generation, c)) return;
+            if (c != null && c.value.isInitialized) {
+              _controller = c;
+              c.addListener(_onVideoControllerUpdate);
+              unawaited(c.setLooping(true));
+              unawaited(c.setVolume(_videoVolume));
+              unawaited(c.pause());
+              if (mounted) {
+                setState(() {
+                  _isInitialized = true;
+                  _isInitializing = false;
+                  _hasError = false;
+                });
+                _publishSeekController();
+              }
+              if (widget.isActive && !widget.forcePaused) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (!mounted || generation != _initGeneration) return;
+                  if (!widget.isActive || widget.forcePaused) return;
+                  final ready = _controller;
+                  if (ready == null || !ready.value.isInitialized) return;
+                  unawaited(ready.setVolume(_videoVolume));
+                  unawaited(ready.play());
+                  _syncBgm(play: true, forceSeek: true);
+                });
+              }
+              return;
+            }
+          } catch (e) {
+            debugPrint('=== VIDEO PLAYBACK === videoUrl fallback failed: $e');
           }
-
-          if (widget.playbackSpeed != 1.0) {
-            unawaited(c0.setPlaybackSpeed(widget.playbackSpeed));
-          }
-          unawaited(c0.pause());
-          if (widget.isActive && !widget.forcePaused) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (!mounted || generation != _initGeneration) return;
-              if (!widget.isActive || widget.forcePaused) return;
-              final ready = _clipControllers[0];
-              if (ready == null || !ready.value.isInitialized) return;
-              unawaited(ready.setVolume(_videoVolume));
-              unawaited(ready.play());
-              _syncBgm(play: true, forceSeek: true);
-            });
-          }
-          _startPlaybackTimer();
-        } else if (mounted) {
-          // Don't leave the spinner up forever; offer the retry button.
-          setState(() {
-            _isInitializing = false;
-            _isInitialized = false;
-            _hasError = true;
-          });
-          return;
         }
-      } catch (e) {
-        debugPrint('Error initializing first clip: $e');
-        if (mounted && generation == _initGeneration) {
+        setState(() {
+          _isInitializing = false;
+          _isInitialized = false;
+          _hasError = true;
+        });
+      }
+      return;
+    }
+
+    try {
+      final c0 = await _createAndInitController(firstUrl);
+      if (_discardIfStale(generation, c0)) return;
+      if (c0 != null && c0.value.isInitialized) {
+        _clipControllers[0] = c0;
+        c0.addListener(_onVideoControllerUpdate);
+        c0.setLooping(false);
+        c0.setVolume(_videoVolume);
+
+        // Mount VideoPlayer immediately on screen!
+        if (mounted) {
           setState(() {
+            _isInitialized = true;
             _isInitializing = false;
-            _isInitialized = false;
-            _hasError = true;
+          });
+          _publishSeekController();
+        }
+
+        if (widget.playbackSpeed != 1.0) {
+          unawaited(c0.setPlaybackSpeed(widget.playbackSpeed));
+        }
+        unawaited(c0.pause());
+        if (widget.isActive && !widget.forcePaused) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted || generation != _initGeneration) return;
+            if (!widget.isActive || widget.forcePaused) return;
+            final ready = _clipControllers[0];
+            if (ready == null || !ready.value.isInitialized) return;
+            unawaited(ready.setVolume(_videoVolume));
+            unawaited(ready.play());
+            _syncBgm(play: true, forceSeek: true);
           });
         }
+        _startPlaybackTimer();
+      } else if (mounted) {
+        // Don't leave the spinner up forever; offer the retry button.
+        setState(() {
+          _isInitializing = false;
+          _isInitialized = false;
+          _hasError = true;
+        });
         return;
       }
+    } catch (e) {
+      debugPrint('Error initializing first clip: $e');
+      if (mounted && generation == _initGeneration) {
+        setState(() {
+          _isInitializing = false;
+          _isInitialized = false;
+          _hasError = true;
+        });
+      }
+      return;
     }
 
     // Bail if this reel was reset (scrolled away) while clip 0 was loading.
