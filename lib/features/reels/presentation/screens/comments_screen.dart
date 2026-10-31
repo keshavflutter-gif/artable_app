@@ -4,9 +4,13 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_gradients.dart';
 import 'package:artable_app/app/theme/app_text_styles.dart';
+import 'dart:async';
+
 import 'package:artable_app/features/reels/presentation/bloc/reels_cubit.dart';
 import 'package:artable_app/core/widgets/app_network_image.dart';
 import 'package:artable_app/core/widgets/app_screen_header.dart';
+import 'package:artable_app/features/reels/data/services/reel_bgm_playback_service.dart';
+import 'package:artable_app/features/studio/data/services/studio_music_playback_service.dart';
 
 class CommentsScreen extends StatefulWidget {
   const CommentsScreen({super.key, this.reelId});
@@ -25,7 +29,11 @@ class _CommentsScreenState extends State<CommentsScreen> {
   @override
   void initState() {
     super.initState();
+    ReelBgmPlaybackService.silenceForNavigation();
+    StudioMusicPlaybackService.directPause();
+    unawaited(StudioMusicPlaybackService.stop());
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      ReelBgmPlaybackService.silenceForNavigation();
       final reelId = widget.reelId ?? 'r1';
       context.read<ReelsCubit>().fetchComments(reelId);
     });
@@ -77,6 +85,7 @@ class _CommentsScreenState extends State<CommentsScreen> {
 
   @override
   void dispose() {
+    // Don't re-lock BGM on pop — feed uncover must be able to resume video.
     _inputController.dispose();
     super.dispose();
   }

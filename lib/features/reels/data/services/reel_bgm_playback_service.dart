@@ -24,9 +24,13 @@ class ReelBgmPlaybackService {
   static int _epoch = 0;
   static bool _sessionConfigured = false;
   static Future<void> _chain = Future.value();
+  /// While true, [sync]/[ensurePlaying] are no-ops — used when Share/Comments
+  /// cover the feed before widgets rebuild with forcePaused.
+  static bool _navigationLocked = false;
 
   static String? get activeReelId => _activeReelId;
   static bool get isWantPlaying => _wantPlaying;
+  static bool get isNavigationLocked => _navigationLocked;
 
   static Future<T?> _enqueue<T>(Future<T> Function() action) {
     final result = _chain.then<T?>((_) => action()).catchError((Object e, StackTrace st) {
@@ -50,6 +54,28 @@ class ReelBgmPlaybackService {
     try {
       _player?.pause();
     } catch (_) {}
+  }
+
+  /// Call when leaving a video screen (share / comments / search / etc.).
+  /// Locks sync so an under-route reel timer cannot restart audio.
+  ///
+  /// Do NOT enqueue [halt] here — a queued halt can finish *after* resume
+  /// [sync] on back-navigation and leave video playing with no music.
+  static void silenceForNavigation() {
+    _navigationLocked = true;
+    killNow();
+    // Force a fresh load on next sync after back-navigation.
+    _loadedUrl = null;
+    _loadedStartMs = -1;
+    _loadedCropMs = -1;
+    try {
+      _player?.pause();
+    } catch (_) {}
+  }
+
+  /// Call when returning to the video screen after a covered route pops.
+  static void unlockNavigation() {
+    _navigationLocked = false;
   }
 
   static Future<void> _configureSession() async {
@@ -86,6 +112,10 @@ class ReelBgmPlaybackService {
     bool forceSeek = false,
     int cropDurationMs = 0,
   }) async {
+    if (_navigationLocked) {
+      killNow();
+      return;
+    }
     await _enqueue(() => _syncLocked(
           reelId: reelId,
           url: url,
@@ -96,6 +126,56 @@ class ReelBgmPlaybackService {
           forceSeek: forceSeek,
           cropDurationMs: cropDurationMs,
         ));
+  }
+
+  /// Warm the BGM decoder for [url] without playing — call while video inits
+  /// so music is ready when video starts (avoids multi-second late audio).
+  static Future<void> preload({
+    required String url,
+    required int startMs,
+    int cropDurationMs = 0,
+  }) async {
+    if (_navigationLocked) return;
+    final cleanUrl = url.trim();
+    if (cleanUrl.isEmpty) return;
+    await _enqueue(() => _preloadLocked(
+          url: cleanUrl,
+          startMs: startMs,
+          cropDurationMs: cropDurationMs,
+        ));
+  }
+
+  static Future<void> _preloadLocked({
+    required String url,
+    required int startMs,
+    int cropDurationMs = 0,
+  }) async {
+    if (_navigationLocked) return;
+    try {
+      await _configureSession();
+      final player = _ensurePlayer();
+      final safeStart = startMs < 0 ? 0 : startMs;
+      final safeCrop = cropDurationMs > 250 ? cropDurationMs : 0;
+      final needsLoad = _loadedUrl != url ||
+          _loadedStartMs != safeStart ||
+          _loadedCropMs != safeCrop;
+      if (needsLoad) {
+        await _loadSource(
+          player: player,
+          url: url,
+          startMs: safeStart,
+          cropDurationMs: safeCrop,
+        );
+      }
+      try {
+        await player.seek(Duration(milliseconds: safeStart));
+      } catch (_) {}
+      try {
+        await player.pause();
+      } catch (_) {}
+    } catch (e) {
+      debugPrint('ReelBgmPlaybackService preload error: $e');
+    }
   }
 
   /// Active reel has no BGM — claim ownership and kill any previous track.
@@ -184,6 +264,11 @@ class ReelBgmPlaybackService {
     bool forceSeek = false,
     int cropDurationMs = 0,
   }) async {
+    if (_navigationLocked) {
+      _wantPlaying = false;
+      await _stopPlayerLocked();
+      return;
+    }
     final cleanUrl = url.trim();
     if (cleanUrl.isEmpty || !shouldPlay) {
       await _silenceLocked(reelId);
@@ -253,6 +338,7 @@ class ReelBgmPlaybackService {
   /// Resume only while the owning reel still wants audio.
   static void ensurePlaying({String? reelId}) {
     try {
+      if (_navigationLocked) return;
       if (!_wantPlaying || _loadedUrl == null || _activeReelId == null) return;
       if (reelId != null && _activeReelId != reelId) return;
       final player = _player;

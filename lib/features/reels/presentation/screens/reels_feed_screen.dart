@@ -47,6 +47,8 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
   double _playbackSpeed = 1.0;
   final Set<String> _pausedReelIds = {};
   bool _appInBackground = false;
+  /// True while a pushed route / sheet covers the feed — keeps video muted+BGM off.
+  bool _routeCovered = false;
   Timer? _precacheDelayTimer;
   final ValueNotifier<_ReelSeekInfo?> _seekController =
       ValueNotifier<_ReelSeekInfo?>(null);
@@ -315,6 +317,105 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
     }
   }
 
+  void _coverFeedAudio() {
+    _routeCovered = true;
+    // Pause the live controller NOW — don't wait for forcePaused rebuild.
+    try {
+      _seekController.value?.pause();
+    } catch (_) {}
+    ReelBgmPlaybackService.silenceForNavigation();
+    if (mounted) setState(() {});
+  }
+
+  void _uncoverFeedAudio() {
+    ReelBgmPlaybackService.unlockNavigation();
+    if (!mounted) return;
+    setState(() => _routeCovered = false);
+    // Resume video + BGM after forcePaused rebuild (seek alone was skipping music).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _routeCovered || _appInBackground) return;
+      final items = _getItems(context, listen: false);
+      final reelId = _currentReelIdFrom(items);
+      if (reelId != null && _pausedReelIds.contains(reelId)) return;
+      if (_ratingReelId != null) return;
+      unawaited(_resumeCurrentReelPlayback(items));
+    });
+  }
+
+  Future<void> _resumeCurrentReelPlayback(List<_FeedItem> items) async {
+    final seek = _seekController.value;
+    final reelId = _currentReelIdFrom(items);
+    final reel = (_currentPage >= 0 && _currentPage < items.length)
+        ? items[_currentPage].reel
+        : null;
+    // Share / overlay back → always restart from the beginning.
+    try {
+      await seek?.seekToProgress?.call(0);
+    } catch (_) {}
+    try {
+      await seek?.controller.seekTo(Duration.zero);
+    } catch (_) {}
+    if (reel == null) {
+      try {
+        unawaited(seek?.play());
+      } catch (_) {}
+      return;
+    }
+
+    final music = ReelHelpers.resolveMusic(
+      description: (reel['description'] ?? reel['caption'])?.toString(),
+      musicUrl: reel['musicUrl']?.toString(),
+      musicName: reel['musicName']?.toString(),
+      startSeconds: (reel['musicStartSeconds'] as num?)?.toDouble(),
+      durationSeconds: (reel['musicCropDuration'] as num?)?.toDouble(),
+      videoId: reelId,
+      videoUrl: reel['videoUrl']?.toString(),
+      resolveAudioUrl: (name) => MusicApiService.resolveByName(name)?.audioUrl,
+    );
+    final url = music?.url.trim();
+    if (url == null || url.isEmpty) {
+      unawaited(ReelBgmPlaybackService.silenceForReel(reelId ?? 'resume'));
+      try {
+        unawaited(seek?.play());
+      } catch (_) {}
+      return;
+    }
+    // Music ready first, then video — start together from 0.
+    await ReelBgmPlaybackService.sync(
+      reelId: reelId ?? url,
+      url: url,
+      startMs: ((music?.startSeconds ?? 0) * 1000).round(),
+      videoPositionMs: 0,
+      shouldPlay: true,
+      speed: _playbackSpeed,
+      forceSeek: true,
+      cropDurationMs: ((music?.durationSeconds ?? 0) * 1000).round(),
+    );
+    if (!mounted || _routeCovered) return;
+    try {
+      unawaited(seek?.play());
+    } catch (_) {}
+    ReelBgmPlaybackService.ensurePlaying(reelId: reelId ?? url);
+  }
+
+  Future<T?> _pushWhileCovered<T extends Object?>(
+    String location, {
+    Object? extra,
+  }) async {
+    _coverFeedAudio();
+    // One more frame so forcePaused rebuild lands before the new route paints.
+    await Future<void>.delayed(Duration.zero);
+    if (mounted) _coverFeedAudio();
+    try {
+      return await context.push<T>(location, extra: extra);
+    } finally {
+      // Delay unlock until after the popped route's dispose (which must not
+      // re-lock). One frame is enough for dispose to finish first.
+      await Future<void>.delayed(Duration.zero);
+      _uncoverFeedAudio();
+    }
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final background = state == AppLifecycleState.paused ||
@@ -428,6 +529,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
       }
     }
 
+    ReelBgmPlaybackService.silenceForNavigation();
     setState(() {
       _ratingReelId = reelId;
       _ratingSuccess = false;
@@ -442,9 +544,11 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
     });
   }
 
-  void _openSpeedBottomSheet() {
+  Future<void> _openSpeedBottomSheet() async {
     double modalSpeed = _playbackSpeed;
-    showModalBottomSheet<void>(
+    _coverFeedAudio();
+    try {
+    await showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
@@ -613,6 +717,9 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
         );
       },
     );
+    } finally {
+      _uncoverFeedAudio();
+    }
   }
 
   static const double _sliderHitHeight = 20.0;
@@ -746,8 +853,10 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
               final isActive = index == _currentPage;
               final preloadNext = index == _currentPage + 1;
               final preloadPrev = index == _currentPage - 1;
-              final forcePaused =
-                  _appInBackground || _pausedReelIds.contains(reelId);
+              final forcePaused = _appInBackground ||
+                  _routeCovered ||
+                  _ratingReelId != null ||
+                  _pausedReelIds.contains(reelId);
 
               final int rawLikes = TrendingVideoItem.parseCount(reel['likesCount'] ?? reel['likes']);
               final String likesText = TrendingVideoItem.formatCount(rawLikes);
@@ -761,19 +870,29 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
               final int rawShares = reel['sharesCount'] is int
                   ? reel['sharesCount'] as int
                   : (int.tryParse(reel['shares']?.toString() ?? '') ?? 0);
-              final String sharesText = (reel['shares'] as String?)?.isNotEmpty == true
-                  ? reel['shares'] as String
+              final sharesRaw = reel['shares']?.toString().trim() ?? '';
+              final String sharesText = sharesRaw.isNotEmpty &&
+                      int.tryParse(sharesRaw) == null
+                  ? sharesRaw
                   : _formatCount(rawShares);
 
-              final String viewsText = (reel['views'] as String?)?.isNotEmpty == true
-                  ? reel['views'] as String
-                  : _formatCount(reel['viewsCount'] is int ? reel['viewsCount'] as int : 0);
+              final int rawViews = reel['viewsCount'] is int
+                  ? reel['viewsCount'] as int
+                  : (int.tryParse(reel['views']?.toString() ?? '') ?? 0);
+              final viewsRaw = reel['views']?.toString().trim() ?? '';
+              final String viewsText = viewsRaw.isNotEmpty &&
+                      int.tryParse(viewsRaw) == null
+                  ? viewsRaw
+                  : _formatCount(rawViews);
 
-              final String? categoryName = (reel['category'] as String?)?.trim();
-              final String? challengeTitle = (reel['challengeTitle'] as String?)?.trim() ??
-                  (challenge?['title'] as String?)?.trim();
-              final String creatorName = (reel['creator'] as String?)?.trim() ??
-                  (reel['handle'] as String?)?.trim() ?? '';
+              final String? categoryName = reel['category']?.toString().trim();
+              final String? challengeTitle =
+                  reel['challengeTitle']?.toString().trim() ??
+                      challenge?['title']?.toString().trim();
+              final String creatorName =
+                  reel['creator']?.toString().trim() ??
+                      reel['handle']?.toString().trim() ??
+                      '';
               final resolvedMusic = ReelHelpers.resolveMusic(
                 description: (reel['description'] ?? reel['caption'])?.toString(),
                 musicUrl: reel['musicUrl']?.toString(),
@@ -787,7 +906,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
               );
               final String? musicName = resolvedMusic?.name.trim().isNotEmpty == true
                   ? resolvedMusic!.name.trim()
-                  : (reel['musicName'] as String?)?.trim();
+                  : reel['musicName']?.toString().trim();
               final String soundText = (musicName != null &&
                       musicName.isNotEmpty &&
                       !musicName.startsWith('Original Sound'))
@@ -904,7 +1023,9 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
                         Row(
                           children: [
                             GestureDetector(
-                              onTap: () => context.push(AppRoutes.search),
+                              onTap: () => unawaited(
+                                    _pushWhileCovered(AppRoutes.search),
+                                  ),
                               child: Container(
                                 width: 36,
                                 height: 36,
@@ -924,7 +1045,9 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
                             ),
                             const SizedBox(width: 10),
                             GestureDetector(
-                              onTap: () => context.push(AppRoutes.notifications),
+                              onTap: () => unawaited(
+                                    _pushWhileCovered(AppRoutes.notifications),
+                                  ),
                               child: Container(
                                 width: 36,
                                 height: 36,
@@ -994,8 +1117,11 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
                         _ActionBtn(
                           icon: Icons.chat_bubble_outline,
                           count: commentsText,
-                          onTap: () => context
-                              .push('${AppRoutes.comments}?id=$reelId'),
+                          onTap: () => unawaited(
+                                _pushWhileCovered(
+                                  '${AppRoutes.comments}?id=$reelId',
+                                ),
+                              ),
                         ),
                         const SizedBox(height: 14),
                         _ActionBtn(
@@ -1024,15 +1150,27 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
                                 ? rawUrl
                                 : '';
                             unawaited(VideoShareHelper.precacheVideo(vUrl, videoId: reelId));
-                            context.push(
+                            unawaited(_pushWhileCovered(
                               '${AppRoutes.shareReport}?id=$reelId',
                               extra: {
                                 'reelId': reelId,
                                 'videoUrl': vUrl,
                                 'title': reel['title']?.toString(),
-                                'caption': reel['caption']?.toString(),
+                                'caption': ReelHelpers.cleanDescription(
+                                  (reel['caption'] ?? reel['description'])
+                                      ?.toString(),
+                                ),
+                                'musicUrl': resolvedMusic?.url,
+                                'musicName': resolvedMusic?.name,
+                                'musicStartSeconds':
+                                    resolvedMusic?.startSeconds,
+                                'musicCropDuration':
+                                    resolvedMusic?.durationSeconds,
+                                'description':
+                                    (reel['description'] ?? reel['caption'])
+                                        ?.toString(),
                               },
-                            );
+                            ));
                           },
                         ),
                         const SizedBox(height: 14),
@@ -1056,8 +1194,11 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
                       children: [
                         CreatorInfoRow(reel: reel, lightText: true),
                         GestureDetector(
-                          onTap: () => context
-                              .push('${AppRoutes.videoDetail}?id=$reelId'),
+                          onTap: () => unawaited(
+                            _pushWhileCovered(
+                              '${AppRoutes.videoDetail}?id=$reelId',
+                            ),
+                          ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -1073,21 +1214,28 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
                                 icon: Icons.music_note,
                                 text: soundText,
                               ),
-                              if ((reel['caption'] as String?)?.isNotEmpty == true ||
-                                  (reel['description'] as String?)?.isNotEmpty == true) ...[
-                                const SizedBox(height: 8),
-                                Text(
-                                  ((reel['caption'] as String?)?.isNotEmpty == true
-                                          ? reel['caption'] as String
-                                          : reel['description'] as String)
-                                      .replaceAll(RegExp(r'#+'), '#'),
-                                  style: TextStyle(
-                                    fontSize: 12.5,
-                                    height: 1.4,
-                                    color: Colors.white.withValues(alpha: 0.92),
+                              Builder(builder: (_) {
+                                final captionText = ReelHelpers.cleanDescription(
+                                  (reel['caption']?.toString().trim().isNotEmpty == true
+                                          ? reel['caption']
+                                          : reel['description'])
+                                      ?.toString(),
+                                ).replaceAll(RegExp(r'#+'), '#').trim();
+                                if (captionText.isEmpty) {
+                                  return const SizedBox.shrink();
+                                }
+                                return Padding(
+                                  padding: const EdgeInsets.only(top: 8),
+                                  child: Text(
+                                    captionText,
+                                    style: TextStyle(
+                                      fontSize: 12.5,
+                                      height: 1.4,
+                                      color: Colors.white.withValues(alpha: 0.92),
+                                    ),
                                   ),
-                                ),
-                              ],
+                                );
+                              }),
                               const SizedBox(height: 8),
                               _MetaRow(
                                 icon: Icons.remove_red_eye_outlined,
@@ -1737,16 +1885,25 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
           : widget.videoUrl;
 
   void _syncBgm({bool play = true, bool forceSeek = false}) {
-    // Soft leave — only stop BGM if THIS reel owns it (neighbor dispose must
-    // not cut the newly active reel's track).
-    if (!widget.isActive || !play) {
-      unawaited(ReelBgmPlaybackService.deactivate(_bgmReelKey));
-      return;
-    }
-    // Explicit user / lifecycle pause on the active reel.
-    if (widget.forcePaused) {
+    unawaited(_syncBgmAsync(play: play, forceSeek: forceSeek));
+  }
+
+  /// Awaitable BGM sync — use before [VideoPlayerController.play] so music
+  /// and video start together (remote MP3 load otherwise lags a few seconds).
+  Future<void> _syncBgmAsync({bool play = true, bool forceSeek = false}) async {
+    // Hard stop when leaving / pausing — deactivate alone can miss a key mismatch
+    // and leave music running under Share & Report.
+    if (!play || widget.forcePaused || ReelBgmPlaybackService.isNavigationLocked) {
       ReelBgmPlaybackService.killNow();
       unawaited(ReelBgmPlaybackService.pause());
+      final active = _activeController;
+      if (active != null && active.value.isInitialized) {
+        unawaited(active.pause());
+      }
+      return;
+    }
+    if (!widget.isActive) {
+      unawaited(ReelBgmPlaybackService.deactivate(_bgmReelKey));
       return;
     }
     final url = _bgmUrl;
@@ -1759,7 +1916,7 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
       }
       return;
     }
-    unawaited(ReelBgmPlaybackService.sync(
+    await ReelBgmPlaybackService.sync(
       reelId: _bgmReelKey,
       url: url,
       startMs: (_bgmStartSeconds * 1000).round(),
@@ -1768,7 +1925,33 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
       speed: widget.playbackSpeed,
       forceSeek: forceSeek,
       cropDurationMs: (_bgmCropDurationSeconds * 1000).round(),
-    ));
+    );
+  }
+
+  Future<void> _preloadBgmIfNeeded() async {
+    final url = _bgmUrl;
+    if (url == null || url.isEmpty) return;
+    try {
+      await ReelBgmPlaybackService.preload(
+        url: url,
+        startMs: (_bgmStartSeconds * 1000).round(),
+        cropDurationMs: (_bgmCropDurationSeconds * 1000).round(),
+      ).timeout(const Duration(seconds: 3));
+    } catch (_) {}
+  }
+
+  Future<void> _playVideoWithBgm(VideoPlayerController controller) async {
+    if (!mounted || !widget.isActive || widget.forcePaused) return;
+    unawaited(controller.setVolume(_videoVolume));
+    if (_hasBgm) {
+      // Wait for music to be seeked+ready, then start video in the same beat.
+      await _syncBgmAsync(play: true, forceSeek: true);
+      if (!mounted || !widget.isActive || widget.forcePaused) return;
+    }
+    unawaited(controller.play());
+    if (_hasBgm) {
+      ReelBgmPlaybackService.ensurePlaying(reelId: _bgmReelKey);
+    }
   }
 
   /// When ExoPlayer/native looping jumps position back near zero, restart BGM
@@ -1851,8 +2034,7 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
     } catch (_) {}
     if (!mounted) return;
     if (thenPlay && widget.isActive && !widget.forcePaused) {
-      unawaited(active.play());
-      _syncBgm(play: true, forceSeek: true);
+      await _playVideoWithBgm(active);
     } else {
       unawaited(active.pause());
       _syncBgm(play: false);
@@ -1902,19 +2084,18 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
           if (widget.forcePaused) {
             active.pause();
             _syncBgm(play: false);
-          } else if (!oldWidget.isActive) {
-            // Swiped onto this reel — always start from the beginning + its BGM.
+          } else if (!oldWidget.isActive ||
+              (oldWidget.forcePaused && !widget.forcePaused)) {
+            // Swiped onto reel OR back from Share/Comments — start from beginning.
             unawaited(active.setVolume(_videoVolume));
             unawaited(_resetToStart(thenPlay: true));
           } else {
-            unawaited(active.play());
-            unawaited(active.setVolume(_videoVolume));
             if (widget.playbackSpeed != 1.0) {
               try {
                 active.setPlaybackSpeed(widget.playbackSpeed);
               } catch (_) {}
             }
-            _syncBgm(play: true, forceSeek: true);
+            unawaited(_playVideoWithBgm(active));
           }
         }
       } else if (widget.preloadNext || widget.preloadPrev) {
@@ -1960,8 +2141,7 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
       await applyTo(active);
       if (!mounted) return;
       if (widget.isActive && !widget.forcePaused) {
-        unawaited(active.play());
-        _syncBgm(play: true);
+        await _playVideoWithBgm(active);
       }
     }
     for (final c in _clipControllers.values) {
@@ -1989,6 +2169,10 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
 
   Future<void> _initVideo() async {
     final generation = _initGeneration;
+    // Warm BGM while the video decoder inits so both can start together.
+    final bgmWarm = (widget.isActive && !widget.forcePaused && _hasBgm)
+        ? _preloadBgmIfNeeded()
+        : Future<void>.value();
 
     if (!_hasMultiClips) {
       final candidates = <String>[
@@ -2076,16 +2260,13 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
           });
           _publishSeekController();
         }
+        await bgmWarm;
+        if (!mounted || generation != _initGeneration) return;
         if (widget.isActive && !widget.forcePaused) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (!mounted || generation != _initGeneration) return;
-            if (!widget.isActive || widget.forcePaused) return;
-            final ready = _controller;
-            if (ready == null || !ready.value.isInitialized) return;
-            unawaited(ready.setVolume(_videoVolume));
-            unawaited(ready.play());
-            _syncBgm(play: true, forceSeek: true);
-          });
+          final ready = _controller;
+          if (ready != null && ready.value.isInitialized) {
+            await _playVideoWithBgm(ready);
+          }
         }
         debugPrint('=== VIDEO PLAYBACK === Single player initialized: true ($resolvedUrl)');
         return;
@@ -2142,16 +2323,13 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
                 });
                 _publishSeekController();
               }
+              await bgmWarm;
+              if (!mounted || generation != _initGeneration) return;
               if (widget.isActive && !widget.forcePaused) {
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (!mounted || generation != _initGeneration) return;
-                  if (!widget.isActive || widget.forcePaused) return;
-                  final ready = _controller;
-                  if (ready == null || !ready.value.isInitialized) return;
-                  unawaited(ready.setVolume(_videoVolume));
-                  unawaited(ready.play());
-                  _syncBgm(play: true, forceSeek: true);
-                });
+                final ready = _controller;
+                if (ready != null && ready.value.isInitialized) {
+                  await _playVideoWithBgm(ready);
+                }
               }
               return;
             }
@@ -2190,16 +2368,13 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
           unawaited(c0.setPlaybackSpeed(widget.playbackSpeed));
         }
         unawaited(c0.pause());
+        await bgmWarm;
+        if (!mounted || generation != _initGeneration) return;
         if (widget.isActive && !widget.forcePaused) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (!mounted || generation != _initGeneration) return;
-            if (!widget.isActive || widget.forcePaused) return;
-            final ready = _clipControllers[0];
-            if (ready == null || !ready.value.isInitialized) return;
-            unawaited(ready.setVolume(_videoVolume));
-            unawaited(ready.play());
-            _syncBgm(play: true, forceSeek: true);
-          });
+          final ready = _clipControllers[0];
+          if (ready != null && ready.value.isInitialized) {
+            await _playVideoWithBgm(ready);
+          }
         }
         _startPlaybackTimer();
       } else if (mounted) {
@@ -2321,6 +2496,15 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
   void _onVideoControllerUpdate() {
     final controller = _activeController;
     if (controller == null || !mounted || _isSwitchingClip) return;
+
+    // Covered by Share/Comments/etc. — keep video+music hard-stopped.
+    if (widget.forcePaused || ReelBgmPlaybackService.isNavigationLocked) {
+      if (controller.value.isPlaying) {
+        unawaited(controller.pause());
+      }
+      ReelBgmPlaybackService.killNow();
+      return;
+    }
 
     if (widget.isActive) {
       _publishSeekController(force: false);

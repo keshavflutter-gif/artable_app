@@ -3,9 +3,13 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:artable_app/core/utils/media_url_utils.dart';
+import 'package:artable_app/core/utils/reel_helpers.dart';
 import 'package:crypto/crypto.dart';
+import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
+import 'package:ffmpeg_kit_flutter_new/return_code.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -53,6 +57,9 @@ abstract final class VideoShareHelper {
 
   /// Share video file according to option ('copy', 'whatsapp', 'sms', 'email', 'social')
   /// Returns true if the share action was successfully launched.
+  ///
+  /// When [musicUrl] is set, BGM is muxed into a temp MP4 before WhatsApp/social
+  /// file share (in-app BGM is overlay-only and is not in the stored video).
   static Future<bool> shareVideo({
     required BuildContext context,
     required String optionId,
@@ -61,11 +68,15 @@ abstract final class VideoShareHelper {
     String? title,
     String? caption,
     bool isApiAlreadyRecorded = false,
+    String? musicUrl,
+    double? musicStartSeconds,
+    double? musicCropDuration,
   }) async {
     final cleanVideoId = videoId?.trim();
     String resolvedUrl = MediaUrlUtils.resolve(videoUrl);
     String? resolvedTitle = title?.trim();
-    String? resolvedCaption = caption?.trim();
+    String? resolvedCaption = ReelHelpers.cleanDescription(caption).trim();
+    if (resolvedCaption.isEmpty) resolvedCaption = null;
 
     // 1. If API was not already called and URL is not a direct media link, call /share API
     final isNotDirect = resolvedUrl.isEmpty ||
@@ -91,7 +102,10 @@ abstract final class VideoShareHelper {
             resolvedTitle = data['title']?.toString().trim();
           }
           if (resolvedCaption == null || resolvedCaption.isEmpty) {
-            resolvedCaption = data['description']?.toString().trim();
+            final cleaned = ReelHelpers.cleanDescription(
+              data['description']?.toString(),
+            ).trim();
+            resolvedCaption = cleaned.isEmpty ? null : cleaned;
           }
         }
       } catch (e) {
@@ -215,6 +229,26 @@ abstract final class VideoShareHelper {
       return false;
     }
 
+    // Bake BGM into the file for WhatsApp / social (raw upload has no music).
+    final cleanMusic = MediaUrlUtils.resolve(musicUrl ?? '').trim();
+    if (cleanMusic.isNotEmpty &&
+        (optionId == 'whatsapp' || optionId == 'social')) {
+      final muxed = await _muxMusicIntoVideo(
+        context: context,
+        videoFile: videoFile,
+        musicUrl: cleanMusic,
+        startSeconds: musicStartSeconds ?? 0,
+        cropDurationSeconds: musicCropDuration ?? 0,
+      );
+      if (muxed != null && await muxed.exists() && await muxed.length() > 1024) {
+        videoFile = muxed;
+      }
+    }
+
+    if (cancellation.isCancelled) {
+      return false;
+    }
+
     // Detect proper mime-type and file name
     String mimeType = 'video/mp4';
     String fileName = 'artable_video.mp4';
@@ -317,6 +351,146 @@ abstract final class VideoShareHelper {
       debugPrint('VideoShareHelper: Social share error: $e');
       return false;
     }
+  }
+
+  /// Muxes [musicUrl] onto [videoFile] (replace audio) for sharing.
+  static Future<File?> _muxMusicIntoVideo({
+    required BuildContext context,
+    required File videoFile,
+    required String musicUrl,
+    double startSeconds = 0,
+    double cropDurationSeconds = 0,
+  }) async {
+    BuildContext? dialogContext;
+    try {
+      if (context.mounted) {
+        unawaited(showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) {
+            dialogContext = ctx;
+            return const AlertDialog(
+              content: Row(
+                children: [
+                  SizedBox(
+                    width: 28,
+                    height: 28,
+                    child: CircularProgressIndicator(strokeWidth: 2.5),
+                  ),
+                  SizedBox(width: 16),
+                  Expanded(child: Text('Adding music to video…')),
+                ],
+              ),
+            );
+          },
+        ));
+      }
+
+      final audioFile = await _downloadAudioFile(musicUrl);
+      if (audioFile == null || !await audioFile.exists()) {
+        debugPrint('VideoShareHelper: music download failed');
+        return null;
+      }
+
+      final tempDir = await getTemporaryDirectory();
+      final outDir = Directory('${tempDir.path}/shared_videos');
+      if (!outDir.existsSync()) {
+        outDir.createSync(recursive: true);
+      }
+      final key = md5
+          .convert(utf8.encode(
+            '${videoFile.path}|$musicUrl|$startSeconds|$cropDurationSeconds',
+          ))
+          .toString();
+      final outFile = File('${outDir.path}/share_mux_$key.mp4');
+      if (await outFile.exists() && (await outFile.length()) > 1024) {
+        return outFile;
+      }
+
+      final safeStart = startSeconds < 0 ? 0.0 : startSeconds;
+      final args = <String>[
+        '-y',
+        '-i',
+        videoFile.path,
+        if (safeStart > 0.01) ...['-ss', safeStart.toStringAsFixed(3)],
+        if (cropDurationSeconds > 0.25) ...[
+          '-t',
+          cropDurationSeconds.toStringAsFixed(3),
+        ],
+        '-i',
+        audioFile.path,
+        '-map',
+        '0:v:0',
+        '-map',
+        '1:a:0',
+        '-c:v',
+        'copy',
+        '-c:a',
+        'aac',
+        '-b:a',
+        '128k',
+        '-shortest',
+        outFile.path,
+      ];
+
+      debugPrint('VideoShareHelper: mux cmd ${args.join(' ')}');
+      final session = await FFmpegKit.executeWithArguments(args);
+      final code = await session.getReturnCode();
+      if (!ReturnCode.isSuccess(code)) {
+        final logs = await session.getAllLogsAsString();
+        debugPrint('VideoShareHelper: mux failed code=$code logs=$logs');
+        try {
+          if (await outFile.exists()) await outFile.delete();
+        } catch (_) {}
+        return null;
+      }
+      if (!await outFile.exists() || (await outFile.length()) <= 1024) {
+        return null;
+      }
+      return outFile;
+    } catch (e) {
+      debugPrint('VideoShareHelper: mux error: $e');
+      return null;
+    } finally {
+      _safePopDialog(dialogContext);
+    }
+  }
+
+  static Future<File?> _downloadAudioFile(String url) async {
+    final clean = url.trim();
+    if (clean.isEmpty) return null;
+    try {
+      final tempDir = await getTemporaryDirectory();
+      final cacheDir = Directory('${tempDir.path}/shared_audio');
+      if (!cacheDir.existsSync()) {
+        cacheDir.createSync(recursive: true);
+      }
+      final hash = md5.convert(utf8.encode(clean)).toString();
+      final ext = clean.toLowerCase().contains('.m4a')
+          ? 'm4a'
+          : clean.toLowerCase().contains('.wav')
+              ? 'wav'
+              : 'mp3';
+      final target = File('${cacheDir.path}/bgm_$hash.$ext');
+      if (await target.exists() && (await target.length()) > 512) {
+        return target;
+      }
+      if (clean.startsWith('http://') || clean.startsWith('https://')) {
+        final res = await http.get(Uri.parse(clean)).timeout(
+          const Duration(seconds: 45),
+        );
+        if (res.statusCode != 200 || res.bodyBytes.isEmpty) return null;
+        await target.writeAsBytes(res.bodyBytes, flush: true);
+        return target;
+      }
+      final local = File(clean.startsWith('file://')
+          ? clean.replaceFirst('file://', '')
+          : clean);
+      if (await local.exists()) return local;
+    } catch (e) {
+      debugPrint('VideoShareHelper: audio download error: $e');
+    }
+    return null;
   }
 
   /// Downloads network video to a local cache file (streamed, safe atomic write, timeout).

@@ -47,6 +47,54 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
   bool _hasStageError = false;
   String? _currentLoadedVideoUrl;
   int _stageInitGeneration = 0;
+  /// True while another route covers this screen — BGM/video must stay off.
+  bool _routeCovered = false;
+
+  void _coverDetailAudio() {
+    _routeCovered = true;
+    try {
+      _stageController?.pause();
+    } catch (_) {}
+    ReelBgmPlaybackService.silenceForNavigation();
+    if (mounted) setState(() {});
+  }
+
+  void _uncoverDetailAudio() {
+    ReelBgmPlaybackService.unlockNavigation();
+    if (!mounted) return;
+    setState(() => _routeCovered = false);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _routeCovered || _isStageUserPaused) return;
+      if (_stageController == null || !_isStageInitialized) return;
+      // Share / overlay back → restart from start; music ready then video.
+      unawaited(() async {
+        try {
+          await _stageController!.seekTo(Duration.zero);
+        } catch (_) {}
+        if (!mounted || _routeCovered || _isStageUserPaused) return;
+        _lastStagePosMs = 0;
+        await _syncStageBgmAsync(play: true);
+        if (!mounted || _routeCovered || _isStageUserPaused) return;
+        unawaited(_stageController!.play());
+        ReelBgmPlaybackService.ensurePlaying();
+      }());
+    });
+  }
+
+  Future<T?> _pushWhileCovered<T extends Object?>(
+    String location, {
+    Object? extra,
+  }) async {
+    _coverDetailAudio();
+    await Future<void>.delayed(Duration.zero);
+    if (mounted) _coverDetailAudio();
+    try {
+      return await context.push<T>(location, extra: extra);
+    } finally {
+      await Future<void>.delayed(Duration.zero);
+      _uncoverDetailAudio();
+    }
+  }
 
   bool _mapHasPlayableVideo(Map<String, dynamic>? map) {
     if (map == null || map.isEmpty) return false;
@@ -174,6 +222,16 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     final posMs = value.position.inMilliseconds;
     final durMs = value.duration.inMilliseconds;
 
+    // Covered by another screen — keep stage video + music stopped.
+    if (_routeCovered || ReelBgmPlaybackService.isNavigationLocked) {
+      if (value.isPlaying) {
+        unawaited(_stageController?.pause());
+      }
+      ReelBgmPlaybackService.killNow();
+      _lastStagePosMs = posMs;
+      return;
+    }
+
     // When native looping restarts the video, restart BGM with it.
     if (!_isStageUserPaused && _isStageInitialized) {
       final prev = _lastStagePosMs;
@@ -258,13 +316,17 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
   }
 
   void _syncStageBgm({required bool play}) {
+    unawaited(_syncStageBgmAsync(play: play));
+  }
+
+  Future<void> _syncStageBgmAsync({required bool play}) async {
     final music = _resolveReelMusic();
     final url = music?.url.trim() ?? '';
     final reelId = _reel['id']?.toString() ??
         _reel['_id']?.toString() ??
         widget.reelId ??
         'detail';
-    if (!play || _isStageUserPaused || url.isEmpty) {
+    if (!play || _isStageUserPaused || _routeCovered || url.isEmpty) {
       ReelBgmPlaybackService.killNow();
       unawaited(ReelBgmPlaybackService.deactivate(reelId));
       return;
@@ -272,7 +334,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     final posMs = _stageController?.value.isInitialized == true
         ? _stageController!.value.position.inMilliseconds
         : 0;
-    unawaited(ReelBgmPlaybackService.sync(
+    await ReelBgmPlaybackService.sync(
       reelId: reelId,
       url: url,
       startMs: ((music?.startSeconds ?? 0) * 1000).round(),
@@ -280,7 +342,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
       shouldPlay: true,
       forceSeek: true,
       cropDurationMs: ((music?.durationSeconds ?? 0) * 1000).round(),
-    ));
+    );
   }
 
   Future<void> _releaseStagePlayer() async {
@@ -420,7 +482,20 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
         await controller.setLooping(true);
         final hasBgm = _resolveReelMusic(reelMap)?.url.isNotEmpty == true;
         await controller.setVolume(hasBgm ? 0.0 : 1.0);
-        await controller.play();
+        // Warm BGM before play so video + music start together.
+        if (hasBgm && !_routeCovered) {
+          await _syncStageBgmAsync(play: true);
+        }
+        if (!mounted || gen != _stageInitGeneration) {
+          try {
+            await controller.dispose();
+          } catch (_) {}
+          return;
+        }
+        if (!_isStageUserPaused && !_routeCovered) {
+          await controller.play();
+          if (hasBgm) ReelBgmPlaybackService.ensurePlaying();
+        }
 
         if (!mounted || gen != _stageInitGeneration) {
           try {
@@ -434,7 +509,6 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
           _isStageUserPaused = false;
           _hasStageError = false;
         });
-        _syncStageBgm(play: true);
         if (previous != null && !identical(previous, controller)) {
           try {
             await previous.pause();
@@ -658,10 +732,17 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
 
                   const SizedBox(height: 12),
 
-                  // 3. Caption & Hashtags
-                  if ((reel['caption'] as String?)?.isNotEmpty == true)
-                    Text(
-                      (reel['caption'] as String).replaceAll(RegExp(r'#+'), '#'),
+                  // 3. Caption & Hashtags (strip embedded music/filter/clips tags)
+                  Builder(builder: (_) {
+                    final captionText = ReelHelpers.cleanDescription(
+                      (reel['caption']?.toString().trim().isNotEmpty == true
+                              ? reel['caption']
+                              : reel['description'])
+                          ?.toString(),
+                    ).replaceAll(RegExp(r'#+'), '#').trim();
+                    if (captionText.isEmpty) return const SizedBox.shrink();
+                    return Text(
+                      captionText,
                       style: const TextStyle(
                         fontFamily: 'Inter',
                         fontSize: 13,
@@ -669,7 +750,8 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                         color: AppColors.text,
                         height: 1.5,
                       ),
-                    ),
+                    );
+                  }),
 
                   const SizedBox(height: 14),
 
@@ -765,6 +847,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
       // Give ExoPlayer a beat to free the decoder / file handle.
       await Future<void>.delayed(const Duration(milliseconds: 120));
       if (!mounted) return;
+      // Stage already released above — plain push; Full Reel owns BGM.
       await context.push('${AppRoutes.reelsFeed}?id=$reelId', extra: enriched);
       if (mounted) {
         await _initStageVideo();
@@ -782,9 +865,13 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                 _isStageUserPaused = true;
                 _syncStageBgm(play: false);
               } else {
-                _stageController!.play();
                 _isStageUserPaused = false;
-                _syncStageBgm(play: true);
+                unawaited(() async {
+                  await _syncStageBgmAsync(play: true);
+                  if (!mounted || _routeCovered || _isStageUserPaused) return;
+                  unawaited(_stageController?.play());
+                  ReelBgmPlaybackService.ensurePlaying();
+                }());
               }
             });
           } else if (!_isStageLoading) {
@@ -1118,7 +1205,9 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
       child: InkWell(
         onTap: () {
           if (targetUserId != null && targetUserId.isNotEmpty) {
-            context.push('/public-profile?id=$targetUserId');
+            unawaited(
+              _pushWhileCovered('/public-profile?id=$targetUserId'),
+            );
           }
         },
         borderRadius: BorderRadius.circular(16),
@@ -1269,7 +1358,9 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
           icon: Icons.chat_bubble_outline,
           value: comments,
           label: 'Comments',
-          onTap: () => context.push('${AppRoutes.comments}?id=$reelId'),
+          onTap: () => unawaited(
+                _pushWhileCovered('${AppRoutes.comments}?id=$reelId'),
+              ),
         ),
         const SizedBox(width: 5),
         _buildStatItem(
@@ -1287,15 +1378,24 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
           onTap: () {
             final vUrl = _reel['videoUrl']?.toString() ?? _reel['video_url']?.toString() ?? '';
             unawaited(VideoShareHelper.precacheVideo(vUrl, videoId: reelId));
-            context.push(
+            final shareMusic = _resolveReelMusic(_reel);
+            unawaited(_pushWhileCovered(
               '${AppRoutes.shareReport}?id=$reelId',
               extra: {
                 'reelId': reelId,
                 'videoUrl': vUrl,
                 'title': _reel['title']?.toString(),
-                'caption': _reel['caption']?.toString(),
+                'caption': ReelHelpers.cleanDescription(
+                  (_reel['caption'] ?? _reel['description'])?.toString(),
+                ),
+                'description':
+                    (_reel['description'] ?? _reel['caption'])?.toString(),
+                'musicUrl': shareMusic?.url,
+                'musicName': shareMusic?.name,
+                'musicStartSeconds': shareMusic?.startSeconds,
+                'musicCropDuration': shareMusic?.durationSeconds,
               },
-            );
+            ));
           },
         ),
       ],
@@ -1450,7 +1550,11 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: () => context.push('${AppRoutes.talentRating}?id=${reel['id']}'),
+        onTap: () => unawaited(
+              _pushWhileCovered(
+                '${AppRoutes.talentRating}?id=${reel['id']}',
+              ),
+            ),
         borderRadius: BorderRadius.circular(22),
         child: Container(
           height: 52,
@@ -1495,7 +1599,11 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: () => context.push('${AppRoutes.challengeDetail}?id=${challenge['id']}'),
+        onTap: () => unawaited(
+              _pushWhileCovered(
+                '${AppRoutes.challengeDetail}?id=${challenge['id']}',
+              ),
+            ),
         borderRadius: BorderRadius.circular(22),
         child: Container(
           height: 48,
@@ -1562,7 +1670,11 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
         final isVerified = item['verified'] == true;
 
         return GestureDetector(
-          onTap: () => context.push('${AppRoutes.videoDetail}?id=${item['id']}'),
+          onTap: () => unawaited(
+                _pushWhileCovered(
+                  '${AppRoutes.videoDetail}?id=${item['id']}',
+                ),
+              ),
           child: Container(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(16),

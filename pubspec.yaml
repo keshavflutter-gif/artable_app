@@ -61,6 +61,7 @@ dependencies:
   wakelock_plus: ^1.2.1
   image_cropper: ^9.1.0
   google_mobile_ads: ^9.2.0
+  ffmpeg_kit_flutter_new: ^4.6.7
 
 dev_dependencies:
   flutter_test:

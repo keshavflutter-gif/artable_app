@@ -280,6 +280,13 @@ abstract final class AppRouter {
               videoUrl: state.uri.queryParameters['videoUrl'] ?? extraMap?['videoUrl']?.toString(),
               title: extraMap?['title']?.toString(),
               caption: extraMap?['caption']?.toString(),
+              description: extraMap?['description']?.toString(),
+              musicUrl: extraMap?['musicUrl']?.toString(),
+              musicName: extraMap?['musicName']?.toString(),
+              musicStartSeconds:
+                  (extraMap?['musicStartSeconds'] as num?)?.toDouble(),
+              musicCropDuration:
+                  (extraMap?['musicCropDuration'] as num?)?.toDouble(),
             );
           },
         ),

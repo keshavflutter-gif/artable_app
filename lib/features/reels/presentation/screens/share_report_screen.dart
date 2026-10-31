@@ -15,6 +15,9 @@ import 'package:artable_app/features/trending/presentation/bloc/trending_videos_
 
 import 'package:artable_app/core/utils/media_url_utils.dart';
 import 'package:artable_app/core/utils/video_share_helper.dart';
+import 'package:artable_app/data/datasources/music_api_service.dart';
+import 'package:artable_app/features/reels/data/services/reel_bgm_playback_service.dart';
+import 'package:artable_app/features/studio/data/services/studio_music_playback_service.dart';
 
 const String _whatsappSvg = '''
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
@@ -29,12 +32,22 @@ class ShareReportScreen extends StatefulWidget {
     this.videoUrl,
     this.title,
     this.caption,
+    this.description,
+    this.musicUrl,
+    this.musicName,
+    this.musicStartSeconds,
+    this.musicCropDuration,
   });
 
   final String? reelId;
   final String? videoUrl;
   final String? title;
   final String? caption;
+  final String? description;
+  final String? musicUrl;
+  final String? musicName;
+  final double? musicStartSeconds;
+  final double? musicCropDuration;
 
   @override
   State<ShareReportScreen> createState() => _ShareReportScreenState();
@@ -48,9 +61,21 @@ class _ShareReportScreenState extends State<ShareReportScreen> {
   @override
   void initState() {
     super.initState();
+    // Never leave Challenge Arena / detail BGM playing under this screen.
+    ReelBgmPlaybackService.silenceForNavigation();
+    StudioMusicPlaybackService.directPause();
+    unawaited(StudioMusicPlaybackService.stop());
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      ReelBgmPlaybackService.silenceForNavigation();
       _precacheVideo();
     });
+  }
+
+  @override
+  void dispose() {
+    // Do NOT call silenceForNavigation() here — it re-locks BGM after the
+    // feed already unlocked on pop, which leaves video stuck paused.
+    super.dispose();
   }
 
   void _precacheVideo() {
@@ -208,14 +233,44 @@ class _ShareReportScreenState extends State<ShareReportScreen> {
                                     }
 
                                     if (!mounted) return;
-                                    final bool success = await VideoShareHelper.shareVideo(
+                                    final music = ReelHelpers.resolveMusic(
+                                      description: (widget.description ??
+                                              reel?['description'] ??
+                                              reel?['caption'] ??
+                                              shareCaption)
+                                          ?.toString(),
+                                      musicUrl: widget.musicUrl ??
+                                          reel?['musicUrl']?.toString(),
+                                      musicName: widget.musicName ??
+                                          reel?['musicName']?.toString(),
+                                      startSeconds: widget.musicStartSeconds ??
+                                          (reel?['musicStartSeconds'] as num?)
+                                              ?.toDouble(),
+                                      durationSeconds:
+                                          widget.musicCropDuration ??
+                                              (reel?['musicCropDuration']
+                                                      as num?)
+                                                  ?.toDouble(),
+                                      videoId: effectiveVideoId,
+                                      videoUrl: shareUrl,
+                                      resolveAudioUrl: (name) =>
+                                          MusicApiService.resolveByName(name)
+                                              ?.audioUrl,
+                                    );
+                                    final bool success =
+                                        await VideoShareHelper.shareVideo(
                                       context: this.context,
                                       optionId: id,
                                       videoUrl: shareUrl,
                                       videoId: effectiveVideoId,
                                       title: shareTitle,
-                                      caption: shareCaption,
+                                      caption: ReelHelpers.cleanDescription(
+                                        shareCaption,
+                                      ),
                                       isApiAlreadyRecorded: true,
+                                      musicUrl: music?.url,
+                                      musicStartSeconds: music?.startSeconds,
+                                      musicCropDuration: music?.durationSeconds,
                                     );
                                     if (success && (id == 'whatsapp' || id == 'social') && mounted) {
                                       navigator.pop();
