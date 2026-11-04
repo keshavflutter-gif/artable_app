@@ -1,6 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:artable_app/core/network/api_exception.dart';
+import 'package:artable_app/core/utils/comment_permissions.dart';
 import 'package:artable_app/core/utils/reel_helpers.dart';
 import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
 import 'package:artable_app/features/trending/data/models/trending_videos_response.dart';
@@ -674,6 +678,7 @@ class ReelsCubit extends Cubit<ReelsState> {
       'user': user,
       'likes': item['likes'] is int ? item['likes'] as int : (int.tryParse(item['likes']?.toString() ?? '') ?? 0),
       'isBlueTick': user?['isBlueTick'] == true || user?['is_blue_tick'] == true,
+      'canDelete': item['canDelete'] == true || item['can_delete'] == true,
     };
   }
 
@@ -718,9 +723,22 @@ class ReelsCubit extends Cubit<ReelsState> {
       );
 
       if (res['success'] == true && res['data'] is List) {
+        final video = getVideo(vId);
         final list = (res['data'] as List)
             .whereType<Map>()
-            .map((item) => _commentItemFromApiJson(Map<String, dynamic>.from(item)))
+            .map((item) {
+              final mapped =
+                  _commentItemFromApiJson(Map<String, dynamic>.from(item));
+              // Prefer server canDelete; otherwise derive from author/owner rules.
+              if (mapped['canDelete'] != true) {
+                mapped['canDelete'] = CommentPermissions.canDeleteComment(
+                  currentUserId: currentUserId,
+                  comment: mapped,
+                  video: video,
+                );
+              }
+              return mapped;
+            })
             .toList();
 
         final commentsMap = Map<String, List<Map<String, dynamic>>>.from(state.commentsMap);
@@ -762,8 +780,11 @@ class ReelsCubit extends Cubit<ReelsState> {
     final avatar = _authCubit?.avatarUrl ?? '';
 
     final tempCommentId = 'cm_${DateTime.now().millisecondsSinceEpoch}';
+    final me = currentUserId == 'default_user' ? '' : currentUserId;
     final tempComment = {
       'id': tempCommentId,
+      'userId': me,
+      'videoId': videoId,
       'userName': name,
       'username': name,
       'userAvatar': avatar,
@@ -772,6 +793,7 @@ class ReelsCubit extends Cubit<ReelsState> {
       'timeAgo': 'Just now',
       'time': 'Just now',
       'likes': 0,
+      'canDelete': me.isNotEmpty,
     };
 
     final comments = Map<String, List<Map<String, dynamic>>>.from(state.commentsMap);
@@ -890,6 +912,15 @@ class ReelsCubit extends Cubit<ReelsState> {
     }
   }
 
+  /// Whether the logged-in user may delete [comment] on [videoId].
+  bool canDeleteComment(String videoId, Map<String, dynamic> comment) {
+    return CommentPermissions.canDeleteComment(
+      currentUserId: currentUserId,
+      comment: comment,
+      video: getVideo(videoId.trim()),
+    );
+  }
+
   Future<bool> deleteComment({
     required String videoId,
     required String commentId,
@@ -898,48 +929,94 @@ class ReelsCubit extends Cubit<ReelsState> {
     final cleanCommentId = commentId.trim();
     if (cleanCommentId.isEmpty) return false;
 
-    final comments = Map<String, List<Map<String, dynamic>>>.from(state.commentsMap);
-    final list = comments[cleanVideoId];
-    if (list != null) {
-      list.removeWhere((item) =>
-          (item['id']?.toString() ?? item['_id']?.toString() ?? '') == cleanCommentId);
-      comments[cleanVideoId] = list;
-    }
-
-    final videos = List<Map<String, dynamic>>.from(
-      state.videos.map((v) => Map<String, dynamic>.from(v)),
-    );
-    for (final v in videos) {
-      final vId = v['id']?.toString() ?? v['_id']?.toString() ?? '';
-      if (vId == cleanVideoId) {
-        final current = v['commentsCount'] as int? ?? 0;
-        final newCount = (current - 1).clamp(0, 999999);
-        v['commentsCount'] = newCount;
-        v['comments'] = TrendingVideoItem.formatCount(newCount);
-        break;
+    final existing = state.commentsMap[cleanVideoId];
+    Map<String, dynamic>? target;
+    if (existing != null) {
+      for (final item in existing) {
+        final id = item['id']?.toString() ?? item['_id']?.toString() ?? '';
+        if (id == cleanCommentId) {
+          target = item;
+          break;
+        }
       }
     }
 
-    emit(state.copyWith(
-      commentsMap: comments,
-      videos: videos,
-    ));
+    // Client-side gate — never call delete API for unauthorized users.
+    if (target != null && !canDeleteComment(cleanVideoId, target)) {
+      debugPrint(
+        'deleteComment blocked: user=$currentUserId is not comment author or video owner',
+      );
+      return false;
+    }
+    if (target == null && currentUserId == 'default_user') {
+      return false;
+    }
 
     try {
       final token = _authCubit?.sessionToken;
       final refresh = _authCubit?.refreshToken;
+      if (token == null ||
+          token.isEmpty ||
+          token == 'design_preview') {
+        debugPrint('deleteComment blocked: missing auth session');
+        return false;
+      }
+
       final res = await _videosRepository.deleteComment(
         commentId: cleanCommentId,
-        sessionToken: token != 'design_preview' ? token : null,
+        sessionToken: token,
         refreshToken: refresh != 'design_preview' ? refresh : null,
       );
 
-      if (res['success'] == true) {
-        return true;
+      if (res['success'] != true) {
+        if (cleanVideoId.isNotEmpty) {
+          unawaited(fetchComments(cleanVideoId));
+        }
+        return false;
       }
-    } catch (_) {
+
+      // Update local state only after server confirms delete.
+      final comments =
+          Map<String, List<Map<String, dynamic>>>.from(state.commentsMap);
+      final list = comments[cleanVideoId];
+      if (list != null) {
+        list.removeWhere((item) =>
+            (item['id']?.toString() ?? item['_id']?.toString() ?? '') ==
+            cleanCommentId);
+        comments[cleanVideoId] = list;
+      }
+
+      final videos = List<Map<String, dynamic>>.from(
+        state.videos.map((v) => Map<String, dynamic>.from(v)),
+      );
+      for (final v in videos) {
+        final vId = v['id']?.toString() ?? v['_id']?.toString() ?? '';
+        if (vId == cleanVideoId) {
+          final current = v['commentsCount'] as int? ?? 0;
+          final newCount = (current - 1).clamp(0, 999999);
+          v['commentsCount'] = newCount;
+          v['comments'] = TrendingVideoItem.formatCount(newCount);
+          break;
+        }
+      }
+
+      emit(state.copyWith(
+        commentsMap: comments,
+        videos: videos,
+      ));
+      return true;
+    } on ApiException catch (e) {
+      debugPrint(
+        'deleteComment denied/failed: status=${e.statusCode} msg=${e.message}',
+      );
       if (cleanVideoId.isNotEmpty) {
-        fetchComments(cleanVideoId);
+        unawaited(fetchComments(cleanVideoId));
+      }
+      return false;
+    } catch (e) {
+      debugPrint('deleteComment error: $e');
+      if (cleanVideoId.isNotEmpty) {
+        unawaited(fetchComments(cleanVideoId));
       }
     }
     return false;
