@@ -23,11 +23,11 @@ class VideoThumbnailGenerator {
       if (cleanPath.isEmpty) return null;
       final isRemote = cleanPath.startsWith('http://') || cleanPath.startsWith('https://');
       if (!isRemote) {
-        final videoFile = File(cleanPath);
-        if (!await videoFile.exists()) {
-          debugPrint('VideoThumbnailGenerator: File not found at $cleanPath');
-          return null;
-        }
+      final videoFile = File(cleanPath);
+      if (!await videoFile.exists()) {
+        debugPrint('VideoThumbnailGenerator: File not found at $cleanPath');
+        return null;
+      }
       }
 
       final tempDir = await getTemporaryDirectory();

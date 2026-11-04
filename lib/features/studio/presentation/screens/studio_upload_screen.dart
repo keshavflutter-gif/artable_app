@@ -203,6 +203,9 @@ class _StudioUploadScreenState extends State<StudioUploadScreen> {
         filterId: studioCubit.recordingFilter,
         beautyOn: studioCubit.recordingBeautyOn,
         beautyIntensity: studioCubit.recordingBeautyIntensity,
+        videoCropAspectRatio: studioCubit.videoCropAspectRatio,
+        playbackSpeed: studioCubit.selectedSpeed,
+        muteOriginalAudio: studioCubit.isMuted,
       );
 
       // Step 3: Submitting Entry & Feed Refresh

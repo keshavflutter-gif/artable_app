@@ -25,6 +25,8 @@ import 'package:artable_app/core/utils/media_url_utils.dart';
 import 'package:artable_app/core/utils/app_filter_utils.dart';
 import 'package:artable_app/core/utils/studio_video_player_utils.dart';
 import 'package:artable_app/core/utils/validators.dart';
+import 'package:artable_app/core/utils/video_crop_utils.dart';
+import 'package:artable_app/core/utils/video_speed_utils.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Screen
@@ -1720,7 +1722,31 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen>
     switch (id) {
       case 'crop':
         if (!mounted) return;
-        VideoCropSheet.show(context);
+        await VideoCropSheet.show(
+          context,
+          onCropApplied: () async {
+            if (!mounted) return;
+            final studio = context.read<StudioCubit>();
+            // Keep draft map in sync so reload uses cropped files.
+            if (widget.draftId != null && _draft != null) {
+              final updated = Map<String, dynamic>.from(_draft!);
+              final path = studio.recordedVideoPath;
+              if (path != null && path.isNotEmpty) {
+                updated['videoPath'] = path;
+                updated['videoUrl'] = path;
+              }
+              final clips = studio.state.mergedClipPaths;
+              if (clips != null && clips.length > 1) {
+                updated['mergedClipPaths'] = List<String>.from(clips);
+              } else {
+                updated.remove('mergedClipPaths');
+              }
+              updated['videoCropAspectRatio'] = studio.videoCropAspectRatio;
+              studio.updateDraftMap(updated);
+            }
+            await _initAllClips();
+          },
+        );
         break;
 
       case 'trim':
@@ -2106,6 +2132,7 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen>
       final mergedDurations = clips.map((c) => c.trimmedDuration.inMilliseconds / 1000.0).toList();
       final mergedFilters = clips.map((c) => c.filterId).toList();
       final totalDur = _clipNotifier.totalTrimmedDuration;
+      // Keep source duration in state; UI/export apply speed separately.
       final formattedDur = _fmtDuration(totalDur);
 
       // 3. Save editor state to StudioCubit
@@ -2250,13 +2277,16 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen>
     final activeThumb = activeClip?.thumbnailBytes ??
         (activeClip != null ? AppImage.getCachedThumbnail(activeClip.filePath) : null);
 
+    final cropRatio =
+        VideoCropUtils.aspectRatioValue(studio.videoCropAspectRatio);
+
     return Expanded(
       flex: 5,
       child: Center(
         child: GestureDetector(
           onTap: _togglePlay,
           child: AspectRatio(
-            aspectRatio: 9 / 16,
+            aspectRatio: cropRatio,
             child: ClipRRect(
               borderRadius: BorderRadius.circular(16),
               child: AppFilterUtils.buildFilteredView(
@@ -2269,28 +2299,37 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen>
                 child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  // Video or placeholder with smooth fallback
+                  // Video or placeholder — center-cropped to selected ratio
                   if (isInit)
                     Container(
                       color: Colors.black,
-                      child: Center(
-                        child: AspectRatio(
-                          aspectRatio: c.value.aspectRatio > 0 ? c.value.aspectRatio : 9 / 16,
-                          child: Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              RepaintBoundary(
-                                // No ValueKey(controller) — remount breaks draft-continue playback.
-                                child: VideoPlayer(c),
-                              ),
-                              if (!_videoFrameReady && activeThumb != null)
-                                Image.memory(
-                                  activeThumb,
-                                  fit: BoxFit.cover,
-                                  gaplessPlayback: true,
+                      child: ClipRect(
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            FittedBox(
+                              fit: BoxFit.cover,
+                              alignment: Alignment.center,
+                              child: SizedBox(
+                                width: c.value.size.width > 0
+                                    ? c.value.size.width
+                                    : 9,
+                                height: c.value.size.height > 0
+                                    ? c.value.size.height
+                                    : 16,
+                                child: RepaintBoundary(
+                                  // No ValueKey(controller) — remount breaks draft-continue playback.
+                                  child: VideoPlayer(c),
                                 ),
-                            ],
-                          ),
+                              ),
+                            ),
+                            if (!_videoFrameReady && activeThumb != null)
+                              Image.memory(
+                                activeThumb,
+                                fit: BoxFit.cover,
+                                gaplessPlayback: true,
+                              ),
+                          ],
                         ),
                       ),
                     )
@@ -2386,6 +2425,10 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen>
 
   // ─── Playback Controls ─────────────────────────────────────────────────────
   Widget _buildControls(int posMs, int totalMs) {
+    final speed = context.watch<StudioCubit>().speedMultiplier.clamp(0.4, 4.0);
+    // Show playback duration (source / speed), not raw source length.
+    final displayPos = VideoSpeedUtils.adjustedMs(posMs, speed);
+    final displayTotal = VideoSpeedUtils.adjustedMs(totalMs, speed);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       child: Row(
@@ -2405,7 +2448,7 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen>
           ),
           const Spacer(),
           Text(
-            '${_fmt(posMs)} / ${_fmt(totalMs)}',
+            '${VideoSpeedUtils.formatMs(displayPos)} / ${VideoSpeedUtils.formatMs(displayTotal)}',
             style: const TextStyle(
               color: Colors.white70,
               fontSize: 13,
@@ -2439,6 +2482,7 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen>
           onTrimChanged: _onTrimChanged,
           isPlaying: _playing,
           isMerging: false,
+          speedMultiplier: context.watch<StudioCubit>().speedMultiplier,
         ),
 
         const SizedBox(height: 5),

@@ -3,6 +3,7 @@ import 'package:video_player/video_player.dart';
 
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/core/utils/app_filter_utils.dart';
+import 'package:artable_app/core/utils/video_crop_utils.dart';
 
 class RecordedVideoPreview extends StatelessWidget {
   const RecordedVideoPreview({
@@ -43,33 +44,24 @@ class RecordedVideoPreview extends StatelessWidget {
   final List<VideoPlayerController>? clipControllers;
   final int currentClipIndex;
 
-  double get _targetContainerRatio {
-    switch (cropAspectRatio) {
-      case '1:1':
-        return 1.0;
-      case '4:5':
-        return 4 / 5;
-      case '16:9':
-        return 16 / 9;
-      case '9:16':
-      default:
-        return 3 / 4;
-    }
-  }
+  double get _targetContainerRatio =>
+      VideoCropUtils.aspectRatioValue(cropAspectRatio);
 
+  /// Center-crop preview: fill target ratio without stretching.
   Widget _buildSurface(VideoPlayerController vc) {
-    final ratio = cropAspectRatio == '1:1'
-        ? 1.0
-        : cropAspectRatio == '4:5'
-            ? 4 / 5
-            : cropAspectRatio == '16:9'
-                ? 16 / 9
-                : (vc.value.aspectRatio > 0 ? vc.value.aspectRatio : 9 / 16);
-    return AspectRatio(
-      aspectRatio: ratio,
+    final size = vc.value.size;
+    final w = size.width > 0 ? size.width : 9.0;
+    final h = size.height > 0 ? size.height : 16.0;
+    return FittedBox(
+      fit: BoxFit.cover,
+      alignment: Alignment.center,
       // No ValueKey(controller) — remounting the texture is what makes
       // draft-continue / clip switches visibly stutter.
-      child: VideoPlayer(vc),
+      child: SizedBox(
+        width: w,
+        height: h,
+        child: VideoPlayer(vc),
+      ),
     );
   }
 
@@ -88,7 +80,7 @@ class RecordedVideoPreview extends StatelessWidget {
             child: IgnorePointer(
               child: Opacity(
                 opacity: visible ? 1 : 0,
-                child: Center(child: _buildSurface(c)),
+                child: ClipRect(child: _buildSurface(c)),
               ),
             ),
           ),
@@ -109,7 +101,7 @@ class RecordedVideoPreview extends StatelessWidget {
     if (vc == null || !vc.value.isInitialized) {
       return const SizedBox.shrink();
     }
-    return Center(child: _buildSurface(vc));
+    return ClipRect(child: _buildSurface(vc));
   }
 
   @override

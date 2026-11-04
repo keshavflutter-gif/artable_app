@@ -13,6 +13,8 @@ import 'package:artable_app/core/widgets/app_image.dart';
 import 'package:artable_app/core/utils/media_url_utils.dart';
 import 'package:artable_app/core/utils/studio_video_player_utils.dart';
 import 'package:artable_app/core/utils/video_cache_manager.dart';
+import 'package:artable_app/core/utils/video_crop_utils.dart';
+import 'package:artable_app/core/utils/video_speed_utils.dart';
 import '../models/trending_videos_response.dart';
 
 class VideosRepository {
@@ -181,6 +183,9 @@ class VideosRepository {
     String? filterId,
     bool? beautyOn,
     double? beautyIntensity,
+    String? videoCropAspectRatio,
+    String? playbackSpeed,
+    bool muteOriginalAudio = false,
     void Function(int sent, int total)? onUploadProgress,
   }) async {
     String _normPath(String p) {
@@ -244,6 +249,59 @@ class VideosRepository {
       } catch (e) {
         debugPrint('createVideo: merge error, clip playlist fallback: $e');
       }
+    }
+
+    // 1b. Bake playback speed into the file (duration = source / speed).
+    final speed = VideoSpeedUtils.parseMultiplier(playbackSpeed);
+    Future<String> applySpeedIfNeeded(String path) async {
+      final sped = await VideoSpeedUtils.applySpeedToFile(
+        path,
+        speed,
+        muteOriginalAudio: muteOriginalAudio,
+      );
+      if (sped != null) {
+        debugPrint('createVideo: speed $speed applied $path → ${sped.path}');
+        return sped.path;
+      }
+      if ((speed - 1.0).abs() >= 0.01) {
+        debugPrint('createVideo: speed skipped/failed for $path ($speed)');
+      }
+      return path;
+    }
+
+    // 1c. Center-crop final file (and playlist clips) to selected aspect ratio.
+    final cropId = VideoCropUtils.normalize(videoCropAspectRatio);
+    Future<String> cropLocalIfNeeded(String path) async {
+      final cropped = await VideoCropUtils.centerCropToAspect(path, cropId);
+      if (cropped != null) {
+        debugPrint('createVideo: cropped $path → ${cropped.path} ($cropId)');
+        return cropped.path;
+      }
+      debugPrint('createVideo: crop skipped/failed for $path ($cropId)');
+      return path;
+    }
+
+    Future<String> processLocalExport(String path) async {
+      var out = await applySpeedIfNeeded(path);
+      out = await cropLocalIfNeeded(out);
+      return out;
+    }
+
+    if (!primaryPathOrUrl.startsWith('http://') &&
+        !primaryPathOrUrl.startsWith('https://')) {
+      primaryPathOrUrl = await processLocalExport(primaryPathOrUrl);
+    }
+    if (clipsForUpload != null && clipsForUpload.length > 1) {
+      final processedClips = <String>[];
+      for (final clip in clipsForUpload) {
+        final clean = clip.trim();
+        if (clean.startsWith('http://') || clean.startsWith('https://')) {
+          processedClips.add(clean);
+        } else {
+          processedClips.add(await processLocalExport(clean));
+        }
+      }
+      clipsForUpload = processedClips;
     }
 
     // 2. Ensure video URL is ready

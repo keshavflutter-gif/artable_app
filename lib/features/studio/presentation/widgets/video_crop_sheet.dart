@@ -23,14 +23,25 @@ class VideoCropOption {
 }
 
 class VideoCropSheet extends StatefulWidget {
-  const VideoCropSheet({super.key});
+  const VideoCropSheet({
+    super.key,
+    this.onCropApplied,
+  });
 
-  static void show(BuildContext context) {
-    showModalBottomSheet(
+  /// Called after the video file(s) are actually cropped and session paths updated.
+  final Future<void> Function()? onCropApplied;
+
+  static Future<void> show(
+    BuildContext context, {
+    Future<void> Function()? onCropApplied,
+  }) {
+    return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      isDismissible: true,
+      enableDrag: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => const VideoCropSheet(),
+      builder: (ctx) => VideoCropSheet(onCropApplied: onCropApplied),
     );
   }
 
@@ -75,6 +86,7 @@ class _VideoCropSheetState extends State<VideoCropSheet> {
   ];
 
   late String _selectedCrop;
+  bool _applying = false;
 
   @override
   void initState() {
@@ -82,152 +94,206 @@ class _VideoCropSheetState extends State<VideoCropSheet> {
     _selectedCrop = context.read<StudioCubit>().state.videoCropAspectRatio;
   }
 
+  Future<void> _applyCrop() async {
+    if (_applying) return;
+    setState(() => _applying = true);
+    final cubit = context.read<StudioCubit>();
+    final error = await cubit.applyActualVideoCrop(_selectedCrop);
+    if (!mounted) return;
+
+    if (error != null) {
+      setState(() => _applying = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error), backgroundColor: Colors.redAccent),
+      );
+      return;
+    }
+
+    try {
+      await widget.onCropApplied?.call();
+    } catch (e) {
+      debugPrint('VideoCropSheet onCropApplied error: $e');
+    }
+    if (!mounted) return;
+    Navigator.pop(context);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Video cropped to $_selectedCrop'),
+        backgroundColor: AppColors.purple,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      padding: EdgeInsets.fromLTRB(
-        20,
-        16,
-        20,
-        MediaQuery.of(context).padding.bottom + 20,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Center(
-            child: Container(
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                color: const Color(0xFFE2DCEF),
-                borderRadius: BorderRadius.circular(2),
+    return PopScope(
+      canPop: !_applying,
+      child: Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        padding: EdgeInsets.fromLTRB(
+          20,
+          16,
+          20,
+          MediaQuery.of(context).padding.bottom + 20,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE2DCEF),
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
             ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: AppColors.purple.withValues(alpha: 0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.crop,
-                  color: AppColors.purple,
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 12),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Crop Video Aspect Ratio',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF241E38),
-                      ),
-                    ),
-                    SizedBox(height: 2),
-                    Text(
-                      'Select screen ratio for your video',
-                      style: TextStyle(
-                        fontSize: 11.5,
-                        color: Color(0xFF7A7090),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          ..._options.map((option) {
-            final isSelected = _selectedCrop == option.id;
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: InkWell(
-                onTap: () => setState(() => _selectedCrop = option.id),
-                borderRadius: BorderRadius.circular(16),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: isSelected
-                        ? const Color(0xFFF4EDFF)
-                        : const Color(0xFFFAFAFD),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: isSelected
-                          ? AppColors.purple
-                          : const Color(0xFFECE7F6),
-                      width: isSelected ? 1.8 : 1.0,
-                    ),
+                    color: AppColors.purple.withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
                   ),
-                  child: Row(
+                  child: const Icon(
+                    Icons.crop,
+                    color: AppColors.purple,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(
-                        option.icon,
+                      Text(
+                        'Crop Video Aspect Ratio',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF241E38),
+                        ),
+                      ),
+                      SizedBox(height: 2),
+                      Text(
+                        'Video file will be cropped (center crop)',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: Color(0xFF7A7090),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            ..._options.map((option) {
+              final isSelected = _selectedCrop == option.id;
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: InkWell(
+                  onTap: _applying
+                      ? null
+                      : () => setState(() => _selectedCrop = option.id),
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? const Color(0xFFF4EDFF)
+                          : const Color(0xFFFAFAFD),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
                         color: isSelected
                             ? AppColors.purple
-                            : const Color(0xFF8B80A5),
-                        size: 24,
+                            : const Color(0xFFECE7F6),
+                        width: isSelected ? 1.8 : 1.0,
                       ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              option.label,
-                              style: TextStyle(
-                                fontSize: 13.5,
-                                fontWeight: FontWeight.w700,
-                                color: isSelected
-                                    ? AppColors.purple
-                                    : const Color(0xFF241E38),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          option.icon,
+                          color: isSelected
+                              ? AppColors.purple
+                              : const Color(0xFF8B80A5),
+                          size: 24,
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                option.label,
+                                style: TextStyle(
+                                  fontSize: 13.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: isSelected
+                                      ? AppColors.purple
+                                      : const Color(0xFF241E38),
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              option.description,
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: Color(0xFF8B80A5),
+                              const SizedBox(height: 2),
+                              Text(
+                                option.description,
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: Color(0xFF8B80A5),
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
+                        ),
+                        if (isSelected)
+                          const Icon(
+                            Icons.check_circle,
+                            color: AppColors.purple,
+                            size: 20,
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }),
+            const SizedBox(height: 14),
+            if (_applying) ...[
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  child: Column(
+                    children: [
+                      CircularProgressIndicator(color: AppColors.purple),
+                      SizedBox(height: 10),
+                      Text(
+                        'Cropping video file…',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF7A7090),
                         ),
                       ),
-                      if (isSelected)
-                        const Icon(
-                          Icons.check_circle,
-                          color: AppColors.purple,
-                          size: 20,
-                        ),
                     ],
                   ),
                 ),
               ),
-            );
-          }),
-          const SizedBox(height: 14),
-          GradientButton(
-            label: 'Apply Crop',
-            onPressed: () {
-              context.read<StudioCubit>().setVideoCropAspectRatio(_selectedCrop);
-              Navigator.pop(context);
-            },
-          ),
-        ],
+            ] else
+              GradientButton(
+                label: 'Apply Crop',
+                onPressed: _applyCrop,
+              ),
+          ],
+        ),
       ),
     );
   }

@@ -11,6 +11,7 @@ import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/features/studio/data/services/studio_music_playback_service.dart';
 import 'package:artable_app/core/utils/reel_helpers.dart';
 import 'package:artable_app/core/utils/studio_video_player_utils.dart';
+import 'package:artable_app/core/utils/video_speed_utils.dart';
 import 'package:artable_app/core/widgets/app_screen_header.dart';
 import 'package:artable_app/core/widgets/gradient_button.dart';
 import 'package:artable_app/core/widgets/secondary_outline_button.dart';
@@ -502,12 +503,30 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
   }
 
   String _getDuration(StudioCubit studio) {
+    // Prefer source length from cubit/draft, then show speed-adjusted playback duration.
+    String source = '';
     if (studio.recordedDuration.isNotEmpty && studio.recordedDuration != '0:00') {
-      return studio.recordedDuration;
+      source = studio.recordedDuration;
+    } else {
+      final draft = _draft;
+      source = draft?['duration'] as String? ?? studio.recordedDuration;
     }
-    final draft = _draft;
-    if (draft != null) return draft['duration'] as String? ?? '0:00';
-    return studio.recordedDuration;
+    final parts = source.split(':');
+    if (parts.length == 2) {
+      final m = int.tryParse(parts[0]) ?? 0;
+      final s = int.tryParse(parts[1]) ?? 0;
+      final sourceMs = (m * 60 + s) * 1000;
+      if (sourceMs > 0) {
+        return VideoSpeedUtils.formatMs(
+          VideoSpeedUtils.adjustedMs(sourceMs, studio.speedMultiplier),
+        );
+      }
+    }
+    final playSec = studio.playbackDurationSeconds;
+    if (playSec > 0) {
+      return VideoSpeedUtils.formatMs((playSec * 1000).round());
+    }
+    return source;
   }
 
   @override
@@ -561,7 +580,13 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
                           // Crop Option Tile
                           Expanded(
                             child: InkWell(
-                              onTap: () => VideoCropSheet.show(context),
+                              onTap: () => VideoCropSheet.show(
+                                context,
+                                onCropApplied: () async {
+                                  if (!mounted) return;
+                                  await _initVideoPlayer();
+                                },
+                              ),
                               borderRadius: BorderRadius.circular(12),
                               child: Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),

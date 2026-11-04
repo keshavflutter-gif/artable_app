@@ -10,6 +10,7 @@ import 'package:artable_app/app/theme/app_text_styles.dart';
 import 'package:artable_app/features/studio/presentation/bloc/studio_cubit.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/core/utils/studio_video_player_utils.dart';
+import 'package:artable_app/core/utils/video_speed_utils.dart';
 import 'package:artable_app/core/widgets/app_screen_header.dart';
 import 'package:artable_app/core/widgets/secondary_outline_button.dart';
 import 'package:artable_app/core/widgets/gradient_button.dart';
@@ -1112,11 +1113,13 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
   }
 
   String _getDuration(StudioCubit studio) {
-    final totalMs = _totalDurationMs(studio);
-    final posMs = totalMs > 0
-        ? _displayPosMs.clamp(0, totalMs)
+    final speed = studio.speedMultiplier.clamp(0.4, 4.0);
+    final totalMs = VideoSpeedUtils.adjustedMs(_totalDurationMs(studio), speed);
+    final rawPos = totalMs > 0
+        ? _displayPosMs.clamp(0, _totalDurationMs(studio))
         : _displayPosMs.clamp(0, 3600000);
-    return '${_fmtMs(posMs)} / ${_fmtMs(totalMs > 0 ? totalMs : posMs)}';
+    final posMs = VideoSpeedUtils.adjustedMs(rawPos, speed);
+    return '${VideoSpeedUtils.formatMs(posMs)} / ${VideoSpeedUtils.formatMs(totalMs > 0 ? totalMs : posMs)}';
   }
 
   List<String> get _hashtagChips {
@@ -1375,6 +1378,7 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
                       filterId: _activeClipFilterId(studio),
                       beautyOn: studio.recordingBeautyOn,
                       beautyIntensity: studio.recordingBeautyIntensity,
+                      cropAspectRatio: studio.videoCropAspectRatio,
                       isMuted: studio.isMuted,
                       hasError: _videoError,
                       onRetry: _initVideoPlayer,

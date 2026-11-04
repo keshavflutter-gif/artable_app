@@ -1,0 +1,18 @@
+{
+  "platform": "android",
+  "app_name": "artable_app",
+  "admob_app_id": "ca-app-pub-8377462640468284~3296460099",
+  "ad_units": {
+    "home_banner": "ca-app-pub-8377462640468284/1511148864",
+    "feed_banner": "ca-app-pub-8377462640468284/7637802428",
+    "feed_native": "ca-app-pub-8377462640468284/6757458882",
+    "video_interstitial": "ca-app-pub-8377462640468284/2385475747",
+    "reward": "ca-app-pub-8377462640468284/9824982069",
+    "app_open": "ca-app-pub-8377462640468284/8655582654"
+  },
+  "notes": {
+    "app_id_vs_ad_unit": "App ID uses ~ ; Ad unit IDs use /",
+    "backend": "AdMob ads are shown by the mobile app. Backend only needs these if storing remote ad config. Prime ad-free and custom sponsored banners are backend/admin features.",
+    "approval": "Requires review is normal until AdMob reviews the app. Link Play Store URL in App settings after publish."
+  }
+}

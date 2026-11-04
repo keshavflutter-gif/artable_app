@@ -31,6 +31,7 @@ class MultiVideoTimeline extends StatefulWidget {
     required this.onTrimChanged,
     required this.isPlaying,
     this.isMerging = false,
+    this.speedMultiplier = 1.0,
   });
 
   final EditorClipListNotifier notifier;
@@ -55,6 +56,9 @@ class MultiVideoTimeline extends StatefulWidget {
   final void Function(int clipIndex, Duration trimStart, Duration trimEnd) onTrimChanged;
 
   final bool isPlaying;
+
+  /// Playback speed (0.4–4). Timeline width/ruler use sourceDuration / speed.
+  final double speedMultiplier;
 
   @override
   State<MultiVideoTimeline> createState() => _MultiVideoTimelineState();
@@ -84,6 +88,10 @@ class _MultiVideoTimelineState extends State<MultiVideoTimeline> {
     // Auto-scroll during playback to keep playhead visually centered
     if (widget.isPlaying && widget.globalPositionMs != old.globalPositionMs) {
       _autoScrollToPlayhead();
+    }
+    // Speed change rescales clip widths / ruler — force rebuild.
+    if ((old.speedMultiplier - widget.speedMultiplier).abs() > 0.001) {
+      setState(() {});
     }
   }
 
@@ -172,9 +180,15 @@ class _MultiVideoTimelineState extends State<MultiVideoTimeline> {
     }
   }
 
+  /// Pixels per source-second, scaled so visual length = playback duration.
+  double get _pps {
+    final speed = widget.speedMultiplier.clamp(0.4, 4.0);
+    return _kPixelsPerSecond / speed;
+  }
+
   double _clipTrimmedPx(EditorClip clip) {
     final secs = clip.trimmedDuration.inMilliseconds / 1000.0;
-    return (secs * _kPixelsPerSecond).clamp(_kMinClipPx, double.infinity);
+    return (secs * _pps).clamp(_kMinClipPx, double.infinity);
   }
 
   @override
@@ -305,7 +319,10 @@ class _MultiVideoTimelineState extends State<MultiVideoTimeline> {
   }
 
   Widget _buildRuler() {
-    final totalSec = widget.notifier.totalTrimmedDuration.inMilliseconds / 1000.0;
+    final speed = widget.speedMultiplier.clamp(0.4, 4.0);
+    final sourceSec = widget.notifier.totalTrimmedDuration.inMilliseconds / 1000.0;
+    // Ruler shows playback duration (source / speed).
+    final totalSec = sourceSec / speed;
     return SizedBox(
       height: 22,
       child: AnimatedBuilder(
@@ -318,6 +335,7 @@ class _MultiVideoTimelineState extends State<MultiVideoTimeline> {
               totalSeconds: totalSec.clamp(1.0, 3600.0),
               scrollOffset: scrollOffset,
               leftMargin: 16.0,
+              pixelsPerSecond: _pps,
             ),
           );
         },
@@ -329,7 +347,7 @@ class _MultiVideoTimelineState extends State<MultiVideoTimeline> {
     final clips = widget.notifier.clips;
     if (clipIndex >= clips.length) return;
     final clip = clips[clipIndex];
-    final deltaMs = ((delta / _kPixelsPerSecond) * 1000).round();
+    final deltaMs = ((delta / _pps) * 1000).round();
     final newStart = clip.trimStart + Duration(milliseconds: deltaMs);
     final clampedStart = newStart.clamp(Duration.zero, clip.trimEnd - const Duration(milliseconds: 500));
     widget.notifier.updateTrim(clipIndex, clampedStart, clip.trimEnd);
@@ -340,7 +358,7 @@ class _MultiVideoTimelineState extends State<MultiVideoTimeline> {
     final clips = widget.notifier.clips;
     if (clipIndex >= clips.length) return;
     final clip = clips[clipIndex];
-    final deltaMs = ((delta / _kPixelsPerSecond) * 1000).round();
+    final deltaMs = ((delta / _pps) * 1000).round();
     final newEnd = clip.trimEnd + Duration(milliseconds: deltaMs);
     final clampedEnd = newEnd.clamp(clip.trimStart + const Duration(milliseconds: 500), clip.originalDuration);
     widget.notifier.updateTrim(clipIndex, clip.trimStart, clampedEnd);
@@ -891,11 +909,13 @@ class _RulerPainter extends CustomPainter {
     required this.totalSeconds,
     required this.scrollOffset,
     required this.leftMargin,
+    this.pixelsPerSecond = _kPixelsPerSecond,
   });
 
   final double totalSeconds;
   final double scrollOffset;
   final double leftMargin;
+  final double pixelsPerSecond;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -917,7 +937,7 @@ class _RulerPainter extends CustomPainter {
       tickIntervalSec = 2;
     }
 
-    final pxPerSec = _kPixelsPerSecond;
+    final pxPerSec = pixelsPerSecond;
     final totalTicks = (totalSeconds / tickIntervalSec).ceil();
 
     final startOffset = leftMargin + _kHandleWidth;
@@ -967,7 +987,8 @@ class _RulerPainter extends CustomPainter {
   bool shouldRepaint(_RulerPainter old) =>
       old.totalSeconds != totalSeconds ||
       old.scrollOffset != scrollOffset ||
-      old.leftMargin != leftMargin;
+      old.leftMargin != leftMargin ||
+      old.pixelsPerSecond != pixelsPerSecond;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

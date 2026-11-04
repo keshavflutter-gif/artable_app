@@ -12,6 +12,7 @@ import 'package:artable_app/features/studio/data/services/studio_music_playback_
 import 'package:artable_app/features/studio/data/services/video_thumbnail_generator.dart';
 import 'package:artable_app/core/utils/media_url_utils.dart';
 import 'package:artable_app/core/utils/reel_helpers.dart';
+import 'package:artable_app/core/utils/video_crop_utils.dart';
 import 'studio_state.dart';
 
 class StudioCubit extends Cubit<StudioState> {
@@ -28,6 +29,9 @@ class StudioCubit extends Cubit<StudioState> {
 
   AuthCubit? _authCubit;
   final StudioRepository _repository;
+
+  /// Uncropped source paths so re-applying a different ratio stays correct.
+  List<String>? _videoCropSourcePaths;
   bool _draftWriteLock = false;
   bool _draftsFetchInFlight = false;
 
@@ -542,7 +546,7 @@ class StudioCubit extends Cubit<StudioState> {
         refreshToken: _refreshTokenOrNull(),
       );
       if (uploaded.isNotEmpty) return uploaded;
-    } catch (e) {
+        } catch (e) {
       debugPrint('Background draft ${isVideo ? 'video' : 'thumb'} upload: $e');
     }
     return path;
@@ -584,13 +588,13 @@ class StudioCubit extends Cubit<StudioState> {
 
       final res = await _repository.saveDraft(
         body: {
-          if (cleanChallengeId.isNotEmpty) 'challengeId': cleanChallengeId,
+      if (cleanChallengeId.isNotEmpty) 'challengeId': cleanChallengeId,
           if (cleanCategoryId != null && cleanCategoryId.isNotEmpty)
             'categoryId': cleanCategoryId,
           'title': title,
           'description': description,
-          'videoUrl': vUrl,
-          'thumbnailUrl': tUrl,
+      'videoUrl': vUrl,
+      'thumbnailUrl': tUrl,
           'hashtags': hashtags.isNotEmpty ? hashtags : ['dance', 'talent', 'artable'],
           'durationSeconds': durationSeconds,
           if ((filterFields['filterId'] as String) != 'natural')
@@ -744,12 +748,12 @@ class StudioCubit extends Cubit<StudioState> {
     int? durationSeconds,
   }) async {
     if (state.drafts.length >= maxDraftsLimit) {
-      emit(state.copyWith(
-        isSavingDraft: false,
+        emit(state.copyWith(
+          isSavingDraft: false,
         saveDraftError: 'Draft limit reached (Max $maxDraftsLimit drafts). Please delete an existing draft to save a new video.',
-      ));
-      return null;
-    }
+        ));
+        return null;
+      }
     if (_draftWriteLock) return null;
     _draftWriteLock = true;
 
@@ -875,8 +879,8 @@ class StudioCubit extends Cubit<StudioState> {
           ?.trim();
       final draftTitle =
           (title ?? challenge?['title']?.toString() ?? 'My Dance Entry').trim();
-      final draftDescription = description ?? 'This is my challenge performance.';
-      final recVideoPath = (state.recordedVideoPath ?? '').trim();
+    final draftDescription = description ?? 'This is my challenge performance.';
+    final recVideoPath = (state.recordedVideoPath ?? '').trim();
       final tags = (hashtags != null && hashtags.isNotEmpty)
           ? hashtags
           : <String>['dance', 'talent', 'artable'];
@@ -891,9 +895,9 @@ class StudioCubit extends Cubit<StudioState> {
       final embeddedDescription = _descriptionWithFilter(draftDescription);
       final localPatch = <String, dynamic>{
         'id': cleanVideoId,
-        'challengeId': cleanChallengeId,
+      'challengeId': cleanChallengeId,
         'challengeTitle': draftTitle,
-        'title': draftTitle,
+      'title': draftTitle,
         'description': embeddedDescription,
         'thumbnailUrl': resolvedThumb,
         'thumbnailPath': resolvedThumb,
@@ -904,11 +908,11 @@ class StudioCubit extends Cubit<StudioState> {
       if (recVideoPath.isNotEmpty) {
         localPatch['videoPath'] = recVideoPath;
         localPatch['videoUrl'] = recVideoPath;
-      }
-      if (state.mergedClipPaths != null && state.mergedClipPaths!.isNotEmpty) {
+            }
+            if (state.mergedClipPaths != null && state.mergedClipPaths!.isNotEmpty) {
         localPatch['mergedClipPaths'] = state.mergedClipPaths;
-      }
-      if (state.mergedClipDurations != null && state.mergedClipDurations!.isNotEmpty) {
+            }
+            if (state.mergedClipDurations != null && state.mergedClipDurations!.isNotEmpty) {
         localPatch['mergedClipDurations'] = state.mergedClipDurations;
       }
       if (state.mergedClipFilterIds != null && state.mergedClipFilterIds!.isNotEmpty) {
@@ -919,14 +923,14 @@ class StudioCubit extends Cubit<StudioState> {
       final updatedDrafts = state.drafts.map((d) {
         if (d['id'] == cleanVideoId) {
           return {...d, ...localPatch};
-        }
-        return d;
-      }).toList();
+          }
+          return d;
+        }).toList();
 
-      emit(state.copyWith(
-        drafts: updatedDrafts,
-        isSavingDraft: false,
-      ));
+        emit(state.copyWith(
+          drafts: updatedDrafts,
+          isSavingDraft: false,
+        ));
 
       unawaited(_syncUpdateDraftInBackground(
         videoId: cleanVideoId,
@@ -966,7 +970,7 @@ class StudioCubit extends Cubit<StudioState> {
     if (_draftsFetchInFlight) return;
     _draftsFetchInFlight = true;
     if (showSpinner) {
-      emit(state.copyWith(isLoadingDrafts: true));
+    emit(state.copyWith(isLoadingDrafts: true));
     }
 
     try {
@@ -988,7 +992,7 @@ class StudioCubit extends Cubit<StudioState> {
     } catch (e) {
       debugPrint('StudioCubit fetchDraftsList error: $e');
       if (state.isLoadingDrafts) {
-        emit(state.copyWith(isLoadingDrafts: false));
+      emit(state.copyWith(isLoadingDrafts: false));
       }
     } finally {
       _draftsFetchInFlight = false;
@@ -1086,6 +1090,7 @@ class StudioCubit extends Cubit<StudioState> {
   String get selectedSpeed => state.selectedSpeed;
   bool get beautyOn => state.beautyOn;
 
+  /// Source media duration in seconds (before playback speed).
   double get effectiveVideoDuration {
     // 1. If multiple clips exist, total duration is the sum of all clips' durations!
     if (state.mergedClipDurations != null && state.mergedClipDurations!.isNotEmpty) {
@@ -1108,6 +1113,13 @@ class StudioCubit extends Cubit<StudioState> {
     return 15.0;
   }
 
+  /// Duration after applying selected speed (source / speed).
+  double get playbackDurationSeconds {
+    final speed = speedMultiplier.clamp(0.4, 4.0);
+    if (speed <= 0) return effectiveVideoDuration;
+    return effectiveVideoDuration / speed;
+  }
+
   void setSelectedTrack(
     FreeToUseTrack? track, {
     double start = 0.0,
@@ -1116,7 +1128,7 @@ class StudioCubit extends Cubit<StudioState> {
     // Force music service to reload the new (or cleared) track.
     StudioMusicPlaybackService.invalidateLoadedTrack();
     if (track != null) {
-      final targetDuration = duration ?? effectiveVideoDuration;
+      final targetDuration = duration ?? playbackDurationSeconds;
       final validStart = start.clamp(0.0, track.duration);
       final maxRemain = (track.duration - validStart).clamp(1.0, track.duration);
       final validDuration = targetDuration.clamp(1.0, maxRemain);
@@ -1130,7 +1142,7 @@ class StudioCubit extends Cubit<StudioState> {
       emit(state.copyWith(
         clearSelectedMusic: true,
         musicStartSeconds: 0.0,
-        musicCropDuration: effectiveVideoDuration,
+        musicCropDuration: playbackDurationSeconds,
       ));
     }
   }
@@ -1239,6 +1251,8 @@ class StudioCubit extends Cubit<StudioState> {
       filterId: meta?.filterId ?? 'natural',
       beautyOn: meta?.beautyOn ?? false,
       beautyIntensity: meta?.beautyIntensity ?? 0,
+      cropAspectRatio: draft['videoCropAspectRatio']?.toString() ??
+          draft['video_crop_aspect_ratio']?.toString(),
     );
     _restoreMusicFromDraft(draft);
   }
@@ -1347,11 +1361,13 @@ class StudioCubit extends Cubit<StudioState> {
         videoTrimEndSeconds: recSecs,
       ));
     } else {
-      emit(state.copyWith(recordedDuration: duration));
+    emit(state.copyWith(recordedDuration: duration));
     }
   }
 
   void setRecordedVideoPath(String? path, {List<String>? mergedClipPaths, bool clearMergedClips = false}) {
+    // New/cleared recording invalidates previous crop source files.
+    _videoCropSourcePaths = null;
     if (path == null) {
       emit(state.copyWith(
         clearRecordedVideoPath: true,
@@ -1380,11 +1396,11 @@ class StudioCubit extends Cubit<StudioState> {
         clearMergedClipPaths: true,
       ));
     } else {
-      emit(state.copyWith(
-        mergedClipPaths: paths,
-        mergedClipDurations: durations,
+    emit(state.copyWith(
+      mergedClipPaths: paths,
+      mergedClipDurations: durations,
         mergedClipFilterIds: filterIds,
-      ));
+    ));
     }
   }
 
@@ -1446,6 +1462,90 @@ class StudioCubit extends Cubit<StudioState> {
     emit(state.copyWith(videoCropAspectRatio: aspectRatio));
   }
 
+  /// Center-crops the working video file(s) with FFmpeg and replaces session paths.
+  /// Returns `null` on success, or an error message.
+  Future<String?> applyActualVideoCrop(String aspectRatio) async {
+    final ratioId = VideoCropUtils.normalize(aspectRatio);
+    emit(state.copyWith(videoCropAspectRatio: ratioId));
+
+    final working = <String>[];
+    if (state.mergedClipPaths != null && state.mergedClipPaths!.isNotEmpty) {
+      working.addAll(
+        state.mergedClipPaths!
+            .map((p) => p.trim())
+            .where((p) => p.isNotEmpty),
+      );
+    }
+    final rec = state.recordedVideoPath?.trim() ?? '';
+    if (working.isEmpty && rec.isNotEmpty) {
+      working.add(rec);
+    }
+    if (working.isEmpty) {
+      return 'No video available to crop.';
+    }
+
+    // First crop: remember originals. Later crops always use those sources.
+    _videoCropSourcePaths ??= List<String>.from(working);
+    final sources = _videoCropSourcePaths!;
+    if (sources.isEmpty) {
+      return 'No video available to crop.';
+    }
+
+    final croppedPaths = <String>[];
+    for (var i = 0; i < sources.length; i++) {
+      final src = sources[i];
+      final isRemote =
+          src.startsWith('http://') || src.startsWith('https://');
+      if (isRemote) {
+        croppedPaths.add(src);
+        continue;
+      }
+      final file = File(src.startsWith('file://') ? src.substring(7) : src);
+      if (!await file.exists()) {
+        return 'Video file not found for crop.';
+      }
+      final out = await VideoCropUtils.centerCropToAspect(file.path, ratioId);
+      if (out == null) {
+        return 'Could not crop video. Please try again.';
+      }
+      croppedPaths.add(out.path);
+      debugPrint(
+        'StudioCubit: actual crop [$i] ${file.path} → ${out.path} ($ratioId)',
+      );
+    }
+
+    if (croppedPaths.isEmpty) {
+      return 'Could not crop video. Please try again.';
+    }
+
+    final durations = state.mergedClipDurations;
+    final filters = state.mergedClipFilterIds;
+    if (croppedPaths.length > 1) {
+      emit(state.copyWith(
+        videoCropAspectRatio: ratioId,
+        recordedVideoPath: croppedPaths.first,
+        mergedClipPaths: croppedPaths,
+        mergedClipDurations: (durations != null && durations.length == croppedPaths.length)
+            ? durations
+            : state.mergedClipDurations,
+        mergedClipFilterIds: (filters != null && filters.length == croppedPaths.length)
+            ? filters
+            : state.mergedClipFilterIds,
+      ));
+    } else {
+      emit(state.copyWith(
+        videoCropAspectRatio: ratioId,
+        recordedVideoPath: croppedPaths.first,
+        clearMergedClipPaths: true,
+      ));
+    }
+    return null;
+  }
+
+  void clearVideoCropSources() {
+    _videoCropSourcePaths = null;
+  }
+
   void setVideoTrimRange({
     required double start,
     required double end,
@@ -1477,7 +1577,38 @@ class StudioCubit extends Cubit<StudioState> {
   }
 
   void setSpeed(String speed) {
-    emit(state.copyWith(selectedSpeed: speed));
+    final next = state.copyWith(selectedSpeed: speed);
+    // Music length should match the new playback duration (source / speed).
+    final clean = speed.replaceAll('x', '').trim();
+    final multiplier = (double.tryParse(clean) ?? 1.0).clamp(0.4, 4.0);
+    final sourceDur = () {
+      if (next.mergedClipDurations != null && next.mergedClipDurations!.isNotEmpty) {
+        final sum = next.mergedClipDurations!.fold(0.0, (acc, d) => acc + d);
+        if (sum > 0) return sum;
+      }
+      final parts = next.recordedDuration.split(':');
+      if (parts.length == 2) {
+        final m = int.tryParse(parts[0]) ?? 0;
+        final s = int.tryParse(parts[1]) ?? 0;
+        final total = m * 60 + s;
+        if (total > 0) return total.toDouble();
+      }
+      return 15.0;
+    }();
+    final playDur = sourceDur / multiplier;
+    if (next.selectedTrack != null) {
+      final track = next.selectedTrack!;
+      final start = next.musicStartSeconds.clamp(0.0, track.duration);
+      final maxRemain = (track.duration - start).clamp(1.0, track.duration);
+      emit(next.copyWith(
+        musicStartSeconds: start,
+        musicCropDuration: playDur.clamp(1.0, maxRemain),
+      ));
+    } else if (next.selectedMusic != null) {
+      emit(next.copyWith(musicCropDuration: playDur.clamp(1.0, playDur)));
+    } else {
+      emit(next);
+    }
   }
 
   void setBeautyOn(bool value) {
@@ -1555,6 +1686,7 @@ class StudioCubit extends Cubit<StudioState> {
     state.activeVideoController?.dispose();
     StudioMusicPlaybackService.invalidateLoadedTrack();
     unawaited(StudioMusicPlaybackService.stop());
+    _videoCropSourcePaths = null;
     emit(state.copyWith(
       recordedDuration: '0:00',
       clearRecordedVideoPath: true,

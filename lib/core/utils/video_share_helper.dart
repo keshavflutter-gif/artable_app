@@ -341,7 +341,7 @@ abstract final class VideoShareHelper {
         ShareParams(
           files: [xFile],
           text: videoCaption,
-          subject: title,
+        subject: title,
           title: title ?? 'Share video',
           sharePositionOrigin: origin,
         ),
@@ -572,7 +572,7 @@ abstract final class VideoShareHelper {
       if (cancellation?.isCancelled == true) {
         return null;
       }
-      return file;
+        return file;
     } finally {
       _inFlightDownloads.remove(urlHash);
       _downloadProgress.remove(urlHash);
