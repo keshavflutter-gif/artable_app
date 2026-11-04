@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:artable_app/core/utils/media_url_utils.dart';
 import 'package:artable_app/core/utils/reel_helpers.dart';
+import 'package:artable_app/core/utils/video_cache_manager.dart';
 import 'package:crypto/crypto.dart';
 import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_flutter_new/return_code.dart';
@@ -229,19 +230,18 @@ abstract final class VideoShareHelper {
       return false;
     }
 
-    // Bake BGM into the file for WhatsApp / social (raw upload has no music).
+    // Fast file share: use pre-muxed video if cached; never show popup or block UI with FFmpeg
     final cleanMusic = MediaUrlUtils.resolve(musicUrl ?? '').trim();
     if (cleanMusic.isNotEmpty &&
         (optionId == 'whatsapp' || optionId == 'social')) {
-      final muxed = await _muxMusicIntoVideo(
-        context: context,
+      final cachedMux = await _getCachedMuxedVideo(
         videoFile: videoFile,
         musicUrl: cleanMusic,
         startSeconds: musicStartSeconds ?? 0,
         cropDurationSeconds: musicCropDuration ?? 0,
       );
-      if (muxed != null && await muxed.exists() && await muxed.length() > 1024) {
-        videoFile = muxed;
+      if (cachedMux != null) {
+        videoFile = cachedMux;
       }
     }
 
@@ -353,143 +353,28 @@ abstract final class VideoShareHelper {
     }
   }
 
-  /// Muxes [musicUrl] onto [videoFile] (replace audio) for sharing.
-  static Future<File?> _muxMusicIntoVideo({
-    required BuildContext context,
+  /// Returns a pre-muxed video file if already cached on disk.
+  /// Never blocks the UI with modal dialogs or long running FFmpeg execution during share.
+  static Future<File?> _getCachedMuxedVideo({
     required File videoFile,
     required String musicUrl,
     double startSeconds = 0,
     double cropDurationSeconds = 0,
   }) async {
-    BuildContext? dialogContext;
     try {
-      if (context.mounted) {
-        unawaited(showDialog<void>(
-          context: context,
-          barrierDismissible: false,
-          builder: (ctx) {
-            dialogContext = ctx;
-            return const AlertDialog(
-              content: Row(
-                children: [
-                  SizedBox(
-                    width: 28,
-                    height: 28,
-                    child: CircularProgressIndicator(strokeWidth: 2.5),
-                  ),
-                  SizedBox(width: 16),
-                  Expanded(child: Text('Adding music to video…')),
-                ],
-              ),
-            );
-          },
-        ));
-      }
-
-      final audioFile = await _downloadAudioFile(musicUrl);
-      if (audioFile == null || !await audioFile.exists()) {
-        debugPrint('VideoShareHelper: music download failed');
-        return null;
-      }
-
       final tempDir = await getTemporaryDirectory();
-      final outDir = Directory('${tempDir.path}/shared_videos');
-      if (!outDir.existsSync()) {
-        outDir.createSync(recursive: true);
-      }
+      final outDir = Directory("${tempDir.path}/shared_videos");
+      if (!outDir.existsSync()) return null;
       final key = md5
           .convert(utf8.encode(
-            '${videoFile.path}|$musicUrl|$startSeconds|$cropDurationSeconds',
+            "${videoFile.path}|$musicUrl|$startSeconds|$cropDurationSeconds",
           ))
           .toString();
-      final outFile = File('${outDir.path}/share_mux_$key.mp4');
+      final outFile = File("${outDir.path}/share_mux_$key.mp4");
       if (await outFile.exists() && (await outFile.length()) > 1024) {
         return outFile;
       }
-
-      final safeStart = startSeconds < 0 ? 0.0 : startSeconds;
-      final args = <String>[
-        '-y',
-        '-i',
-        videoFile.path,
-        if (safeStart > 0.01) ...['-ss', safeStart.toStringAsFixed(3)],
-        if (cropDurationSeconds > 0.25) ...[
-          '-t',
-          cropDurationSeconds.toStringAsFixed(3),
-        ],
-        '-i',
-        audioFile.path,
-        '-map',
-        '0:v:0',
-        '-map',
-        '1:a:0',
-        '-c:v',
-        'copy',
-        '-c:a',
-        'aac',
-        '-b:a',
-        '128k',
-        '-shortest',
-        outFile.path,
-      ];
-
-      debugPrint('VideoShareHelper: mux cmd ${args.join(' ')}');
-      final session = await FFmpegKit.executeWithArguments(args);
-      final code = await session.getReturnCode();
-      if (!ReturnCode.isSuccess(code)) {
-        final logs = await session.getAllLogsAsString();
-        debugPrint('VideoShareHelper: mux failed code=$code logs=$logs');
-        try {
-          if (await outFile.exists()) await outFile.delete();
-        } catch (_) {}
-        return null;
-      }
-      if (!await outFile.exists() || (await outFile.length()) <= 1024) {
-        return null;
-      }
-      return outFile;
-    } catch (e) {
-      debugPrint('VideoShareHelper: mux error: $e');
-      return null;
-    } finally {
-      _safePopDialog(dialogContext);
-    }
-  }
-
-  static Future<File?> _downloadAudioFile(String url) async {
-    final clean = url.trim();
-    if (clean.isEmpty) return null;
-    try {
-      final tempDir = await getTemporaryDirectory();
-      final cacheDir = Directory('${tempDir.path}/shared_audio');
-      if (!cacheDir.existsSync()) {
-        cacheDir.createSync(recursive: true);
-      }
-      final hash = md5.convert(utf8.encode(clean)).toString();
-      final ext = clean.toLowerCase().contains('.m4a')
-          ? 'm4a'
-          : clean.toLowerCase().contains('.wav')
-              ? 'wav'
-              : 'mp3';
-      final target = File('${cacheDir.path}/bgm_$hash.$ext');
-      if (await target.exists() && (await target.length()) > 512) {
-        return target;
-      }
-      if (clean.startsWith('http://') || clean.startsWith('https://')) {
-        final res = await http.get(Uri.parse(clean)).timeout(
-          const Duration(seconds: 45),
-        );
-        if (res.statusCode != 200 || res.bodyBytes.isEmpty) return null;
-        await target.writeAsBytes(res.bodyBytes, flush: true);
-        return target;
-      }
-      final local = File(clean.startsWith('file://')
-          ? clean.replaceFirst('file://', '')
-          : clean);
-      if (await local.exists()) return local;
-    } catch (e) {
-      debugPrint('VideoShareHelper: audio download error: $e');
-    }
+    } catch (_) {}
     return null;
   }
 
@@ -520,6 +405,16 @@ abstract final class VideoShareHelper {
       }
       return file;
     }
+
+    // 1b. Check if VideoCacheManager already has this video cached on disk
+    try {
+      final cachedByManager = await VideoCacheManager.findCachedVideoFile(cleanUrl);
+      if (cachedByManager != null &&
+          await cachedByManager.exists() &&
+          (await cachedByManager.length()) > 1024) {
+        return cachedByManager;
+      }
+    } catch (_) {}
 
     // 2. Check if complete cached file already exists in shared_videos directory (> 1 KB)
     final tempDir = await getTemporaryDirectory();

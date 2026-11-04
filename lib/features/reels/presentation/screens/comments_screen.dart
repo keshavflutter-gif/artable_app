@@ -6,8 +6,6 @@ import 'package:artable_app/app/theme/app_gradients.dart';
 import 'package:artable_app/app/theme/app_text_styles.dart';
 import 'dart:async';
 
-import 'package:artable_app/core/utils/comment_permissions.dart';
-import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
 import 'package:artable_app/features/reels/presentation/bloc/reels_cubit.dart';
 import 'package:artable_app/core/widgets/app_network_image.dart';
 import 'package:artable_app/core/widgets/app_screen_header.dart';
@@ -92,24 +90,10 @@ class _CommentsScreenState extends State<CommentsScreen> {
     super.dispose();
   }
 
-  Future<void> _confirmDeleteComment(
-    Map<String, dynamic> comment,
-  ) async {
-    final cleanId =
-        (comment['id']?.toString() ?? comment['_id']?.toString() ?? '').trim();
+  Future<void> _confirmDeleteComment(String commentId) async {
+    final cleanId = commentId.trim();
     if (cleanId.isEmpty) return;
     final reelId = widget.reelId ?? 'r1';
-    final reels = context.read<ReelsCubit>();
-    if (!reels.canDeleteComment(reelId, comment)) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('You can only delete your own comments, or comments on your videos.'),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
-      return;
-    }
 
     final confirm = await showDialog<bool>(
       context: context,
@@ -311,25 +295,11 @@ class _CommentsScreenState extends State<CommentsScreen> {
                       itemBuilder: (context, i) {
                         final item = displayedComments[i];
                         final cId = item['id']?.toString() ?? item['_id']?.toString() ?? '';
-                        final auth = context.read<AuthCubit>();
-                        final currentUserId = (auth.userId ??
-                                auth.state.userId ??
-                                auth.state.currentUser['id']?.toString())
-                            ?.trim();
-                        final video = reelsProvider.getVideo(reelId);
-                        final canDelete = cId.isNotEmpty &&
-                            CommentPermissions.canDeleteComment(
-                              currentUserId: currentUserId,
-                              comment: item,
-                              video: video,
-                            );
                         return _CommentItem(
                           comment: item,
                           liked: false,
                           onLike: () {},
-                          onDelete: canDelete
-                              ? () => _confirmDeleteComment(item)
-                              : null,
+                          onDelete: cId.isNotEmpty ? () => _confirmDeleteComment(cId) : null,
                         );
                       },
                     ),
