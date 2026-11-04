@@ -764,6 +764,7 @@ class ReelsCubit extends Cubit<ReelsState> {
     final tempCommentId = 'cm_${DateTime.now().millisecondsSinceEpoch}';
     final tempComment = {
       'id': tempCommentId,
+      'userId': _authCubit?.userId ?? '',
       'userName': name,
       'username': name,
       'userAvatar': avatar,

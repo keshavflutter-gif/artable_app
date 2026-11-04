@@ -11,6 +11,11 @@ import 'package:artable_app/core/widgets/app_network_image.dart';
 import 'package:artable_app/core/widgets/app_screen_header.dart';
 import 'package:artable_app/features/reels/data/services/reel_bgm_playback_service.dart';
 import 'package:artable_app/features/studio/data/services/studio_music_playback_service.dart';
+import 'package:artable_app/core/utils/reel_helpers.dart';
+import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
+import 'package:artable_app/features/profile/presentation/bloc/my_videos_cubit.dart';
+import 'package:artable_app/features/profile/presentation/bloc/profile_cubit.dart';
+import 'package:artable_app/features/trending/presentation/bloc/trending_videos_cubit.dart';
 
 class CommentsScreen extends StatefulWidget {
   const CommentsScreen({super.key, this.reelId});
@@ -90,7 +95,11 @@ class _CommentsScreenState extends State<CommentsScreen> {
     super.dispose();
   }
 
-  Future<void> _confirmDeleteComment(String commentId) async {
+  Future<void> _confirmDeleteComment(
+    String commentId, {
+    bool canDelete = true,
+  }) async {
+    if (!canDelete) return;
     final cleanId = commentId.trim();
     if (cleanId.isEmpty) return;
     final reelId = widget.reelId ?? 'r1';
@@ -189,7 +198,10 @@ class _CommentsScreenState extends State<CommentsScreen> {
                 child: OutlinedButton(
                   onPressed: () => Navigator.of(ctx).pop(false),
                   style: OutlinedButton.styleFrom(
-                    side: const BorderSide(color: Color(0xFFECE8F5), width: 1.5),
+                    side: const BorderSide(
+                      color: Color(0xFFECE8F5),
+                      width: 1.5,
+                    ),
                     backgroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(25),
@@ -215,14 +227,20 @@ class _CommentsScreenState extends State<CommentsScreen> {
 
     if (confirm == true && mounted) {
       final success = await context.read<ReelsCubit>().deleteComment(
-            videoId: reelId,
-            commentId: cleanId,
-          );
+        videoId: reelId,
+        commentId: cleanId,
+      );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(success ? 'Comment deleted successfully' : 'Failed to delete comment'),
-            backgroundColor: success ? const Color(0xFF8B3DFF) : Colors.redAccent,
+            content: Text(
+              success
+                  ? 'Comment deleted successfully'
+                  : 'Failed to delete comment',
+            ),
+            backgroundColor: success
+                ? const Color(0xFF8B3DFF)
+                : Colors.redAccent,
           ),
         );
       }
@@ -237,17 +255,153 @@ class _CommentsScreenState extends State<CommentsScreen> {
     final countLabel =
         '${comments.length} comment${comments.length == 1 ? '' : 's'}';
 
+    final authCubit = context.watch<AuthCubit>();
+    final currentUserId = (authCubit.userId ?? '').trim();
+    final currentUsername = authCubit.username
+        .trim()
+        .replaceAll('@', '')
+        .toLowerCase();
+    final currentHandle =
+        (authCubit.state.currentUser['handle']?.toString() ?? '')
+            .trim()
+            .replaceAll('@', '')
+            .toLowerCase();
+
+    final profileUser = context.watch<ProfileCubit>().state.data?.user;
+    final profileUserId = (profileUser?.id ?? '').trim();
+    final profileUsername = (profileUser?.username ?? '')
+        .trim()
+        .replaceAll('@', '')
+        .toLowerCase();
+
+    Map<String, dynamic>? videoMap = reelsProvider.getVideo(reelId);
+    if (videoMap == null) {
+      try {
+        final trendingItem = context.watch<TrendingVideosCubit>().getVideoById(
+          reelId,
+        );
+        if (trendingItem != null) {
+          videoMap = trendingItem.toReelJson();
+        }
+      } catch (_) {}
+    }
+    if (videoMap == null) {
+      try {
+        final myVideos = context.watch<MyVideosCubit>().state.videos;
+        final match = myVideos.where((v) => v.id == reelId).firstOrNull;
+        if (match != null) {
+          videoMap = match.toUiMap();
+        }
+      } catch (_) {}
+    }
+    videoMap ??= ReelHelpers.reelById(reelId);
+
+    final videoOwnerId =
+        (videoMap?['userId'] ??
+                videoMap?['user_id'] ??
+                videoMap?['creatorId'] ??
+                (videoMap?['user'] is Map
+                    ? (videoMap!['user']['id'] ?? videoMap['user']['_id'])
+                    : null))
+            ?.toString()
+            .trim() ??
+        '';
+
+    final videoOwnerUsername =
+        (videoMap?['username'] ??
+                videoMap?['handle'] ??
+                videoMap?['creator'] ??
+                (videoMap?['user'] is Map
+                    ? videoMap!['user']['username']
+                    : null))
+            ?.toString()
+            .replaceAll('@', '')
+            .trim()
+            .toLowerCase() ??
+        '';
+
+    bool isVideoOwner = false;
+    try {
+      final myVideos = context.watch<MyVideosCubit>().state.videos;
+      if (myVideos.any((v) => v.id == reelId)) {
+        isVideoOwner = true;
+      }
+    } catch (_) {}
+
+    if (!isVideoOwner && videoOwnerId.isNotEmpty) {
+      if ((currentUserId.isNotEmpty && videoOwnerId == currentUserId) ||
+          (profileUserId.isNotEmpty && videoOwnerId == profileUserId)) {
+        isVideoOwner = true;
+      }
+    }
+
+    if (!isVideoOwner && videoOwnerUsername.isNotEmpty) {
+      if ((currentUsername.isNotEmpty &&
+              videoOwnerUsername == currentUsername) ||
+          (currentHandle.isNotEmpty && videoOwnerUsername == currentHandle) ||
+          (profileUsername.isNotEmpty &&
+              videoOwnerUsername == profileUsername)) {
+        isVideoOwner = true;
+      }
+    }
+
+    bool isUserCommentAuthor(Map<String, dynamic> item) {
+      final cUserId =
+          (item['userId'] ??
+                  item['user_id'] ??
+                  (item['user'] is Map
+                      ? (item['user']['id'] ?? item['user']['_id'])
+                      : null))
+              ?.toString()
+              .trim() ??
+          '';
+      if (cUserId.isNotEmpty) {
+        if ((currentUserId.isNotEmpty && cUserId == currentUserId) ||
+            (profileUserId.isNotEmpty && cUserId == profileUserId)) {
+          return true;
+        }
+      }
+
+      final cUsername =
+          (item['username'] ??
+                  item['userName'] ??
+                  (item['user'] is Map
+                      ? (item['user']['username'] ?? item['user']['fullName'])
+                      : null))
+              ?.toString()
+              .replaceAll('@', '')
+              .trim()
+              .toLowerCase() ??
+          '';
+      if (cUsername.isNotEmpty) {
+        if ((currentUsername.isNotEmpty && cUsername == currentUsername) ||
+            (currentHandle.isNotEmpty && cUsername == currentHandle) ||
+            (profileUsername.isNotEmpty && cUsername == profileUsername)) {
+          return true;
+        }
+      }
+      return false;
+    }
+
     final List<Map<String, dynamic>> displayedComments = List.from(comments);
     if (_sortMode == 'recent') {
       displayedComments.sort((a, b) {
-        final aDate = DateTime.tryParse(a['createdAt']?.toString() ?? '') ?? DateTime(1970);
-        final bDate = DateTime.tryParse(b['createdAt']?.toString() ?? '') ?? DateTime(1970);
+        final aDate =
+            DateTime.tryParse(a['createdAt']?.toString() ?? '') ??
+            DateTime(1970);
+        final bDate =
+            DateTime.tryParse(b['createdAt']?.toString() ?? '') ??
+            DateTime(1970);
         return bDate.compareTo(aDate);
       });
     } else if (_sortMode == 'top') {
       displayedComments.sort((a, b) {
-        final aLikes = a['likes'] is int ? a['likes'] as int : (int.tryParse(a['likes']?.toString() ?? '') ?? 0);
-        final bLikes = b['likes'] is int ? b['likes'] as int : (int.tryParse(b['likes']?.toString() ?? '') ?? 0);
+        final aLikes = a['likes'] is int
+            ? a['likes'] as int
+            : (int.tryParse(a['likes']?.toString() ?? '') ?? 0);
+        final bLikes = b['likes'] is int
+            ? b['likes'] as int
+            : (int.tryParse(b['likes']?.toString() ?? '') ?? 0);
         return bLikes.compareTo(aLikes);
       });
     }
@@ -294,12 +448,22 @@ class _CommentsScreenState extends State<CommentsScreen> {
                       itemCount: displayedComments.length,
                       itemBuilder: (context, i) {
                         final item = displayedComments[i];
-                        final cId = item['id']?.toString() ?? item['_id']?.toString() ?? '';
+                        final cId =
+                            item['id']?.toString() ??
+                            item['_id']?.toString() ??
+                            '';
+                        final isAuthor = isUserCommentAuthor(item);
+                        final canDelete = isAuthor || isVideoOwner;
                         return _CommentItem(
                           comment: item,
                           liked: false,
                           onLike: () {},
-                          onDelete: cId.isNotEmpty ? () => _confirmDeleteComment(cId) : null,
+                          onDelete: (canDelete && cId.isNotEmpty)
+                              ? () => _confirmDeleteComment(
+                                  cId,
+                                  canDelete: canDelete,
+                                )
+                              : null,
                         );
                       },
                     ),
@@ -314,7 +478,10 @@ class _CommentsScreenState extends State<CommentsScreen> {
               decoration: BoxDecoration(
                 color: Colors.white.withValues(alpha: 0.98),
                 border: Border(
-                  top: BorderSide(color: const Color(0xFF5E2EAA).withValues(alpha: 0.1), width: 1.5),
+                  top: BorderSide(
+                    color: const Color(0xFF5E2EAA).withValues(alpha: 0.1),
+                    width: 1.5,
+                  ),
                 ),
                 boxShadow: [
                   BoxShadow(
@@ -338,7 +505,9 @@ class _CommentsScreenState extends State<CommentsScreen> {
                         decoration: InputDecoration(
                           filled: false,
                           hintText: 'Add a comment...',
-                          hintStyle: AppTextStyles.hint12.copyWith(fontSize: 13),
+                          hintStyle: AppTextStyles.hint12.copyWith(
+                            fontSize: 13,
+                          ),
                           border: InputBorder.none,
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 16,
@@ -360,7 +529,9 @@ class _CommentsScreenState extends State<CommentsScreen> {
                         shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(
-                            color: const Color(0xFFFF3D77).withValues(alpha: 0.32),
+                            color: const Color(
+                              0xFFFF3D77,
+                            ).withValues(alpha: 0.32),
                             blurRadius: 14,
                             offset: const Offset(0, 6),
                           ),
@@ -374,7 +545,11 @@ class _CommentsScreenState extends State<CommentsScreen> {
                                 color: Colors.white,
                               ),
                             )
-                          : const Icon(Icons.send, size: 17, color: Colors.white),
+                          : const Icon(
+                              Icons.send,
+                              size: 17,
+                              color: Colors.white,
+                            ),
                     ),
                   ),
                 ],
@@ -446,27 +621,31 @@ class _CommentItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final avatar = comment['avatarUrl']?.toString() ??
+    final avatar =
+        comment['avatarUrl']?.toString() ??
         comment['userAvatar']?.toString() ??
-        (comment['user'] is Map ? comment['user']['avatarUrl']?.toString() : null) ??
+        (comment['user'] is Map
+            ? comment['user']['avatarUrl']?.toString()
+            : null) ??
         '';
 
-    final username = comment['username']?.toString() ??
+    final username =
+        comment['username']?.toString() ??
         comment['userName']?.toString() ??
         (comment['user'] is Map
             ? (comment['user']['fullName']?.toString() ??
-                comment['user']['username']?.toString())
+                  comment['user']['username']?.toString())
             : null) ??
         'User';
 
-    final time = comment['time']?.toString() ??
+    final time =
+        comment['time']?.toString() ??
         comment['timeAgo']?.toString() ??
         comment['createdAt']?.toString() ??
         'Just now';
 
-    final text = comment['text']?.toString() ??
-        comment['content']?.toString() ??
-        '';
+    final text =
+        comment['text']?.toString() ?? comment['content']?.toString() ?? '';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -474,7 +653,9 @@ class _CommentItem extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFFFBFAFE),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFF5E2EAA).withValues(alpha: 0.06)),
+        border: Border.all(
+          color: const Color(0xFF5E2EAA).withValues(alpha: 0.06),
+        ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -508,9 +689,12 @@ class _CommentItem extends StatelessWidget {
                         comment['is_verified'] == true ||
                         (comment['user'] is Map &&
                             ((comment['user'] as Map)['isBlueTick'] == true ||
-                             (comment['user'] as Map)['is_blue_tick'] == true ||
-                             (comment['user'] as Map)['isVerified'] == true ||
-                             (comment['user'] as Map)['is_verified'] == true))) ...[
+                                (comment['user'] as Map)['is_blue_tick'] ==
+                                    true ||
+                                (comment['user'] as Map)['isVerified'] ==
+                                    true ||
+                                (comment['user'] as Map)['is_verified'] ==
+                                    true))) ...[
                       const SizedBox(width: 4),
                       const Icon(
                         Icons.verified,
@@ -542,7 +726,10 @@ class _CommentItem extends StatelessWidget {
                 const SizedBox(height: 5),
                 Text(
                   text,
-                  style: AppTextStyles.bodyRegular145.copyWith(fontSize: 13, height: 1.55),
+                  style: AppTextStyles.bodyRegular145.copyWith(
+                    fontSize: 13,
+                    height: 1.55,
+                  ),
                 ),
                 const SizedBox(height: 10),
                 Row(
@@ -550,7 +737,10 @@ class _CommentItem extends StatelessWidget {
                     GestureDetector(
                       onTap: onLike,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 11,
+                          vertical: 5,
+                        ),
                         decoration: BoxDecoration(
                           color: liked
                               ? AppColors.pink.withValues(alpha: 0.1)
@@ -562,7 +752,9 @@ class _CommentItem extends StatelessWidget {
                             Icon(
                               liked ? Icons.favorite : Icons.favorite_border,
                               size: 13,
-                              color: liked ? AppColors.pink : AppColors.textSoft,
+                              color: liked
+                                  ? AppColors.pink
+                                  : AppColors.textSoft,
                             ),
                             const SizedBox(width: 5),
                             Text(
@@ -570,7 +762,9 @@ class _CommentItem extends StatelessWidget {
                               style: TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.w700,
-                                color: liked ? AppColors.pink : AppColors.textSoft,
+                                color: liked
+                                    ? AppColors.pink
+                                    : AppColors.textSoft,
                               ),
                             ),
                           ],
@@ -580,7 +774,10 @@ class _CommentItem extends StatelessWidget {
                     TextButton(
                       onPressed: () {},
                       style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 5,
+                        ),
                         minimumSize: Size.zero,
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
