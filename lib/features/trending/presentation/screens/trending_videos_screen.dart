@@ -158,15 +158,32 @@ class _TrendingVideosScreenState extends State<TrendingVideosScreen> {
                                   color: Color(0xFF8B849C),
                                 ),
                                 const SizedBox(height: 12),
-                                const Text(
-                                  'No trending videos available right now.',
+                                Text(
+                                  (trendingProvider.errorMessage != null &&
+                                          trendingProvider.errorMessage!
+                                              .trim()
+                                              .isNotEmpty)
+                                      ? trendingProvider.errorMessage!
+                                          .replaceFirst('Exception: ', '')
+                                      : 'No trending videos available right now.',
                                   textAlign: TextAlign.center,
-                                  style: TextStyle(
+                                  style: const TextStyle(
                                     fontFamily: 'Inter',
                                     color: Color(0xFF8B849C),
                                     fontSize: 14,
                                   ),
                                 ),
+                                if (trendingProvider.errorMessage != null &&
+                                    trendingProvider.errorMessage!
+                                        .trim()
+                                        .isNotEmpty) ...[
+                                  const SizedBox(height: 12),
+                                  TextButton(
+                                    onPressed: () => trendingProvider
+                                        .loadTrendingVideos(forceRefresh: true),
+                                    child: const Text('Retry'),
+                                  ),
+                                ],
                               ],
                             ),
                           ),
@@ -353,40 +370,42 @@ class _FeaturedHeroCard extends StatelessWidget {
                         ),
                       ),
                     ),
-                    const SizedBox(height: 6),
-                    // Rating Pill
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 7, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.55),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(
-                            Icons.star_rounded,
-                            color: Color(0xFFFFB800),
-                            size: 12.5,
-                          ),
-                          const SizedBox(width: 2.5),
-                          Text(
-                            rating,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w700,
+                    if (rating.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      // Rating Pill (hidden when score is missing / 0.0)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 7, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.55),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.star_rounded,
+                              color: Color(0xFFFFB800),
+                              size: 12.5,
                             ),
-                          ),
-                        ],
+                            const SizedBox(width: 2.5),
+                            Text(
+                              rating,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
+                    ],
                   ],
                 ),
               ),
 
-              // Bottom Left: Views and Creator Info
+              // Bottom Left: Views / likes / comments + Creator Info
               Positioned(
                 left: 12,
                 right: 12,
@@ -395,18 +414,46 @@ class _FeaturedHeroCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Views Row
                     Row(
-                      mainAxisSize: MainAxisSize.min,
                       children: [
                         const Icon(
                           Icons.visibility_outlined,
                           color: Colors.white,
                           size: 13,
                         ),
-                        const SizedBox(width: 4),
+                        const SizedBox(width: 3),
                         Text(
                           views,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        const Icon(
+                          Icons.favorite_border_rounded,
+                          color: Colors.white,
+                          size: 12,
+                        ),
+                        const SizedBox(width: 3),
+                        Text(
+                          hero.displayLikes,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        const Icon(
+                          Icons.chat_bubble_outline_rounded,
+                          color: Colors.white,
+                          size: 11.5,
+                        ),
+                        const SizedBox(width: 3),
+                        Text(
+                          hero.displayComments,
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 11,
@@ -585,39 +632,41 @@ class _TrendingVideoItemCard extends StatelessWidget {
                         ),
                       ),
                     ),
-                    const SizedBox(height: 5),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 5.5, vertical: 2.5),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.55),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(
-                            Icons.star_rounded,
-                            color: Color(0xFFFFB800),
-                            size: 11,
-                          ),
-                          const SizedBox(width: 2),
-                          Text(
-                            video.displayRating,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 9.5,
-                              fontWeight: FontWeight.w700,
+                    if (video.displayRating.isNotEmpty) ...[
+                      const SizedBox(height: 5),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 5.5, vertical: 2.5),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.55),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.star_rounded,
+                              color: Color(0xFFFFB800),
+                              size: 11,
                             ),
-                          ),
-                        ],
+                            const SizedBox(width: 2),
+                            Text(
+                              video.displayRating,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 9.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
+                    ],
                   ],
                 ),
               ),
 
-              // Bottom Left: Views and Creator Info
+              // Bottom Left: Views / likes / comments + Creator Info
               Positioned(
                 left: 10,
                 right: 10,
@@ -626,22 +675,62 @@ class _TrendingVideoItemCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Views
                     Row(
-                      mainAxisSize: MainAxisSize.min,
                       children: [
                         const Icon(
                           Icons.visibility_outlined,
                           color: Colors.white,
                           size: 11.5,
                         ),
-                        const SizedBox(width: 3.5),
-                        Text(
-                          video.displayViews,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
+                        const SizedBox(width: 2.5),
+                        Flexible(
+                          child: Text(
+                            video.displayViews,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        const Icon(
+                          Icons.favorite_border_rounded,
+                          color: Colors.white,
+                          size: 10.5,
+                        ),
+                        const SizedBox(width: 2),
+                        Flexible(
+                          child: Text(
+                            video.displayLikes,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        const Icon(
+                          Icons.chat_bubble_outline_rounded,
+                          color: Colors.white,
+                          size: 10,
+                        ),
+                        const SizedBox(width: 2),
+                        Flexible(
+                          child: Text(
+                            video.displayComments,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ),
                       ],

@@ -118,20 +118,25 @@ class ReelsState {
       final vId = v['id']?.toString() ?? v['_id']?.toString() ?? '';
       if (vId == cleanId) {
         if (v['commentsCount'] is int) {
-          final count = v['commentsCount'] as int;
-          if (commentsMap.containsKey(cleanId) && commentsMap[cleanId]!.length > count) {
-            return commentsMap[cleanId]!.length;
-          }
-          return count;
+          return v['commentsCount'] as int;
         }
-        if (v['comments'] != null) {
-          final parsed = int.tryParse(v['comments'].toString());
-          if (parsed != null && parsed >= 0) return parsed;
-        }
+        final parsed = int.tryParse(
+          (v['commentsCount'] ?? v['commentCount'] ?? v['comments'])
+                  ?.toString() ??
+              '',
+        );
+        if (parsed != null && parsed >= 0) return parsed;
       }
     }
+    // Fallback: count root comments only (exclude loaded replies).
     if (commentsMap.containsKey(cleanId)) {
-      return commentsMap[cleanId]!.length;
+      return commentsMap[cleanId]!.where((c) {
+        final parent = (c['parentCommentId']?.toString() ??
+                c['parent_comment_id']?.toString() ??
+                '')
+            .trim();
+        return parent.isEmpty;
+      }).length;
     }
     return fallback;
   }

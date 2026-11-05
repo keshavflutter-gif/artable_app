@@ -258,17 +258,50 @@ class HomeUiMapper {
       item['challenge'] is Map ? item['challenge']['title'] : null,
     ]);
 
-    final rawLikes = TrendingVideoItem.parseCount(
-      item['likesCount'] ?? item['likes_count'] ?? item['likeCount'] ?? item['likes'] ?? item['_count']?['likes'],
+    final rawLikes = TrendingVideoItem.extractCountFromMap(
+      item,
+      countKeys: const [
+        'likesCount',
+        'likes_count',
+        'likeCount',
+        'like_count',
+        'totalLikes',
+        'likes',
+      ],
+      labelKeys: const ['likesLabel'],
     );
-    final rawComments = TrendingVideoItem.parseCount(
-      item['commentsCount'] ?? item['comments_count'] ?? item['commentCount'] ?? item['comments'] ?? item['_count']?['comments'],
+    final rawComments = TrendingVideoItem.extractCountFromMap(
+      item,
+      countKeys: const [
+        'commentsCount',
+        'comments_count',
+        'commentCount',
+        'comment_count',
+        'totalComments',
+        'comments',
+      ],
+      labelKeys: const ['commentsLabel'],
     );
-    final rawShares = TrendingVideoItem.parseCount(
-      item['sharesCount'] ?? item['shares_count'] ?? item['shareCount'] ?? item['shares'] ?? item['_count']?['shares'],
+    final rawShares = TrendingVideoItem.extractCountFromMap(
+      item,
+      countKeys: const [
+        'sharesCount',
+        'shares_count',
+        'shareCount',
+        'shares',
+      ],
+      labelKeys: const ['sharesLabel'],
     );
-    final parsedViews = TrendingVideoItem.parseCount(
-      item['viewsCount'] ?? item['views_count'] ?? item['viewCount'] ?? item['views'] ?? item['_count']?['views'],
+    final parsedViews = TrendingVideoItem.extractCountFromMap(
+      item,
+      countKeys: const [
+        'viewsCount',
+        'views_count',
+        'viewCount',
+        'totalViews',
+        'views',
+      ],
+      labelKeys: const ['viewsLabel'],
     );
 
     final isLikedBool = item['isLiked'] == true ||
@@ -333,24 +366,57 @@ class HomeUiMapper {
       else if (parsedClipsDesc.clips != null && parsedClipsDesc.clips!.isNotEmpty)
         'mergedClipPaths': parsedClipsDesc.clips
       else if (ReelHelpers.getCachedMergedClips(_stringValue(item['id'])) != null)
-        'mergedClipPaths': ReelHelpers.getCachedMergedClips(_stringValue(item['id']))
-      else if (ReelHelpers.getCachedMergedClips(videoUrl) != null)
-        'mergedClipPaths': ReelHelpers.getCachedMergedClips(videoUrl),
-      'views': viewsStr.isNotEmpty ? viewsStr : _formatCompactNumber(parsedViews),
+        'mergedClipPaths': ReelHelpers.getCachedMergedClips(_stringValue(item['id'])),
+      'views': () {
+        final label = item['viewsLabel']?.toString().trim();
+        if (label != null &&
+            label.isNotEmpty &&
+            label.toLowerCase() != 'null' &&
+            TrendingVideoItem.parseCount(label) > 0) {
+          return label;
+        }
+        if (viewsStr.isNotEmpty &&
+            viewsStr != '0' &&
+            TrendingVideoItem.parseCount(viewsStr) > 0) {
+          return viewsStr;
+        }
+        return _formatCompactNumber(parsedViews);
+      }(),
       'viewsCount': parsedViews,
-      'likes': item['likesLabel'] != null
-          ? item['likesLabel'].toString()
-          : _formatCompactNumber(rawLikes),
+      'likes': () {
+        final label = item['likesLabel']?.toString().trim();
+        if (label != null &&
+            label.isNotEmpty &&
+            label.toLowerCase() != 'null' &&
+            TrendingVideoItem.parseCount(label) > 0) {
+          return label;
+        }
+        return _formatCompactNumber(rawLikes);
+      }(),
       'likesCount': rawLikes,
       'isLiked': isLikedBool,
       'liked': isLikedBool,
-      'comments': item['commentsLabel'] != null
-          ? item['commentsLabel'].toString()
-          : _formatCompactNumber(rawComments),
+      'comments': () {
+        final label = item['commentsLabel']?.toString().trim();
+        if (label != null &&
+            label.isNotEmpty &&
+            label.toLowerCase() != 'null' &&
+            TrendingVideoItem.parseCount(label) > 0) {
+          return label;
+        }
+        return _formatCompactNumber(rawComments);
+      }(),
       'commentsCount': rawComments,
-      'shares': item['sharesLabel'] != null
-          ? item['sharesLabel'].toString()
-          : _formatCompactNumber(rawShares),
+      'shares': () {
+        final label = item['sharesLabel']?.toString().trim();
+        if (label != null &&
+            label.isNotEmpty &&
+            label.toLowerCase() != 'null' &&
+            TrendingVideoItem.parseCount(label) > 0) {
+          return label;
+        }
+        return _formatCompactNumber(rawShares);
+      }(),
       'sharesCount': rawShares,
       'musicName': () {
         final named = _firstNonEmptyString([musicMeta?.name, item['musicName'], item['music']]);

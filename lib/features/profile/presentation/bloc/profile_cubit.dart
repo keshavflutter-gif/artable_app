@@ -37,6 +37,9 @@ class ProfileCubit extends Cubit<ProfileState> {
   List<MyVideoItem> get recentVideos => state.data?.recentVideos ?? const [];
   List<MyVideoItem> get liveRecentVideos =>
       recentVideos.where((v) => v.isVideoLive && !v.isDraft).toList();
+
+  List<MyVideoItem> get displayRecentVideos =>
+      recentVideos.where((v) => v.isRecentEligible).toList();
   bool get isLoading => state.isLoading;
   bool get hasLoaded => state.hasLoaded;
   String? get errorMessage => state.errorMessage;

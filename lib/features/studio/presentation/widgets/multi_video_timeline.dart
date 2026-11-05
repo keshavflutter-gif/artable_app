@@ -321,7 +321,8 @@ class _MultiVideoTimelineState extends State<MultiVideoTimeline> {
   Widget _buildRuler() {
     final speed = widget.speedMultiplier.clamp(0.4, 4.0);
     final sourceSec = widget.notifier.totalTrimmedDuration.inMilliseconds / 1000.0;
-    // Ruler shows playback duration (source / speed).
+    // Clips already use `_pps = base/speed`, so ruler duration must be
+    // playback time with base pps — never apply speed twice.
     final totalSec = sourceSec / speed;
     return SizedBox(
       height: 22,
@@ -335,7 +336,7 @@ class _MultiVideoTimelineState extends State<MultiVideoTimeline> {
               totalSeconds: totalSec.clamp(1.0, 3600.0),
               scrollOffset: scrollOffset,
               leftMargin: 16.0,
-              pixelsPerSecond: _pps,
+              pixelsPerSecond: _kPixelsPerSecond,
             ),
           );
         },

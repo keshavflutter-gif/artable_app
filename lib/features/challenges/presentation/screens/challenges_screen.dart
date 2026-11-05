@@ -18,11 +18,15 @@ class ChallengesScreen extends StatefulWidget {
     this.initialTab = 'active',
     this.categoryFilter,
     this.showBackButton = false,
+    this.isActive = true,
   });
 
   final String initialTab;
   final String? categoryFilter;
   final bool showBackButton;
+
+  /// When hosted in [MainTabShell], only true while the Challenges tab is selected.
+  final bool isActive;
 
   @override
   State<ChallengesScreen> createState() => _ChallengesScreenState();
@@ -33,6 +37,7 @@ class _ChallengesScreenState extends State<ChallengesScreen> {
   static const _tabLabels = ['Active', 'Upcoming', 'Completed', 'Featured'];
 
   late int _selectedTab;
+  var _hasLoadedOnce = false;
 
   @override
   void initState() {
@@ -43,15 +48,8 @@ class _ChallengesScreenState extends State<ChallengesScreen> {
     if (_selectedTab < 0) _selectedTab = 0;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        if (widget.categoryFilter != null &&
-            widget.categoryFilter!.isNotEmpty) {
-          context
-              .read<ChallengesCubit>()
-              .loadChallengesByCategory(widget.categoryFilter!);
-        } else {
-          _loadCurrentTab();
-        }
+      if (mounted && widget.isActive) {
+        _bootstrapLoad();
       }
     });
   }
@@ -59,12 +57,33 @@ class _ChallengesScreenState extends State<ChallengesScreen> {
   @override
   void didUpdateWidget(covariant ChallengesScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.isActive && !oldWidget.isActive) {
+      // Reload if never loaded, or last load failed (empty + error).
+      final cubit = context.read<ChallengesCubit>();
+      final tabKey = _tabKeys[_selectedTab];
+      final hadError = cubit.getTabChallengesError(tabKey) != null;
+      if (!_hasLoadedOnce || hadError) {
+        _bootstrapLoad();
+      }
+    }
     if (oldWidget.categoryFilter != widget.categoryFilter &&
         widget.categoryFilter != null &&
-        widget.categoryFilter!.isNotEmpty) {
+        widget.categoryFilter!.isNotEmpty &&
+        widget.isActive) {
       context
           .read<ChallengesCubit>()
           .loadChallengesByCategory(widget.categoryFilter!);
+    }
+  }
+
+  void _bootstrapLoad() {
+    _hasLoadedOnce = true;
+    if (widget.categoryFilter != null && widget.categoryFilter!.isNotEmpty) {
+      context
+          .read<ChallengesCubit>()
+          .loadChallengesByCategory(widget.categoryFilter!);
+    } else {
+      _loadCurrentTab();
     }
   }
 
@@ -158,20 +177,58 @@ class _ChallengesScreenState extends State<ChallengesScreen> {
                           child: CircularProgressIndicator(),
                         ),
                       )
-                    else if (challenges.isEmpty)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(
-                            vertical: 40, horizontal: 20),
-                        child: Text(
-                          'No challenges in this category yet — check back soon.',
-                          textAlign: TextAlign.center,
-                          style: AppTypography.body(
-                            fontSize: 13.5,
-                            color: AppColors.textSoft,
-                          ),
-                        ),
-                      )
-                    else
+                    else if (challenges.isEmpty) ...[
+                      Builder(
+                        builder: (context) {
+                          final tabError =
+                              provider.getTabChallengesError(currentTab);
+                          final catError = hasCategory
+                              ? provider.getCategoryChallengesError(
+                                  widget.categoryFilter!,
+                                )
+                              : null;
+                          final err = (tabError ?? catError)?.trim();
+                          final hasError = err != null && err.isNotEmpty;
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 40,
+                              horizontal: 20,
+                            ),
+                            child: Column(
+                              children: [
+                                Text(
+                                  hasError
+                                      ? err
+                                      : 'No challenges in this category yet — check back soon.',
+                                  textAlign: TextAlign.center,
+                                  style: AppTypography.body(
+                                    fontSize: 13.5,
+                                    color: AppColors.textSoft,
+                                  ),
+                                ),
+                                if (hasError) ...[
+                                  const SizedBox(height: 12),
+                                  TextButton(
+                                    onPressed: () {
+                                      if (hasCategory) {
+                                        context
+                                            .read<ChallengesCubit>()
+                                            .loadChallengesByCategory(
+                                              widget.categoryFilter!,
+                                            );
+                                      } else {
+                                        _loadCurrentTab(forceRefresh: true);
+                                      }
+                                    },
+                                    child: const Text('Retry'),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                    ] else
                       ...challenges.asMap().entries.map((entry) {
                         final index = entry.key;
                         final challenge = entry.value;

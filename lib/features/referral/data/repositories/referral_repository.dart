@@ -32,7 +32,7 @@ class ReferralRepository {
   late final ApiClient _apiClient;
   final AuthStorageService _storageService;
 
-  Future<Map<String, String>?> _authHeaders({
+  Future<Map<String, String>> _authHeaders({
     String? sessionToken,
     String? refreshToken,
   }) async {
@@ -44,12 +44,13 @@ class ReferralRepository {
     if (rToken == null || rToken.isEmpty || rToken == 'design_preview') {
       rToken = await _storageService.getRefreshToken();
     }
-    if (sToken == null || sToken.isEmpty || rToken == null || rToken.isEmpty) {
-      return null;
+    // Session token alone is enough — Refresh-Token is optional.
+    if (sToken == null || sToken.isEmpty) {
+      return <String, String>{};
     }
     return ApiAuthHeaders.authenticated(
       sessionToken: sToken,
-      refreshToken: rToken,
+      refreshToken: (rToken != null && rToken.isNotEmpty) ? rToken : null,
     );
   }
 
@@ -61,6 +62,12 @@ class ReferralRepository {
       sessionToken: sessionToken,
       refreshToken: refreshToken,
     );
+    if (headers.isEmpty) {
+      throw ApiException(
+        'Please sign in to get your invite code.',
+        statusCode: 401,
+      );
+    }
     debugPrint('=== REFERRAL INVITE REQUEST === GET ${ApiConstants.referralsInvite}');
     final data = await _apiClient.get(
       ApiConstants.referralsInvite,
@@ -68,7 +75,13 @@ class ReferralRepository {
     );
     debugPrint('=== REFERRAL INVITE RESPONSE ===');
     debugPrint(const JsonEncoder.withIndent('  ').convert(data));
-    return ReferralInviteResponse.fromJson(data);
+    final parsed = ReferralInviteResponse.fromJson(data);
+    final normalized = parsed.data?.withFallbackLink();
+    return ReferralInviteResponse(
+      success: parsed.success && (normalized?.code.isNotEmpty ?? false),
+      message: parsed.message,
+      data: normalized,
+    );
   }
 
   Future<ReferralTrackingResponse> getTracking({
@@ -79,6 +92,12 @@ class ReferralRepository {
       sessionToken: sessionToken,
       refreshToken: refreshToken,
     );
+    if (headers.isEmpty) {
+      throw ApiException(
+        'Please sign in to view referral tracking.',
+        statusCode: 401,
+      );
+    }
     debugPrint('=== REFERRAL TRACKING REQUEST === GET ${ApiConstants.referralsTracking}');
     final data = await _apiClient.get(
       ApiConstants.referralsTracking,
@@ -98,6 +117,12 @@ class ReferralRepository {
       sessionToken: sessionToken,
       refreshToken: refreshToken,
     );
+    if (headers.isEmpty) {
+      return const ApplyReferralResponse(
+        success: false,
+        message: 'Please sign in to apply a referral code.',
+      );
+    }
     final body = {'referralCode': referralCode.trim()};
     debugPrint('=== REFERRAL APPLY REQUEST === POST ${ApiConstants.referralsApply}');
     debugPrint(const JsonEncoder.withIndent('  ').convert(body));

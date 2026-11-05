@@ -120,6 +120,7 @@ class _MainTabShellState extends State<MainTabShell> {
               ChallengesScreen(
                 categoryFilter: widget.categoryFilter,
                 initialTab: widget.initialChallengesTab,
+                isActive: _currentIndex == 1,
               ),
               const ActivityCenterScreen(showBackButton: false),
               MyProfileScreen(isActive: _currentIndex == 4),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:artable_app/app/theme/app_colors.dart';
@@ -7,6 +8,7 @@ import 'package:artable_app/core/utils/format_utils.dart';
 import 'package:artable_app/core/utils/mock_helpers.dart';
 import 'package:artable_app/core/widgets/app_image.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
+import 'package:artable_app/features/rewards/presentation/bloc/rewards_cubit.dart';
 
 class RewardDetailScreen extends StatefulWidget {
   const RewardDetailScreen({super.key, this.rewardId});
@@ -19,6 +21,7 @@ class RewardDetailScreen extends StatefulWidget {
 
 class _RewardDetailScreenState extends State<RewardDetailScreen> {
   var _claimed = false;
+  var _claiming = false;
 
   Color _typeColor(String type) {
     switch (type) {
@@ -33,14 +36,85 @@ class _RewardDetailScreenState extends State<RewardDetailScreen> {
     }
   }
 
+  Map<String, dynamic> _resolveReward(BuildContext context) {
+    final id = widget.rewardId?.trim() ?? '';
+    final cubit = context.read<RewardsCubit>();
+    final candidates = <Map<String, dynamic>>[
+      if (cubit.featuredRewardAsUiMap != null) cubit.featuredRewardAsUiMap!,
+      ...cubit.rewardsAsUiMaps,
+    ];
+    for (final item in candidates) {
+      if ((item['id']?.toString() ?? '') == id) {
+        return {
+          ...item,
+          'eligibility': item['eligibility'] ?? const <String>[],
+          'imageUrl': item['imageUrl'] ?? '',
+          'type': item['type'] ?? 'product',
+          'status': item['status'] ?? 'available',
+        };
+      }
+    }
+    return MockHelpers.rewardById(widget.rewardId) ??
+        {
+          'id': id,
+          'title': 'Reward',
+          'subtitle': '',
+          'description': '',
+          'type': 'product',
+          'value': '',
+          'imageUrl': '',
+          'status': 'available',
+          'eligibility': const <String>[],
+        };
+  }
+
+  Future<void> _claimReward(String rewardId) async {
+    if (_claiming || _claimed) return;
+    setState(() => _claiming = true);
+    try {
+      final ok = await context.read<RewardsCubit>().claimReward(rewardId);
+      if (!mounted) return;
+      if (ok) {
+        setState(() {
+          _claimed = true;
+          _claiming = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Reward claimed successfully.'),
+            backgroundColor: Color(0xFF8B3DFF),
+          ),
+        );
+      } else {
+        setState(() => _claiming = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Unable to claim reward. Please try again.'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _claiming = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error: $e'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final r = MockHelpers.rewardById(widget.rewardId)!;
-    final status = r['status'] as String;
-    if (status == 'claimed') _claimed = true;
+    final r = _resolveReward(context);
+    final status = (r['status'] as String?) ?? 'available';
+    if (status == 'claimed' || r['isClaimed'] == true) _claimed = true;
     final locked = status == 'locked';
     final typeStr = r['type'] as String? ?? 'product';
     final eligibilityList = (r['eligibility'] as List?) ?? [];
+    final rewardId = (r['id']?.toString() ?? widget.rewardId ?? '').trim();
 
     return AppScreen(
       child: SingleChildScrollView(
@@ -423,7 +497,9 @@ class _RewardDetailScreenState extends State<RewardDetailScreen> {
                       child: Material(
                         color: Colors.transparent,
                         child: InkWell(
-                          onTap: () => setState(() => _claimed = true),
+                          onTap: _claiming || rewardId.isEmpty
+                              ? null
+                              : () => _claimReward(rewardId),
                           borderRadius: BorderRadius.circular(28),
                           child: Container(
                             height: 48,
@@ -431,16 +507,27 @@ class _RewardDetailScreenState extends State<RewardDetailScreen> {
                               gradient: AppGradients.button,
                               borderRadius: BorderRadius.circular(28),
                             ),
-                            child: const Center(
-                              child: Text(
-                                'Claim Reward',
-                                style: TextStyle(
-                                  fontFamily: 'Poppins',
-                                  fontSize: 14.5,
-                                  fontWeight: FontWeight.w800,
-                                  color: Colors.white,
-                                ),
-                              ),
+                            child: Center(
+                              child: _claiming
+                                  ? const SizedBox(
+                                      width: 22,
+                                      height: 22,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2.4,
+                                        valueColor: AlwaysStoppedAnimation<Color>(
+                                          Colors.white,
+                                        ),
+                                      ),
+                                    )
+                                  : const Text(
+                                      'Claim Reward',
+                                      style: TextStyle(
+                                        fontFamily: 'Poppins',
+                                        fontSize: 14.5,
+                                        fontWeight: FontWeight.w800,
+                                        color: Colors.white,
+                                      ),
+                                    ),
                             ),
                           ),
                         ),

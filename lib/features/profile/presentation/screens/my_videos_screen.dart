@@ -168,7 +168,7 @@ class _MyVideosScreenState extends State<MyVideosScreen> {
                                 crossAxisCount: 2,
                                 crossAxisSpacing: 12,
                                 mainAxisSpacing: 12,
-                                childAspectRatio: 0.54,
+                                childAspectRatio: 0.66,
                               ),
                               itemCount: list.length,
                               itemBuilder: (context, i) => _FigmaMyVideoCard(item: list[i]),
@@ -295,6 +295,7 @@ class _FigmaMyVideoCard extends StatelessWidget {
 
     final views = item.viewsLabel;
     final likes = item.likesLabel;
+    final comments = item.commentsLabel;
     final date = item.dateLabel;
     final rejectionReason = item.rejectionReason;
     final talentScore = item.talentScoreLabel;
@@ -469,165 +470,186 @@ class _FigmaMyVideoCard extends StatelessWidget {
             ),
           ),
 
-          // Content Area
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Title
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontFamily: 'Poppins',
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.text,
+                    height: 1.2,
+                  ),
+                ),
+                const SizedBox(height: 5),
+
+                Row(
+                  children: [
+                    const Icon(Icons.remove_red_eye_outlined, size: 10.5, color: AppColors.textSoft),
+                    const SizedBox(width: 2),
+                    Flexible(
+                      child: Text(
+                        views,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textSoft,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 5),
+                    const Icon(Icons.favorite_border_rounded, size: 10.5, color: AppColors.textSoft),
+                    const SizedBox(width: 2),
+                    Flexible(
+                      child: Text(
+                        likes,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textSoft,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 5),
+                    const Icon(Icons.chat_bubble_outline_rounded, size: 10, color: AppColors.textSoft),
+                    const SizedBox(width: 2),
+                    Flexible(
+                      child: Text(
+                        comments,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textSoft,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                if (date.isNotEmpty) ...[
+                  const SizedBox(height: 3),
                   Text(
-                    title,
+                    date,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 8.5,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.textFaint,
+                    ),
+                  ),
+                ],
+
+                if (statusRaw == 'rejected' && rejectionReason != null && rejectionReason.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    rejectionReason,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.text,
-                      height: 1.2,
+                      fontFamily: 'Inter',
+                      fontSize: 8.5,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFFFF3B30),
+                      height: 1.15,
                     ),
                   ),
-                  const SizedBox(height: 5),
+                ],
 
-                  // Stats Row (Views, Likes, Date)
+                const SizedBox(height: 8),
+
+                if (statusRaw == 'draft' || item.canContinueDraft)
                   Row(
                     children: [
-                      const Icon(Icons.remove_red_eye_outlined, size: 10.5, color: AppColors.textSoft),
-                      const SizedBox(width: 2.5),
-                      Text(
-                        views,
-                        style: const TextStyle(
-                          fontFamily: 'Inter',
-                          fontSize: 9.5,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textSoft,
+                      Expanded(
+                        child: _buildSmallActionButton(
+                          icon: Icons.edit_outlined,
+                          label: 'Continue',
+                          onTap: () {
+                            final challengeObj = item.challenge;
+                            final challengeId = challengeObj?['id']?.toString() ?? '';
+                            if (challengeId.isNotEmpty) {
+                              context.push('/studio-drafts?id=$challengeId');
+                            } else {
+                              context.push('/studio-drafts');
+                            }
+                          },
                         ),
                       ),
-                      const SizedBox(width: 6),
-                      const Icon(Icons.favorite_border_rounded, size: 10.5, color: AppColors.textSoft),
-                      const SizedBox(width: 2.5),
-                      Text(
-                        likes,
-                        style: const TextStyle(
-                          fontFamily: 'Inter',
-                          fontSize: 9.5,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textSoft,
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: _buildSmallActionButton(
+                          icon: Icons.share_outlined,
+                          label: 'Share',
+                          onTap: () {
+                            unawaited(VideoShareHelper.precacheVideo(item.videoUrl, videoId: item.id));
+                            context.push(
+                              '${AppRoutes.shareReport}?id=${item.id}',
+                              extra: {
+                                'reelId': item.id,
+                                'videoUrl': item.videoUrl,
+                                'title': item.title,
+                              },
+                            );
+                          },
                         ),
                       ),
-                      const Spacer(),
-                      Text(
-                        date,
-                        style: const TextStyle(
-                          fontFamily: 'Inter',
-                          fontSize: 8.5,
-                          fontWeight: FontWeight.w500,
-                          color: AppColors.textFaint,
+                    ],
+                  )
+                else
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildSmallActionButton(
+                          icon: Icons.remove_red_eye_outlined,
+                          label: 'View',
+                          onTap: () {
+                            final challengeObj = item.challenge;
+                            final challengeId = challengeObj?['id']?.toString() ?? '';
+                            final routeId = item.id.isNotEmpty ? item.id : challengeId;
+                            final uiMap = _enrichUiMap(context, item);
+                            context.read<ReelsCubit>().syncVideos([uiMap]);
+                            context.push('/video-detail?id=$routeId', extra: uiMap);
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 5),
+                      Expanded(
+                        child: _buildSmallActionButton(
+                          icon: Icons.share_outlined,
+                          label: 'Share',
+                          onTap: () {
+                            unawaited(VideoShareHelper.precacheVideo(item.videoUrl, videoId: item.id));
+                            context.push(
+                              '${AppRoutes.shareReport}?id=${item.id}',
+                              extra: {
+                                'reelId': item.id,
+                                'videoUrl': item.videoUrl,
+                                'title': item.title,
+                              },
+                            );
+                          },
                         ),
                       ),
                     ],
                   ),
-
-                  // Rejection Notice
-                  if (statusRaw == 'rejected' && rejectionReason != null && rejectionReason.isNotEmpty) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      rejectionReason,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 8.5,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFFFF3B30),
-                        height: 1.15,
-                      ),
-                    ),
-                  ],
-
-                  const Spacer(),
-
-                  // Action Buttons
-                  if (statusRaw == 'draft' || item.canContinueDraft)
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildSmallActionButton(
-                            icon: Icons.edit_outlined,
-                            label: 'Continue',
-                            onTap: () {
-                              final challengeObj = item.challenge;
-                              final challengeId = challengeObj?['id']?.toString() ?? '';
-                              if (challengeId.isNotEmpty) {
-                                context.push('/studio-drafts?id=$challengeId');
-                              } else {
-                                context.push('/studio-drafts');
-                              }
-                            },
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        Expanded(
-                          child: _buildSmallActionButton(
-                            icon: Icons.share_outlined,
-                            label: 'Share',
-                            onTap: () {
-                              unawaited(VideoShareHelper.precacheVideo(item.videoUrl, videoId: item.id));
-                              context.push(
-                                '${AppRoutes.shareReport}?id=${item.id}',
-                                extra: {
-                                  'reelId': item.id,
-                                  'videoUrl': item.videoUrl,
-                                  'title': item.title,
-                                },
-                              );
-                            },
-                          ),
-                        ),
-                      ],
-                    )
-                  else
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildSmallActionButton(
-                            icon: Icons.remove_red_eye_outlined,
-                            label: 'View',
-                            onTap: () {
-                              final challengeObj = item.challenge;
-                              final challengeId = challengeObj?['id']?.toString() ?? '';
-                              final routeId = item.id.isNotEmpty ? item.id : challengeId;
-                              final uiMap = _enrichUiMap(context, item);
-                              context.read<ReelsCubit>().syncVideos([uiMap]);
-                              context.push('/video-detail?id=$routeId', extra: uiMap);
-                            },
-                          ),
-                        ),
-                        const SizedBox(width: 5),
-                        Expanded(
-                          child: _buildSmallActionButton(
-                            icon: Icons.share_outlined,
-                            label: 'Share',
-                            onTap: () {
-                              unawaited(VideoShareHelper.precacheVideo(item.videoUrl, videoId: item.id));
-                              context.push(
-                                '${AppRoutes.shareReport}?id=${item.id}',
-                                extra: {
-                                  'reelId': item.id,
-                                  'videoUrl': item.videoUrl,
-                                  'title': item.title,
-                                },
-                              );
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-
-                ],
-              ),
+              ],
             ),
           ),
         ],

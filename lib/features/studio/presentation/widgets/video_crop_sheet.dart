@@ -184,7 +184,7 @@ class _VideoCropSheetState extends State<VideoCropSheet> {
                       ),
                       SizedBox(height: 2),
                       Text(
-                        'Video file will be cropped (center crop)',
+                        'Preview updates instantly (file crop on upload)',
                         style: TextStyle(
                           fontSize: 11.5,
                           color: Color(0xFF7A7090),
@@ -267,31 +267,10 @@ class _VideoCropSheetState extends State<VideoCropSheet> {
               );
             }),
             const SizedBox(height: 14),
-            if (_applying) ...[
-              const Center(
-                child: Padding(
-                  padding: EdgeInsets.symmetric(vertical: 12),
-                  child: Column(
-                    children: [
-                      CircularProgressIndicator(color: AppColors.purple),
-                      SizedBox(height: 10),
-                      Text(
-                        'Cropping video file…',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF7A7090),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ] else
-              GradientButton(
-                label: 'Apply Crop',
-                onPressed: _applyCrop,
-              ),
+            GradientButton(
+              label: _applying ? 'Applying…' : 'Apply Crop',
+              onPressed: _applying ? null : _applyCrop,
+            ),
           ],
         ),
       ),

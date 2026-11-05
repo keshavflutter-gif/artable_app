@@ -140,11 +140,22 @@ class MusicApiService {
     final allTracks =
         (_cachedTracks != null && _cachedTracks!.isNotEmpty) ? _cachedTracks! : fallbackTracks;
     final targetLower = musicStr.trim().toLowerCase();
+
+    // Prefer exact "Title — Artist" so a later song is never replaced by the
+    // first catalog entry whose title is a loose substring match.
     for (final t in allTracks) {
       final titleArtist = '${t.title} — ${t.artist}'.toLowerCase();
-      if (titleArtist == targetLower ||
-          t.title.toLowerCase() == targetLower ||
-          targetLower.contains(t.title.toLowerCase())) {
+      if (titleArtist == targetLower) return t;
+    }
+    for (final t in allTracks) {
+      if (t.title.toLowerCase() == targetLower) return t;
+    }
+    for (final t in allTracks) {
+      final title = t.title.toLowerCase();
+      if (title.isEmpty) continue;
+      if (targetLower.startsWith('$title —') ||
+          targetLower.startsWith('$title -') ||
+          targetLower.startsWith('$title–')) {
         return t;
       }
     }

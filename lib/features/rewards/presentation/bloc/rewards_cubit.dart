@@ -106,6 +106,89 @@ class RewardsCubit extends Cubit<RewardsState> {
     }
   }
 
+  Future<bool> claimReward(String rewardId) async {
+    final cleanId = rewardId.trim();
+    if (cleanId.isEmpty) return false;
+
+    final token = _authCubit?.sessionToken;
+    final refresh = _authCubit?.refreshToken;
+    if (token == null || token.isEmpty || token == 'design_preview') {
+      return false;
+    }
+
+    try {
+      final res = await _rewardsRepository.claimReward(
+        rewardId: cleanId,
+        sessionToken: token,
+        refreshToken: refresh != 'design_preview' ? refresh : null,
+      );
+
+      if (res['success'] == false) return false;
+
+      final updated = state.rewards.map((r) {
+        if (r.id != cleanId) return r;
+        return RewardItem(
+          id: r.id,
+          title: r.title,
+          subtitle: r.subtitle,
+          description: r.description,
+          type: r.type,
+          value: r.value,
+          valueLabel: r.valueLabel,
+          stock: r.stock,
+          sponsorName: r.sponsorName,
+          imageUrl: r.imageUrl,
+          isActive: r.isActive,
+          status: 'claimed',
+          statusLabel: 'CLAIMED',
+          isClaimed: true,
+          isAvailable: false,
+          claim: r.claim,
+          featured: r.featured,
+          expiresAt: r.expiresAt,
+          brand: r.brand,
+          code: r.code,
+        );
+      }).toList();
+
+      RewardItem? featured = state.featuredReward;
+      if (featured != null && featured.id == cleanId) {
+        featured = RewardItem(
+          id: featured.id,
+          title: featured.title,
+          subtitle: featured.subtitle,
+          description: featured.description,
+          type: featured.type,
+          value: featured.value,
+          valueLabel: featured.valueLabel,
+          stock: featured.stock,
+          sponsorName: featured.sponsorName,
+          imageUrl: featured.imageUrl,
+          isActive: featured.isActive,
+          status: 'claimed',
+          statusLabel: 'CLAIMED',
+          isClaimed: true,
+          isAvailable: false,
+          claim: featured.claim,
+          featured: featured.featured,
+          expiresAt: featured.expiresAt,
+          brand: featured.brand,
+          code: featured.code,
+        );
+      }
+
+      emit(state.copyWith(
+        rewards: updated,
+        featuredReward: featured,
+        clearError: true,
+      ));
+      return true;
+    } catch (e) {
+      emit(state.copyWith(errorMessage: e.toString()));
+      return false;
+    }
+  }
+
   void markAllNotificationsAsRead() {
     final updated = state.notifications.map((n) {
       final map = Map<String, dynamic>.from(n);

@@ -320,37 +320,33 @@ abstract final class ReelHelpers {
 
   static final Map<String, List<String>> _mergedClipsCache = {};
 
+  static bool _isHttpUrlKey(String key) {
+    return key.startsWith('http://') || key.startsWith('https://');
+  }
+
   static void cacheMergedClips(String? key, List<String>? clips) {
-    if (key == null || key.trim().isEmpty || clips == null || clips.length <= 1) return;
-    final cleanKey = key.trim();
-    _mergedClipsCache[cleanKey] = List<String>.from(clips);
-    final withoutHost = cleanKey.replaceFirst(RegExp(r'^https?://[^/]+'), '');
-    if (withoutHost.isNotEmpty && withoutHost != cleanKey) {
-      _mergedClipsCache[withoutHost] = List<String>.from(clips);
+    if (key == null || key.trim().isEmpty || clips == null || clips.length <= 1) {
+      return;
     }
+    final cleanKey = key.trim();
+    // Never index playlists by media URL — shared path suffixes leak clips
+    // across videos. Prefer video ids only.
+    if (_isHttpUrlKey(cleanKey) || cleanKey.contains('/uploads/')) return;
+    _mergedClipsCache[cleanKey] = List<String>.from(clips);
     try {
-      final jsonStr = jsonEncode(clips);
-      LocalStorage.setString('cached_clips_$cleanKey', jsonStr);
-      if (withoutHost.isNotEmpty && withoutHost != cleanKey) {
-        LocalStorage.setString('cached_clips_$withoutHost', jsonStr);
-      }
+      LocalStorage.setString('cached_clips_$cleanKey', jsonEncode(clips));
     } catch (_) {}
   }
 
   static List<String>? getCachedMergedClips(String? key) {
     if (key == null || key.trim().isEmpty) return null;
     final cleanKey = key.trim();
+    if (_isHttpUrlKey(cleanKey) || cleanKey.contains('/uploads/')) return null;
     if (_mergedClipsCache.containsKey(cleanKey)) {
       return _mergedClipsCache[cleanKey];
     }
-    final withoutHost = cleanKey.replaceFirst(RegExp(r'^https?://[^/]+'), '');
-    if (withoutHost.isNotEmpty && _mergedClipsCache.containsKey(withoutHost)) {
-      return _mergedClipsCache[withoutHost];
-    }
     try {
-      final rawPrefs = LocalStorage.rawPrefs;
-      final saved = rawPrefs?.getString('cached_clips_$cleanKey') ??
-          (withoutHost.isNotEmpty ? rawPrefs?.getString('cached_clips_$withoutHost') : null);
+      final saved = LocalStorage.rawPrefs?.getString('cached_clips_$cleanKey');
       if (saved != null && saved.isNotEmpty) {
         final decoded = jsonDecode(saved);
         if (decoded is List) {
@@ -370,6 +366,8 @@ abstract final class ReelHelpers {
     final url = music.url.trim();
     if (url.isEmpty || url == 'null') return;
     final cleanKey = key.trim();
+    // Video-id keys only — URL keys caused one reel's BGM on another.
+    if (_isHttpUrlKey(cleanKey) || cleanKey.contains('/uploads/')) return;
     final meta = ReelMusicMeta(
       url: url,
       name: music.name.trim(),
@@ -377,31 +375,18 @@ abstract final class ReelHelpers {
       durationSeconds: music.durationSeconds,
     );
     _musicCache[cleanKey] = meta;
-    final withoutHost = cleanKey.replaceFirst(RegExp(r'^https?://[^/]+'), '');
-    if (withoutHost.isNotEmpty && withoutHost != cleanKey) {
-      _musicCache[withoutHost] = meta;
-    }
     try {
-      final jsonStr = jsonEncode(meta.toJson());
-      LocalStorage.setString('cached_music_$cleanKey', jsonStr);
-      if (withoutHost.isNotEmpty && withoutHost != cleanKey) {
-        LocalStorage.setString('cached_music_$withoutHost', jsonStr);
-      }
+      LocalStorage.setString('cached_music_$cleanKey', jsonEncode(meta.toJson()));
     } catch (_) {}
   }
 
   static ReelMusicMeta? getCachedMusic(String? key) {
     if (key == null || key.trim().isEmpty) return null;
     final cleanKey = key.trim();
+    if (_isHttpUrlKey(cleanKey) || cleanKey.contains('/uploads/')) return null;
     if (_musicCache.containsKey(cleanKey)) return _musicCache[cleanKey];
-    final withoutHost = cleanKey.replaceFirst(RegExp(r'^https?://[^/]+'), '');
-    if (withoutHost.isNotEmpty && _musicCache.containsKey(withoutHost)) {
-      return _musicCache[withoutHost];
-    }
     try {
-      final rawPrefs = LocalStorage.rawPrefs;
-      final saved = rawPrefs?.getString('cached_music_$cleanKey') ??
-          (withoutHost.isNotEmpty ? rawPrefs?.getString('cached_music_$withoutHost') : null);
+      final saved = LocalStorage.rawPrefs?.getString('cached_music_$cleanKey');
       if (saved != null && saved.isNotEmpty) {
         final decoded = jsonDecode(saved);
         if (decoded is Map) {
@@ -437,15 +422,17 @@ abstract final class ReelHelpers {
     final direct = (musicUrl ?? '').trim();
     final named = (musicName ?? '').trim();
     ReelMusicMeta? meta;
-    if (fromDesc != null && fromDesc.url.isNotEmpty) {
-      meta = fromDesc;
-    } else if (direct.isNotEmpty && direct != 'null') {
+    // Prefer explicit musicUrl/musicName (latest submit) over HTML comment in
+    // description, which can still hold the first song saved on a draft.
+    if (direct.isNotEmpty && direct != 'null') {
       meta = ReelMusicMeta(
         url: direct,
-        name: named,
-        startSeconds: startSeconds ?? 0,
-        durationSeconds: durationSeconds ?? 0,
+        name: named.isNotEmpty ? named : (fromDesc?.name ?? ''),
+        startSeconds: startSeconds ?? fromDesc?.startSeconds ?? 0,
+        durationSeconds: durationSeconds ?? fromDesc?.durationSeconds ?? 0,
       );
+    } else if (fromDesc != null && fromDesc.url.isNotEmpty) {
+      meta = fromDesc;
     } else if (videoId != null && videoId.trim().isNotEmpty) {
       meta = getCachedMusic(videoId);
     }
@@ -546,6 +533,55 @@ abstract final class ReelHelpers {
     if (primaryEmpty && fallbackClips is List && fallbackClips.isNotEmpty) {
       out['mergedClipPaths'] = List<String>.from(fallbackClips.map((e) => e.toString()));
     }
+
+    // Keep the stronger engagement totals when merging list → detail maps.
+    void mergeCount(String labelKey, String countKey) {
+      final a = _parseEngagementCount(out[countKey] ?? out[labelKey]);
+      final b = _parseEngagementCount(fallback[countKey] ?? fallback[labelKey]);
+      final best = a > b ? a : b;
+      out[countKey] = best;
+      out[labelKey] = _formatEngagementCount(best);
+    }
+
+    mergeCount('views', 'viewsCount');
+    mergeCount('likes', 'likesCount');
+    mergeCount('comments', 'commentsCount');
+    mergeCount('shares', 'sharesCount');
+    mergeCount('saves', 'savesCount');
     return out;
+  }
+
+  static int _parseEngagementCount(dynamic raw) {
+    if (raw == null) return 0;
+    if (raw is num) return raw.toInt();
+    final str = raw.toString().trim().toUpperCase();
+    if (str.isEmpty || str == 'NULL' || str == 'UNDEFINED' || str == 'NAN') {
+      return 0;
+    }
+    final asInt = int.tryParse(str);
+    if (asInt != null) return asInt;
+    final asDouble = double.tryParse(str);
+    if (asDouble != null) return asDouble.toInt();
+    if (str.endsWith('K')) {
+      final n = double.tryParse(str.replaceAll('K', '').trim());
+      if (n != null) return (n * 1000).round();
+    }
+    if (str.endsWith('M')) {
+      final n = double.tryParse(str.replaceAll('M', '').trim());
+      if (n != null) return (n * 1000000).round();
+    }
+    return 0;
+  }
+
+  static String _formatEngagementCount(int count) {
+    if (count >= 1000000) {
+      final val = count / 1000000;
+      return '${val.toStringAsFixed(1).replaceAll('.0', '')}M';
+    }
+    if (count >= 1000) {
+      final val = count / 1000;
+      return '${val.toStringAsFixed(1).replaceAll('.0', '')}K';
+    }
+    return count.toString();
   }
 }

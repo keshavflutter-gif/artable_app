@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:artable_app/core/utils/video_cache_manager.dart';
 import 'package:artable_app/features/trending/data/models/trending_videos_response.dart';
 import 'package:artable_app/features/trending/data/repositories/videos_repository.dart';
 import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
+import 'package:artable_app/features/auth/presentation/bloc/auth_state.dart';
 import 'trending_videos_state.dart';
 
 class TrendingVideosCubit extends Cubit<TrendingVideosState> {
@@ -16,10 +19,15 @@ class TrendingVideosCubit extends Cubit<TrendingVideosState> {
               onTokensRefreshed: authCubit?.applyRefreshedTokens,
               onSessionRefreshFailed: authCubit?.handleSessionRefreshFailed,
             ),
-        super(const TrendingVideosState());
+        super(const TrendingVideosState()) {
+    _lastSessionToken = authCubit?.sessionToken;
+    _authSubscription = authCubit?.stream.listen(_onAuthStateChanged);
+  }
 
   AuthCubit? _authCubit;
   final VideosRepository _videosRepository;
+  StreamSubscription<AuthState>? _authSubscription;
+  String? _lastSessionToken;
 
   String get selectedTab => state.selectedTab;
   String? get selectedCategory => state.selectedCategory;
@@ -45,6 +53,18 @@ class TrendingVideosCubit extends Cubit<TrendingVideosState> {
     return null;
   }
 
+  void _onAuthStateChanged(AuthState authState) {
+    final newToken = authState.sessionToken;
+    if (newToken != null &&
+        newToken.isNotEmpty &&
+        newToken != 'design_preview' &&
+        _lastSessionToken != newToken) {
+      _lastSessionToken = newToken;
+      // Home often mounts before the session is ready; refill trending then.
+      loadTrendingVideos(forceRefresh: true);
+    }
+  }
+
   Future<void> loadTrendingVideos({
     String? tab,
     String? category,
@@ -52,7 +72,11 @@ class TrendingVideosCubit extends Cubit<TrendingVideosState> {
     bool forceRefresh = false,
   }) async {
     if (state.isLoading) return;
-    if (state.hasLoaded && !forceRefresh && tab == null && category == null) {
+    if (state.hasLoaded &&
+        !forceRefresh &&
+        tab == null &&
+        category == null &&
+        state.videos.isNotEmpty) {
       return;
     }
 
@@ -75,14 +99,30 @@ class TrendingVideosCubit extends Cubit<TrendingVideosState> {
 
     final token = _authCubit?.sessionToken;
     final refresh = _authCubit?.refreshToken;
+    final hasSession = token != null &&
+        token.isNotEmpty &&
+        token != 'design_preview' &&
+        refresh != null &&
+        refresh.isNotEmpty &&
+        refresh != 'design_preview';
+
+    // Wait for auth instead of caching an empty "loaded" state.
+    if (!hasSession) {
+      emit(state.copyWith(
+        isLoading: false,
+        hasLoaded: false,
+        clearError: true,
+      ));
+      return;
+    }
 
     try {
       final res = await _videosRepository.getTrendingVideos(
         tab: apiTab,
         category: apiCategory,
         categoryId: apiCategoryId,
-        sessionToken: token != 'design_preview' ? token : null,
-        refreshToken: refresh != 'design_preview' ? refresh : null,
+        sessionToken: token,
+        refreshToken: refresh,
       );
 
       List<String> tabs = state.tabs;
@@ -107,14 +147,11 @@ class TrendingVideosCubit extends Cubit<TrendingVideosState> {
         clearHero: res.data?.hero == null,
       ));
 
+      // Precache only the hero — full-file downloads of 5 videos starve Home images.
       final heroUrl = res.data?.hero?.playableVideoUrl;
-      VideoCacheManager.precacheBatch(
-        [
-          if (heroUrl != null && heroUrl.isNotEmpty) heroUrl,
-          ...?res.data?.gridVideos.map((v) => v.playableVideoUrl),
-        ],
-        maxCount: 5,
-      );
+      if (heroUrl != null && heroUrl.isNotEmpty) {
+        VideoCacheManager.precacheBatch([heroUrl], maxCount: 1, parallelism: 1);
+      }
     } catch (e) {
       emit(state.copyWith(
         isLoading: false,
@@ -132,5 +169,14 @@ class TrendingVideosCubit extends Cubit<TrendingVideosState> {
 
   void updateAuth(AuthCubit authCubit) {
     _authCubit = authCubit;
+    _authSubscription?.cancel();
+    _lastSessionToken = authCubit.sessionToken;
+    _authSubscription = authCubit.stream.listen(_onAuthStateChanged);
+  }
+
+  @override
+  Future<void> close() {
+    _authSubscription?.cancel();
+    return super.close();
   }
 }

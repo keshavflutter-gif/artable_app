@@ -1101,14 +1101,26 @@ class ApiClient {
 
     // 3. Check error string
     final error = decoded['error'];
-    if (error is String && error.trim().isNotEmpty) {
-      return error.trim();
+    if (error is String) {
+      final trimmed = error.trim();
+      final lower = trimmed.toLowerCase();
+      if (trimmed.isNotEmpty &&
+          lower != 'null' &&
+          lower != 'undefined') {
+        return trimmed;
+      }
     }
 
     // 4. Check main message string
     final message = decoded['message'];
-    if (message is String && message.trim().isNotEmpty) {
-      return message.trim();
+    if (message is String) {
+      final trimmed = message.trim();
+      final lower = trimmed.toLowerCase();
+      if (trimmed.isNotEmpty &&
+          lower != 'null' &&
+          lower != 'undefined') {
+        return trimmed;
+      }
     }
 
     return null;

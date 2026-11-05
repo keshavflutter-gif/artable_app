@@ -28,11 +28,11 @@ class VideoSpeedSheet extends StatefulWidget {
 
   final void Function(String speedStr, double multiplier)? onSpeedChanged;
 
-  static void show(
+  static Future<void> show(
     BuildContext context, {
     void Function(String speedStr, double multiplier)? onSpeedChanged,
   }) {
-    showModalBottomSheet(
+    return showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,

@@ -1,5 +1,6 @@
 import 'package:artable_app/core/utils/media_url_utils.dart';
 import 'package:artable_app/core/utils/reel_helpers.dart';
+import 'package:artable_app/features/trending/data/models/trending_videos_response.dart';
 
 class MyVideosResponse {
   const MyVideosResponse({
@@ -128,6 +129,7 @@ class MyVideoItem {
     this.durationSeconds,
     this.viewsLabel = '0',
     this.likesLabel = '0',
+    this.commentsLabel = '0',
     this.talentScoreLabel = '0.0',
     this.dateLabel = '',
     this.isLive = false,
@@ -165,6 +167,7 @@ class MyVideoItem {
   final num? durationSeconds;
   final String viewsLabel;
   final String likesLabel;
+  final String commentsLabel;
   final String talentScoreLabel;
   final String dateLabel;
   final bool isLive;
@@ -188,6 +191,58 @@ class MyVideoItem {
   final String? filterId;
   final bool beautyOn;
   final double beautyIntensity;
+
+  /// Prefer a string *Label, otherwise format from count / nested stats fields.
+  static String _engagementLabel(
+    Map<String, dynamic> json, {
+    required List<String> labelKeys,
+    required List<String> countKeys,
+  }) {
+    for (final key in labelKeys) {
+      final raw = json[key];
+      if (raw is String) {
+        final cleaned = TrendingVideoItem.cleanLabel(raw);
+        if (cleaned != null) return cleaned;
+      }
+    }
+
+    int best = 0;
+    void consider(dynamic raw) {
+      if (raw == null) return;
+      if (raw is List) {
+        if (raw.length > best) best = raw.length;
+        return;
+      }
+      if (raw is Map) {
+        final map = Map<String, dynamic>.from(raw);
+        consider(
+          map['count'] ??
+              map['total'] ??
+              map['value'] ??
+              map['likes'] ??
+              map['comments'] ??
+              map['views'],
+        );
+        return;
+      }
+      final n = TrendingVideoItem.parseCount(raw);
+      if (n > best) best = n;
+    }
+
+    for (final key in countKeys) {
+      consider(json[key]);
+    }
+    for (final nestKey in const ['_count', 'count', 'stats', 'engagement', 'metrics']) {
+      final nested = json[nestKey];
+      if (nested is Map) {
+        final map = Map<String, dynamic>.from(nested);
+        for (final key in countKeys) {
+          consider(map[key]);
+        }
+      }
+    }
+    return TrendingVideoItem.formatCount(best);
+  }
 
   factory MyVideoItem.fromJson(Map<String, dynamic> json, {Map<String, dynamic>? fallbackUser}) {
     final actionsRaw = json['actions'];
@@ -318,16 +373,15 @@ class MyVideoItem {
             ? List<String>.from((json['merged_clip_paths'] as List).map((e) => e.toString()))
             : parsedClipsDesc.clips);
 
-    if (effectiveMergedClips == null || effectiveMergedClips.isEmpty) {
-      effectiveMergedClips = ReelHelpers.getCachedMergedClips(idStr) ??
-          ReelHelpers.getCachedMergedClips(videoUrlStr);
+    if ((effectiveMergedClips == null || effectiveMergedClips.isEmpty) &&
+        idStr.isNotEmpty) {
+      effectiveMergedClips = ReelHelpers.getCachedMergedClips(idStr);
     }
 
-    if (effectiveMergedClips != null && effectiveMergedClips.length > 1) {
-      if (idStr.isNotEmpty) ReelHelpers.cacheMergedClips(idStr, effectiveMergedClips);
-      if (videoUrlStr != null && videoUrlStr.isNotEmpty) {
-        ReelHelpers.cacheMergedClips(videoUrlStr, effectiveMergedClips);
-      }
+    if (effectiveMergedClips != null &&
+        effectiveMergedClips.length > 1 &&
+        idStr.isNotEmpty) {
+      ReelHelpers.cacheMergedClips(idStr, effectiveMergedClips);
     }
 
     var finalVideoUrl = (resolvedVideoUrl != null && resolvedVideoUrl.isNotEmpty)
@@ -391,8 +445,45 @@ class MyVideoItem {
       statusLabel: json['statusLabel']?.toString(),
       rejectionReason: json['rejectionReason']?.toString(),
       durationSeconds: json['durationSeconds'] as num?,
-      viewsLabel: json['viewsLabel']?.toString() ?? json['views']?.toString() ?? '0',
-      likesLabel: json['likesLabel']?.toString() ?? json['likes']?.toString() ?? '0',
+      viewsLabel: _engagementLabel(
+        json,
+        labelKeys: const ['viewsLabel'],
+        countKeys: const [
+          'viewsCount',
+          'views_count',
+          'viewCount',
+          'view_count',
+          'totalViews',
+          'total_views',
+          'views',
+        ],
+      ),
+      likesLabel: _engagementLabel(
+        json,
+        labelKeys: const ['likesLabel'],
+        countKeys: const [
+          'likesCount',
+          'likes_count',
+          'likeCount',
+          'like_count',
+          'totalLikes',
+          'total_likes',
+          'likes',
+        ],
+      ),
+      commentsLabel: _engagementLabel(
+        json,
+        labelKeys: const ['commentsLabel'],
+        countKeys: const [
+          'commentsCount',
+          'comments_count',
+          'commentCount',
+          'comment_count',
+          'totalComments',
+          'total_comments',
+          'comments',
+        ],
+      ),
       talentScoreLabel: json['talentScoreLabel']?.toString() ?? json['talentScore']?.toString() ?? '0.0',
       dateLabel: dateStr,
       isLive: isLiveVal,
@@ -440,13 +531,33 @@ class MyVideoItem {
         s == 'inactive' ||
         s == 'under_review' ||
         s == 'pending_review' ||
+        s == 'pending' ||
         s == 'draft') {
       return false;
     }
-    if (isLive || s == 'live' || s == 'approved' || s == 'published' || s == 'active') {
+    if (isLive ||
+        s == 'live' ||
+        s == 'approved' ||
+        s == 'published' ||
+        s == 'active' ||
+        s.isEmpty) {
       return true;
     }
-    return false;
+    // Unknown API statuses with a playable URL still count as live for UI lists.
+    final url = (videoUrl ?? '').trim();
+    return url.isNotEmpty &&
+        (url.startsWith('http://') ||
+            url.startsWith('https://') ||
+            url.startsWith('/') ||
+            url.contains('uploads/'));
+  }
+
+  /// Profile "Recent Videos" — any non-draft upload (incl. under review).
+  bool get isRecentEligible {
+    if (isDraft) return false;
+    final s = status.toLowerCase().trim();
+    if (s == 'rejected' || s == 'deleted' || s == 'inactive') return false;
+    return true;
   }
 
   Map<String, dynamic> toUiMap() {
@@ -456,7 +567,7 @@ class MyVideoItem {
 
     final resolvedClips = (mergedClipPaths != null && mergedClipPaths!.isNotEmpty)
         ? mergedClipPaths
-        : (ReelHelpers.getCachedMergedClips(id) ?? ReelHelpers.getCachedMergedClips(videoUrl));
+        : ReelHelpers.getCachedMergedClips(id);
 
     final resolvedFilter = ReelHelpers.resolveFilter(
       filterId: filterId,
@@ -489,8 +600,13 @@ class MyVideoItem {
       'rejectionReason': rejectionReason ?? '',
       'views': viewsLabel,
       'viewsLabel': viewsLabel,
+      'viewsCount': TrendingVideoItem.parseCount(viewsLabel),
       'likes': likesLabel,
       'likesLabel': likesLabel,
+      'likesCount': TrendingVideoItem.parseCount(likesLabel),
+      'comments': commentsLabel,
+      'commentsLabel': commentsLabel,
+      'commentsCount': TrendingVideoItem.parseCount(commentsLabel),
       'score': talentScoreLabel,
       'talentScoreLabel': talentScoreLabel,
       'date': dateLabel,

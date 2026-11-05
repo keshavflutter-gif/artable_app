@@ -2,6 +2,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
 import 'package:artable_app/features/referral/data/models/referral_models.dart';
+import 'package:artable_app/features/referral/data/referral_storage.dart';
 import 'package:artable_app/features/referral/data/repositories/referral_repository.dart';
 import 'referral_state.dart';
 
@@ -34,35 +35,55 @@ class ReferralCubit extends Cubit<ReferralState> {
 
   Future<void> loadInvite({bool forceRefresh = false}) async {
     if (state.isInviteLoading) return;
-    if (state.hasInviteLoaded && !forceRefresh) return;
+    if (state.hasInviteLoaded &&
+        !forceRefresh &&
+        (state.invite?.code.isNotEmpty ?? false)) {
+      return;
+    }
 
     emit(state.copyWith(isInviteLoading: true, clearInviteError: true));
+    try {
+      await _authCubit?.ensureInitialized();
+    } catch (_) {}
+
     try {
       final res = await _repository.getInvite(
         sessionToken: _sessionToken,
         refreshToken: _refreshToken,
       );
+      final invite = res.data?.withFallbackLink();
+      final hasCode = invite != null && invite.code.trim().isNotEmpty;
       emit(state.copyWith(
         isInviteLoading: false,
-        hasInviteLoaded: true,
-        invite: res.data,
-        inviteError: res.success ? null : (res.message ?? 'Failed to load invite'),
-        clearInviteError: res.success,
+        hasInviteLoaded: hasCode,
+        invite: invite,
+        inviteError: hasCode
+            ? null
+            : (res.message?.trim().isNotEmpty == true
+                ? res.message
+                : 'Could not load your referral code. Please try again.'),
+        clearInviteError: hasCode,
       ));
     } catch (e) {
       emit(state.copyWith(
         isInviteLoading: false,
-        hasInviteLoaded: true,
-        inviteError: e.toString(),
+        hasInviteLoaded: false,
+        inviteError: e.toString().replaceFirst('Exception: ', ''),
       ));
     }
   }
 
   Future<void> loadTracking({bool forceRefresh = false}) async {
     if (state.isTrackingLoading) return;
-    if (state.hasTrackingLoaded && !forceRefresh) return;
+    if (state.hasTrackingLoaded && !forceRefresh && state.trackingError == null) {
+      return;
+    }
 
     emit(state.copyWith(isTrackingLoading: true, clearTrackingError: true));
+    try {
+      await _authCubit?.ensureInitialized();
+    } catch (_) {}
+
     try {
       final res = await _repository.getTracking(
         sessionToken: _sessionToken,
@@ -72,14 +93,15 @@ class ReferralCubit extends Cubit<ReferralState> {
         isTrackingLoading: false,
         hasTrackingLoaded: true,
         tracking: res.data,
-        trackingError: res.success ? null : (res.message ?? 'Failed to load tracking'),
+        trackingError:
+            res.success ? null : (res.message ?? 'Failed to load tracking'),
         clearTrackingError: res.success,
       ));
     } catch (e) {
       emit(state.copyWith(
         isTrackingLoading: false,
-        hasTrackingLoaded: true,
-        trackingError: e.toString(),
+        hasTrackingLoaded: false,
+        trackingError: e.toString().replaceFirst('Exception: ', ''),
       ));
     }
   }
@@ -110,6 +132,10 @@ class ReferralCubit extends Cubit<ReferralState> {
       clearApplySuccess: true,
     ));
     try {
+      await _authCubit?.ensureInitialized();
+    } catch (_) {}
+
+    try {
       final res = await _repository.applyReferral(
         referralCode: code,
         sessionToken: _sessionToken,
@@ -121,6 +147,7 @@ class ReferralCubit extends Cubit<ReferralState> {
         applyMessage: res.message,
       ));
       if (res.success) {
+        await ReferralStorage.clearPendingCode();
         await loadTracking(forceRefresh: true);
       }
       return res;
@@ -133,5 +160,16 @@ class ReferralCubit extends Cubit<ReferralState> {
       ));
       return failed;
     }
+  }
+
+  /// Applies a stored invite code after the invited user finishes signup/login.
+  Future<ApplyReferralResponse?> applyPendingReferralIfAny() async {
+    final pending = await ReferralStorage.readPendingCode();
+    if (pending == null || pending.isEmpty) return null;
+    final res = await applyReferralCode(pending);
+    if (res.success) {
+      await ReferralStorage.clearPendingCode();
+    }
+    return res;
   }
 }

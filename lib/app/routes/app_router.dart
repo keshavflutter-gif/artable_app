@@ -1,5 +1,6 @@
 import 'package:go_router/go_router.dart';
 
+import 'package:artable_app/core/auth/auth_gate.dart';
 import 'package:artable_app/features/auth/presentation/screens/forgot_password_screen.dart';
 import 'package:artable_app/features/auth/presentation/screens/login_screen.dart';
 import 'package:artable_app/features/auth/presentation/screens/onboarding_screen.dart';
@@ -7,6 +8,7 @@ import 'package:artable_app/features/auth/presentation/screens/otp_verification_
 import 'package:artable_app/features/auth/presentation/screens/reset_password_screen.dart';
 import 'package:artable_app/features/auth/presentation/screens/signup_screen.dart';
 import 'package:artable_app/features/auth/presentation/screens/splash_screen.dart';
+import 'package:artable_app/features/referral/data/referral_storage.dart';
 import 'package:artable_app/features/bonus/presentation/screens/daily_bonus_screen.dart';
 import 'package:artable_app/features/challenges/presentation/screens/categories_screen.dart';
 import 'package:artable_app/features/challenges/presentation/screens/challenge_detail_screen.dart';
@@ -61,9 +63,47 @@ import 'package:artable_app/features/shell/presentation/screens/main_tab_shell.d
 import 'app_routes.dart';
 
 abstract final class AppRouter {
+  static const _publicExact = <String>{
+    AppRoutes.splash,
+    AppRoutes.onboarding,
+    AppRoutes.login,
+    AppRoutes.signup,
+    AppRoutes.otpVerification,
+    AppRoutes.forgotPassword,
+    AppRoutes.resetPassword,
+  };
+
+  static bool _isPublicLocation(String loc) {
+    if (_publicExact.contains(loc)) return true;
+    if (loc.startsWith('/invite/')) return true;
+    return false;
+  }
+
   static GoRouter create() {
     return GoRouter(
       initialLocation: AppRoutes.splash,
+      refreshListenable: AuthGate.instance,
+      redirect: (context, state) {
+        final gate = AuthGate.instance;
+        // Splash / first frame before session restore finishes.
+        if (!gate.initialized) return null;
+
+        final loc = state.matchedLocation;
+        final isPublic = _isPublicLocation(loc);
+
+        if (!gate.isLoggedIn && !isPublic) {
+          return AppRoutes.login;
+        }
+
+        if (gate.isLoggedIn &&
+            (loc == AppRoutes.login ||
+                loc == AppRoutes.signup ||
+                loc == AppRoutes.onboarding)) {
+          return AppRoutes.home;
+        }
+
+        return null;
+      },
       routes: [
         GoRoute(
           path: AppRoutes.splash,
@@ -89,7 +129,29 @@ abstract final class AppRouter {
         ),
         GoRoute(
           path: AppRoutes.signup,
-          builder: (context, state) => const SignupScreen(),
+          builder: (context, state) {
+            final code = state.uri.queryParameters['ref'] ??
+                state.uri.queryParameters['code'];
+            return SignupScreen(initialReferralCode: code);
+          },
+        ),
+        GoRoute(
+          path: AppRoutes.inviteDeepLink,
+          redirect: (context, state) {
+            final code = state.pathParameters['code']?.trim() ?? '';
+            if (code.isNotEmpty) {
+              // Persist before signup / home so OTP or logged-in apply can run.
+              ReferralStorage.savePendingCode(code);
+            }
+            // Logged-in users: keep the pending code and land on Home.
+            if (AuthGate.instance.isLoggedIn) {
+              return AppRoutes.home;
+            }
+            final encoded = Uri.encodeComponent(code);
+            return code.isEmpty
+                ? AppRoutes.signup
+                : '${AppRoutes.signup}?ref=$encoded';
+          },
         ),
         GoRoute(
           path: AppRoutes.otpVerification,

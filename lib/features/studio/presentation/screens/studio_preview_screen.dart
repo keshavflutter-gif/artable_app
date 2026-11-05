@@ -203,7 +203,7 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
       if (controller != null && controller.value.isInitialized) {
         final validController = controller;
         final hasBgm = studio.selectedMusic != null || studio.selectedTrack != null;
-        validController.setVolume((studio.isMuted || hasBgm) ? 0.0 : 1.0);
+        validController.setVolume(studio.originalAudioVolume.clamp(0.0, 1.0));
         try {
           await validController.setPlaybackSpeed(studio.speedMultiplier);
         } catch (_) {}
@@ -265,8 +265,7 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
     if (loaded.isEmpty) return false;
 
     _clipControllers = loaded;
-    final hasBgm = studio.selectedMusic != null || studio.selectedTrack != null;
-    final clipVolume = (studio.isMuted || hasBgm) ? 0.0 : 1.0;
+    final clipVolume = studio.originalAudioVolume.clamp(0.0, 1.0);
     for (final c in _clipControllers) {
       c.setVolume(clipVolume);
       try {
@@ -387,7 +386,7 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
       }
       final hasBgm = studio.selectedMusic != null || studio.selectedTrack != null;
       try {
-        await nextController.setVolume((studio.isMuted || hasBgm) ? 0.0 : 1.0);
+        await nextController.setVolume(studio.originalAudioVolume.clamp(0.0, 1.0));
       } catch (_) {}
 
       await nextController.seekTo(Duration.zero);
@@ -844,15 +843,21 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
                                     onApplied: () {
                                       if (!mounted) return;
                                       final curStudio = context.read<StudioCubit>();
-                                      StudioMusicPlaybackService.invalidateLoadedTrack();
-                                      unawaited(StudioMusicPlaybackService.preloadForStudio(curStudio));
-                                      final vc = _videoController;
-                                      if (vc != null && vc.value.isInitialized) {
-                                        final posMs = vc.value.position.inMilliseconds;
-                                        unawaited(StudioMusicPlaybackService.playForEditor(curStudio, posMs));
-                                        vc.play();
-                                        if (mounted) setState(() => _playing = true);
-                                      }
+                                      unawaited((() async {
+                                        await StudioMusicPlaybackService.reloadForStudio(curStudio);
+                                        if (!mounted) return;
+                                        final vc = _videoController;
+                                        if (vc != null && vc.value.isInitialized) {
+                                          final posMs = vc.value.position.inMilliseconds;
+                                          await StudioMusicPlaybackService.playForEditor(
+                                            curStudio,
+                                            posMs,
+                                            forceSeek: true,
+                                          );
+                                          vc.play();
+                                          if (mounted) setState(() => _playing = true);
+                                        }
+                                      })());
                                     },
                                   );
                                 },

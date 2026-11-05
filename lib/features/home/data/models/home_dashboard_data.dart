@@ -79,10 +79,17 @@ class HomeDashboardData {
 
     final raw = json['trendingVideos'] ??
         json['trending_videos'] ??
+        json['trendingReels'] ??
+        json['trending_reels'] ??
+        json['reels'] ??
         json['videos'] ??
         json['trending'] ??
         dataMap['videos'] ??
         dataMap['trendingVideos'] ??
+        dataMap['trending_videos'] ??
+        dataMap['trendingReels'] ??
+        dataMap['trending_reels'] ??
+        dataMap['reels'] ??
         dataMap['items'];
 
     if (raw is List) {

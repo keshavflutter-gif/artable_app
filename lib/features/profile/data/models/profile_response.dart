@@ -62,6 +62,9 @@ class ProfileData {
   List<MyVideoItem> get liveRecentVideos =>
       recentVideos.where((v) => v.isVideoLive && !v.isDraft).toList();
 
+  List<MyVideoItem> get displayRecentVideos =>
+      recentVideos.where((v) => v.isRecentEligible).toList();
+
   ProfileData copyWith({
     ProfileUser? user,
     ProfileStats? stats,

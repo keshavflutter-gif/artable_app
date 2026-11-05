@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:video_player/video_player.dart';
@@ -9,13 +11,22 @@ class VideoTrimmerSheet extends StatefulWidget {
   const VideoTrimmerSheet({
     super.key,
     this.videoController,
+    this.initialStartSeconds,
+    this.initialEndSeconds,
+    this.clipDurationSeconds,
   });
 
   final VideoPlayerController? videoController;
+  final double? initialStartSeconds;
+  final double? initialEndSeconds;
+  final double? clipDurationSeconds;
 
   static Future<void> show(
     BuildContext context, {
     VideoPlayerController? videoController,
+    double? initialStartSeconds,
+    double? initialEndSeconds,
+    double? clipDurationSeconds,
   }) {
     return showModalBottomSheet(
       context: context,
@@ -23,6 +34,9 @@ class VideoTrimmerSheet extends StatefulWidget {
       backgroundColor: Colors.transparent,
       builder: (ctx) => VideoTrimmerSheet(
         videoController: videoController,
+        initialStartSeconds: initialStartSeconds,
+        initialEndSeconds: initialEndSeconds,
+        clipDurationSeconds: clipDurationSeconds,
       ),
     );
   }
@@ -41,19 +55,29 @@ class _VideoTrimmerSheetState extends State<VideoTrimmerSheet> {
   void initState() {
     super.initState();
     final studioState = context.read<StudioCubit>().state;
+    // Prefer the ACTIVE clip controller duration — not the sum of all clips.
+    final controllerSecs =
+        (widget.videoController?.value.duration.inMilliseconds ?? 0) / 1000.0;
+    final clipSecs = widget.clipDurationSeconds ?? 0;
     final recordedSecs = _parseDurationToSeconds(studioState.recordedDuration);
-    final controllerSecs = (widget.videoController?.value.duration.inMilliseconds ?? 0) / 1000.0;
 
-    if (recordedSecs > 0) {
-      _totalDuration = recordedSecs;
+    if (clipSecs > 0) {
+      _totalDuration = clipSecs;
     } else if (controllerSecs > 0) {
       _totalDuration = controllerSecs;
+    } else if (recordedSecs > 0) {
+      _totalDuration = recordedSecs;
     } else {
       _totalDuration = 30.0;
     }
 
-    _startSeconds = studioState.videoTrimStartSeconds.clamp(0.0, _totalDuration - 1.0);
-    _endSeconds = (studioState.videoTrimEndSeconds ?? _totalDuration).clamp(_startSeconds + 1.0, _totalDuration);
+    final initialStart =
+        widget.initialStartSeconds ?? studioState.videoTrimStartSeconds;
+    final initialEnd =
+        widget.initialEndSeconds ?? studioState.videoTrimEndSeconds;
+    _startSeconds = initialStart.clamp(0.0, _totalDuration - 1.0);
+    _endSeconds = (initialEnd ?? _totalDuration)
+        .clamp(_startSeconds + 1.0, _totalDuration);
   }
 
   double _parseDurationToSeconds(String duration) {
@@ -75,6 +99,14 @@ class _VideoTrimmerSheetState extends State<VideoTrimmerSheet> {
     return '$m:$s';
   }
 
+  void _pausePreview() {
+    final controller = widget.videoController;
+    if (controller != null && controller.value.isInitialized) {
+      unawaited(controller.pause());
+    }
+    _isPlaying = false;
+  }
+
   void _togglePlayPause() {
     final controller = widget.videoController;
     if (controller != null && controller.value.isInitialized) {
@@ -89,6 +121,12 @@ class _VideoTrimmerSheetState extends State<VideoTrimmerSheet> {
     } else {
       setState(() => _isPlaying = !_isPlaying);
     }
+  }
+
+  @override
+  void dispose() {
+    _pausePreview();
+    super.dispose();
   }
 
   @override
@@ -296,6 +334,7 @@ class _VideoTrimmerSheetState extends State<VideoTrimmerSheet> {
           GradientButton(
             label: 'Apply Trim',
             onPressed: () {
+              _pausePreview();
               context.read<StudioCubit>().setVideoTrimRange(
                     start: _startSeconds,
                     end: _endSeconds,

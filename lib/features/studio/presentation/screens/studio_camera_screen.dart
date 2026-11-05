@@ -540,8 +540,12 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
         await StudioVideoPlayerUtils.prepareLocalRecordingForPlayback(savedPath) ??
             savedPath;
     savedPath = playablePath;
-    context.read<StudioCubit>().setRecordedVideoPath(savedPath, clearMergedClips: true);
-    setRecordedDuration(_timerText);
+    context.read<StudioCubit>().setRecordedVideoPath(
+          savedPath,
+          clearMergedClips: true,
+          resetTrim: true,
+        );
+    context.read<StudioCubit>().setRecordedDuration(_timerText, resetTrim: true);
 
     final studio = context.read<StudioCubit>();
     if (studio.selectedTrack != null || studio.selectedMusic != null) {

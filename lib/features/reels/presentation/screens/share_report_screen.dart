@@ -15,7 +15,6 @@ import 'package:artable_app/features/trending/presentation/bloc/trending_videos_
 
 import 'package:artable_app/core/utils/media_url_utils.dart';
 import 'package:artable_app/core/utils/video_share_helper.dart';
-import 'package:artable_app/data/datasources/music_api_service.dart';
 import 'package:artable_app/features/reels/data/services/reel_bgm_playback_service.dart';
 import 'package:artable_app/features/studio/data/services/studio_music_playback_service.dart';
 
@@ -56,6 +55,7 @@ class ShareReportScreen extends StatefulWidget {
 class _ShareReportScreenState extends State<ShareReportScreen> {
   String? _selectedReason;
   bool _reportSubmitted = false;
+  bool _reportSubmitting = false;
   String? _sharedOptionId;
 
   @override
@@ -67,7 +67,6 @@ class _ShareReportScreenState extends State<ShareReportScreen> {
     unawaited(StudioMusicPlaybackService.stop());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ReelBgmPlaybackService.silenceForNavigation();
-      _precacheVideo();
     });
   }
 
@@ -76,40 +75,6 @@ class _ShareReportScreenState extends State<ShareReportScreen> {
     // Do NOT call silenceForNavigation() here — it re-locks BGM after the
     // feed already unlocked on pop, which leaves video stuck paused.
     super.dispose();
-  }
-
-  void _precacheVideo() {
-    try {
-      String rawUrl = (widget.videoUrl != null && widget.videoUrl!.trim().isNotEmpty)
-          ? widget.videoUrl!.trim()
-          : '';
-
-      if (rawUrl.isEmpty && widget.reelId != null && widget.reelId!.trim().isNotEmpty) {
-        final reel = ReelHelpers.reelById(widget.reelId!);
-        rawUrl = reel?['videoUrl']?.toString() ??
-            reel?['video_url']?.toString() ??
-            reel?['video']?.toString() ??
-            '';
-      }
-
-      if (rawUrl.isEmpty && widget.reelId != null && widget.reelId!.trim().isNotEmpty) {
-        try {
-          final cubitReel = context.read<ReelsCubit>().getVideo(widget.reelId!);
-          rawUrl = cubitReel?['videoUrl']?.toString() ??
-              cubitReel?['video_url']?.toString() ??
-              '';
-        } catch (_) {}
-      }
-
-      if (rawUrl.isEmpty && widget.reelId != null && widget.reelId!.trim().isNotEmpty) {
-        try {
-          final item = context.read<TrendingVideosCubit>().getVideoById(widget.reelId!);
-          rawUrl = item?.videoUrl ?? '';
-        } catch (_) {}
-      }
-
-      unawaited(VideoShareHelper.precacheVideo(rawUrl, videoId: widget.reelId));
-    } catch (_) {}
   }
 
   @override
@@ -193,7 +158,8 @@ class _ShareReportScreenState extends State<ShareReportScreen> {
                           onTap: _sharedOptionId != null
                               ? null
                               : () async {
-                                  if (id == 'social' && effectiveUrl.isEmpty) {
+                                  if (effectiveVideoId.isEmpty &&
+                                      effectiveUrl.isEmpty) {
                                     ScaffoldMessenger.of(this.context).showSnackBar(
                                       const SnackBar(
                                         content: Text('Video is not available to share.'),
@@ -205,19 +171,17 @@ class _ShareReportScreenState extends State<ShareReportScreen> {
                                   final reelsCubit = this.context.read<ReelsCubit>();
                                   setState(() => _sharedOptionId = id);
                                   try {
-                                    String shareUrl = effectiveUrl;
                                     String? shareTitle = resolvedTitle;
                                     String? shareCaption = resolvedCaption;
+                                    Map<String, dynamic>? shareApiData;
 
                                     if (effectiveVideoId.isNotEmpty) {
                                       try {
                                         final shareRes = await reelsCubit.recordShare(effectiveVideoId);
                                         if (shareRes['success'] == true && shareRes['data'] is Map<String, dynamic>) {
                                           final data = shareRes['data'] as Map<String, dynamic>;
-                                          final returnedUrl = data['videoUrl']?.toString();
-                                          if (returnedUrl != null && returnedUrl.trim().isNotEmpty) {
-                                            shareUrl = returnedUrl.trim();
-                                          }
+                                          shareApiData = data;
+                                          // Prefer API watch/share link — never treat CDN mp4 as share target.
                                           final rTitle = data['title']?.toString().trim();
                                           if (rTitle != null && rTitle.isNotEmpty) {
                                             shareTitle = rTitle;
@@ -233,44 +197,24 @@ class _ShareReportScreenState extends State<ShareReportScreen> {
                                     }
 
                                     if (!mounted) return;
-                                    final music = ReelHelpers.resolveMusic(
-                                      description: (widget.description ??
-                                              reel?['description'] ??
-                                              reel?['caption'] ??
-                                              shareCaption)
-                                          ?.toString(),
-                                      musicUrl: widget.musicUrl ??
-                                          reel?['musicUrl']?.toString(),
-                                      musicName: widget.musicName ??
-                                          reel?['musicName']?.toString(),
-                                      startSeconds: widget.musicStartSeconds ??
-                                          (reel?['musicStartSeconds'] as num?)
-                                              ?.toDouble(),
-                                      durationSeconds:
-                                          widget.musicCropDuration ??
-                                              (reel?['musicCropDuration']
-                                                      as num?)
-                                                  ?.toDouble(),
+                                    final shareLink = VideoShareHelper.resolveShareLink(
                                       videoId: effectiveVideoId,
-                                      videoUrl: shareUrl,
-                                      resolveAudioUrl: (name) =>
-                                          MusicApiService.resolveByName(name)
-                                              ?.audioUrl,
+                                      videoUrl: effectiveUrl,
+                                      apiData: shareApiData,
                                     );
                                     final bool success =
                                         await VideoShareHelper.shareVideo(
                                       context: this.context,
                                       optionId: id,
-                                      videoUrl: shareUrl,
+                                      videoUrl: effectiveUrl,
                                       videoId: effectiveVideoId,
                                       title: shareTitle,
                                       caption: ReelHelpers.cleanDescription(
                                         shareCaption,
                                       ),
                                       isApiAlreadyRecorded: true,
-                                      musicUrl: music?.url,
-                                      musicStartSeconds: music?.startSeconds,
-                                      musicCropDuration: music?.durationSeconds,
+                                      shareUrl: shareLink,
+                                      shareApiData: shareApiData,
                                     );
                                     if (success && (id == 'whatsapp' || id == 'social') && mounted) {
                                       navigator.pop();
@@ -390,9 +334,13 @@ class _ShareReportScreenState extends State<ShareReportScreen> {
                     }),
                     const SizedBox(height: 16),
                     SecondaryOutlineButton(
-                      label: _reportSubmitted ? 'Reported' : 'Submit Report',
-                      onPressed: _selectedReason != null && !_reportSubmitted
-                          ? () => setState(() => _reportSubmitted = true)
+                      label: _reportSubmitted
+                          ? 'Reported'
+                          : (_reportSubmitting ? 'Submitting...' : 'Submit Report'),
+                      onPressed: _selectedReason != null &&
+                              !_reportSubmitted &&
+                              !_reportSubmitting
+                          ? _submitReport
                           : null,
                     ),
                     if (_reportSubmitted) ...[
@@ -429,6 +377,53 @@ class _ShareReportScreenState extends State<ShareReportScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _submitReport() async {
+    final reason = _selectedReason;
+    final reelId = widget.reelId?.trim() ?? '';
+    if (reason == null || reason.isEmpty || reelId.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Unable to submit report for this video.'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _reportSubmitting = true);
+    try {
+      final ok = await context.read<ReelsCubit>().reportVideo(
+            videoId: reelId,
+            reason: reason,
+          );
+      if (!mounted) return;
+      if (ok) {
+        setState(() {
+          _reportSubmitted = true;
+          _reportSubmitting = false;
+        });
+      } else {
+        setState(() => _reportSubmitting = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to submit report. Please try again.'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _reportSubmitting = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error: $e'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    }
   }
 
   Widget _buildShareIcon(String key) {

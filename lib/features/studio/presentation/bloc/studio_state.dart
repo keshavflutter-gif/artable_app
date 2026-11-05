@@ -32,6 +32,8 @@ class StudioState {
     this.recordingBeautyOn = false,
     this.recordingBeautyIntensity = 50,
     this.isMuted = false,
+    this.originalAudioVolume = 1.0,
+    this.musicVolume = 1.0,
     this.filtersConfig,
     this.isLoadingFilters = false,
     this.studioSetup,
@@ -42,6 +44,8 @@ class StudioState {
     this.mergedClipPaths,
     this.mergedClipDurations,
     this.mergedClipFilterIds,
+    this.mergedClipTrimStarts,
+    this.mergedClipTrimEnds,
     this.activeDraftId,
     List<Map<String, dynamic>>? drafts,
   }) : drafts = drafts ?? const [];
@@ -75,6 +79,10 @@ class StudioState {
   final bool recordingBeautyOn;
   final double recordingBeautyIntensity;
   final bool isMuted;
+  /// Original clip audio level 0.0–1.0 (independent of music).
+  final double originalAudioVolume;
+  /// Background music level 0.0–1.0.
+  final double musicVolume;
 
   final StudioFiltersConfig? filtersConfig;
   final bool isLoadingFilters;
@@ -88,6 +96,10 @@ class StudioState {
   final List<String>? mergedClipPaths;
   final List<double>? mergedClipDurations;
   final List<String>? mergedClipFilterIds;
+  /// Per-clip trim start (seconds) — parallel to [mergedClipPaths].
+  final List<double>? mergedClipTrimStarts;
+  /// Per-clip trim end (seconds) — parallel to [mergedClipPaths].
+  final List<double>? mergedClipTrimEnds;
   final String? activeDraftId;
 
   final List<Map<String, dynamic>> drafts;
@@ -102,7 +114,13 @@ class StudioState {
         'videoCropAspectRatio': videoCropAspectRatio,
         'videoTrimStartSeconds': videoTrimStartSeconds,
         'videoTrimEndSeconds': videoTrimEndSeconds,
-        'isMuted': isMuted,
+        if (mergedClipTrimStarts != null)
+          'mergedClipTrimStarts': mergedClipTrimStarts,
+        if (mergedClipTrimEnds != null)
+          'mergedClipTrimEnds': mergedClipTrimEnds,
+        'isMuted': isMuted || originalAudioVolume <= 0.001,
+        'originalAudioVolume': originalAudioVolume,
+        'musicVolume': musicVolume,
         'selectedSpeed': selectedSpeed,
       };
 
@@ -132,6 +150,8 @@ class StudioState {
     bool? recordingBeautyOn,
     double? recordingBeautyIntensity,
     bool? isMuted,
+    double? originalAudioVolume,
+    double? musicVolume,
     StudioFiltersConfig? filtersConfig,
     bool? isLoadingFilters,
     StudioSetupData? studioSetup,
@@ -142,6 +162,8 @@ class StudioState {
     List<String>? mergedClipPaths,
     List<double>? mergedClipDurations,
     List<String>? mergedClipFilterIds,
+    List<double>? mergedClipTrimStarts,
+    List<double>? mergedClipTrimEnds,
     String? activeDraftId,
     List<Map<String, dynamic>>? drafts,
     bool clearRecordedVideoPath = false,
@@ -181,6 +203,8 @@ class StudioState {
       recordingBeautyOn: recordingBeautyOn ?? this.recordingBeautyOn,
       recordingBeautyIntensity: recordingBeautyIntensity ?? this.recordingBeautyIntensity,
       isMuted: isMuted ?? this.isMuted,
+      originalAudioVolume: originalAudioVolume ?? this.originalAudioVolume,
+      musicVolume: musicVolume ?? this.musicVolume,
       filtersConfig: filtersConfig ?? this.filtersConfig,
       isLoadingFilters: isLoadingFilters ?? this.isLoadingFilters,
       studioSetup: studioSetup ?? this.studioSetup,
@@ -191,6 +215,8 @@ class StudioState {
       mergedClipPaths: clearMergedClipPaths ? null : (mergedClipPaths ?? this.mergedClipPaths),
       mergedClipDurations: clearMergedClipPaths ? null : (mergedClipDurations ?? this.mergedClipDurations),
       mergedClipFilterIds: clearMergedClipPaths ? null : (mergedClipFilterIds ?? this.mergedClipFilterIds),
+      mergedClipTrimStarts: clearMergedClipPaths ? null : (mergedClipTrimStarts ?? this.mergedClipTrimStarts),
+      mergedClipTrimEnds: clearMergedClipPaths ? null : (mergedClipTrimEnds ?? this.mergedClipTrimEnds),
       activeDraftId: clearActiveDraftId ? null : (activeDraftId ?? this.activeDraftId),
       drafts: drafts ?? this.drafts,
     );

@@ -1150,16 +1150,49 @@ class StudioCubit extends Cubit<StudioState> {
   String get recordingFilter => state.recordingFilter;
   bool get recordingBeautyOn => state.recordingBeautyOn;
   double get recordingBeautyIntensity => state.recordingBeautyIntensity;
-  bool get isMuted => state.isMuted;
+  bool get isMuted => state.isMuted || state.originalAudioVolume <= 0.001;
+  double get originalAudioVolume => state.originalAudioVolume.clamp(0.0, 1.0);
+  double get musicVolume => state.musicVolume.clamp(0.0, 1.0);
   List<Map<String, dynamic>> get drafts => state.drafts;
   Map<String, dynamic> get recordingEffectsPayload => state.recordingEffectsPayload;
 
   void toggleMute() {
-    emit(state.copyWith(isMuted: !state.isMuted));
+    final nextMuted = !isMuted;
+    setMuted(nextMuted);
   }
 
   void setMuted(bool value) {
-    emit(state.copyWith(isMuted: value));
+    emit(state.copyWith(
+      isMuted: value,
+      originalAudioVolume: value ? 0.0 : (state.originalAudioVolume > 0.001
+          ? state.originalAudioVolume
+          : 1.0),
+    ));
+  }
+
+  void setOriginalAudioVolume(double volume) {
+    final v = volume.clamp(0.0, 1.0);
+    emit(state.copyWith(
+      originalAudioVolume: v,
+      isMuted: v <= 0.001,
+    ));
+  }
+
+  void setMusicVolume(double volume) {
+    emit(state.copyWith(musicVolume: volume.clamp(0.0, 1.0)));
+  }
+
+  void setAudioVolumes({
+    double? originalAudioVolume,
+    double? musicVolume,
+  }) {
+    final original = (originalAudioVolume ?? state.originalAudioVolume).clamp(0.0, 1.0);
+    final music = (musicVolume ?? state.musicVolume).clamp(0.0, 1.0);
+    emit(state.copyWith(
+      originalAudioVolume: original,
+      musicVolume: music,
+      isMuted: original <= 0.001,
+    ));
   }
 
   double get speedMultiplier {
@@ -1247,14 +1280,43 @@ class StudioCubit extends Cubit<StudioState> {
       videoId: draft['id']?.toString(),
       videoUrl: (draft['videoUrl'] ?? draft['videoPath'])?.toString(),
     );
+    // Prefer per-clip filter when top-level filterId was left as natural.
+    String resolvedFilter = normalizeFilterId(meta?.filterId ?? 'natural');
+    final clipCount = (draft['mergedClipPaths'] is List)
+        ? (draft['mergedClipPaths'] as List).length
+        : 1;
+    if (clipCount > 0) {
+      final clipFilters = clipFilterIdsOfDraft(draft, pathCount: clipCount);
+      if (clipFilters.isNotEmpty) {
+        final firstClip = normalizeFilterId(clipFilters.first);
+        if (resolvedFilter == 'natural' && firstClip != 'natural') {
+          resolvedFilter = firstClip;
+        } else if (resolvedFilter == 'natural') {
+          for (final id in clipFilters) {
+            final n = normalizeFilterId(id);
+            if (n != 'natural') {
+              resolvedFilter = n;
+              break;
+            }
+          }
+        }
+      }
+    }
     restoreRecordingEffects(
-      filterId: meta?.filterId ?? 'natural',
+      filterId: resolvedFilter,
       beautyOn: meta?.beautyOn ?? false,
       beautyIntensity: meta?.beautyIntensity ?? 0,
       cropAspectRatio: draft['videoCropAspectRatio']?.toString() ??
           draft['video_crop_aspect_ratio']?.toString(),
     );
-    _restoreMusicFromDraft(draft);
+    // Never overwrite a track the user just picked in the editor. Opening
+    // Details with a draftId used to restore the draft's first music and
+    // that wrong track was what got uploaded / played after submit.
+    final hasSessionMusic = state.selectedTrack != null ||
+        (state.selectedMusic != null && state.selectedMusic!.trim().isNotEmpty);
+    if (!hasSessionMusic) {
+      _restoreMusicFromDraft(draft);
+    }
   }
 
   void _restoreMusicFromDraft(Map<String, dynamic> draft) {
@@ -1292,10 +1354,23 @@ class StudioCubit extends Cubit<StudioState> {
     );
   }
 
+  /// Effective filter for draft/upload — prefer clip filters over stale session.
+  String get effectiveRecordingFilter {
+    final clips = state.mergedClipFilterIds;
+    if (clips != null && clips.isNotEmpty) {
+      final first = normalizeFilterId(clips.first);
+      if (first != 'natural') return first;
+      for (final id in clips) {
+        final n = normalizeFilterId(id);
+        if (n != 'natural') return n;
+      }
+    }
+    return normalizeFilterId(state.recordingFilter);
+  }
+
   Map<String, dynamic> _filterPersistFields() {
-    final id = state.recordingFilter.trim();
     return {
-      'filterId': id.isEmpty ? 'natural' : id,
+      'filterId': effectiveRecordingFilter,
       'beautyOn': state.recordingBeautyOn,
       'beautyIntensity': state.recordingBeautyIntensity,
     };
@@ -1344,7 +1419,7 @@ class StudioCubit extends Cubit<StudioState> {
     ));
   }
 
-  void setRecordedDuration(String duration) {
+  void setRecordedDuration(String duration, {bool resetTrim = false}) {
     double? recSecs;
     final parts = duration.split(':');
     if (parts.length == 2) {
@@ -1353,21 +1428,29 @@ class StudioCubit extends Cubit<StudioState> {
       final total = m * 60 + s;
       if (total > 0) recSecs = total.toDouble();
     }
-    if (recSecs != null && recSecs > 0) {
+    if (recSecs != null && recSecs > 0 && resetTrim) {
+      // Camera / fresh recording — initialize trim to the full take.
       emit(state.copyWith(
         recordedDuration: duration,
-        musicCropDuration: recSecs,
         videoTrimStartSeconds: 0.0,
         videoTrimEndSeconds: recSecs,
       ));
     } else {
-    emit(state.copyWith(recordedDuration: duration));
+      // Editor sync — keep existing trim / music crop intact.
+      emit(state.copyWith(recordedDuration: duration));
     }
   }
 
-  void setRecordedVideoPath(String? path, {List<String>? mergedClipPaths, bool clearMergedClips = false}) {
+  void setRecordedVideoPath(
+    String? path, {
+    List<String>? mergedClipPaths,
+    bool clearMergedClips = false,
+    bool resetTrim = true,
+  }) {
     // New/cleared recording invalidates previous crop source files.
-    _videoCropSourcePaths = null;
+    if (resetTrim) {
+      _videoCropSourcePaths = null;
+    }
     if (path == null) {
       emit(state.copyWith(
         clearRecordedVideoPath: true,
@@ -1378,29 +1461,64 @@ class StudioCubit extends Cubit<StudioState> {
         recordingBeautyOn: state.beautyOn,
         recordingBeautyIntensity: state.beautyIntensity,
       ));
-    } else {
+    } else if (resetTrim) {
       // New recording — reset trim so Edit doesn't reuse a stale range.
       emit(state.copyWith(
         recordedVideoPath: path,
         mergedClipPaths: mergedClipPaths,
-        clearMergedClipPaths: clearMergedClips && (mergedClipPaths == null || mergedClipPaths.isEmpty),
+        clearMergedClipPaths:
+            clearMergedClips && (mergedClipPaths == null || mergedClipPaths.isEmpty),
         videoTrimStartSeconds: 0.0,
         clearVideoTrimEndSeconds: true,
+      ));
+    } else {
+      // Editor Next / Details — keep trim ranges the user already set.
+      emit(state.copyWith(
+        recordedVideoPath: path,
+        mergedClipPaths: mergedClipPaths,
+        clearMergedClipPaths:
+            clearMergedClips && (mergedClipPaths == null || mergedClipPaths.isEmpty),
       ));
     }
   }
 
-  void setMergedClipPaths(List<String>? paths, [List<double>? durations, List<String>? filterIds]) {
+  void setMergedClipPaths(
+    List<String>? paths, [
+    List<double>? durations,
+    List<String>? filterIds,
+    List<double>? trimStarts,
+    List<double>? trimEnds,
+  ]) {
     if (paths == null || paths.isEmpty) {
       emit(state.copyWith(
         clearMergedClipPaths: true,
       ));
     } else {
-    emit(state.copyWith(
-      mergedClipPaths: paths,
-      mergedClipDurations: durations,
-        mergedClipFilterIds: filterIds,
-    ));
+      final normalizedFilters = filterIds
+          ?.map((id) => normalizeFilterId(id))
+          .toList();
+      // Keep session filter in sync with per-clip filters so draft/upload
+      // (which persist recordingFilter) match what the editor preview shows.
+      final primary = (normalizedFilters != null && normalizedFilters.isNotEmpty)
+          ? normalizedFilters.first
+          : state.recordingFilter;
+      final starts = trimStarts ?? state.mergedClipTrimStarts;
+      final ends = trimEnds ?? state.mergedClipTrimEnds;
+      double? firstStart;
+      double? firstEnd;
+      if (starts != null && starts.isNotEmpty) firstStart = starts.first;
+      if (ends != null && ends.isNotEmpty) firstEnd = ends.first;
+      emit(state.copyWith(
+        mergedClipPaths: paths,
+        mergedClipDurations: durations,
+        mergedClipFilterIds: normalizedFilters,
+        mergedClipTrimStarts: starts,
+        mergedClipTrimEnds: ends,
+        recordingFilter: primary,
+        selectedFilter: primary,
+        videoTrimStartSeconds: firstStart ?? state.videoTrimStartSeconds,
+        videoTrimEndSeconds: firstEnd ?? state.videoTrimEndSeconds,
+      ));
     }
   }
 
@@ -1444,11 +1562,56 @@ class StudioCubit extends Cubit<StudioState> {
   }
 
   void setSelectedMusic(String? music) {
-    if (music == null) {
+    StudioMusicPlaybackService.invalidateLoadedTrack();
+    final name = music?.trim() ?? '';
+    if (name.isEmpty) {
       emit(state.copyWith(clearSelectedMusic: true));
-    } else {
-      emit(state.copyWith(selectedMusic: music));
+      return;
     }
+    final track = MusicApiService.resolveByName(name);
+    if (track != null) {
+      setSelectedTrack(track);
+      return;
+    }
+    // Name without a catalog match — clear stale track so upload cannot reuse
+    // the previously selected audio URL.
+    emit(state.copyWith(clearSelectedMusic: true));
+    emit(state.copyWith(selectedMusic: name));
+  }
+
+  /// Writes current session music onto the active draft map (keeps draft in sync).
+  void syncActiveDraftMusic() {
+    final draftId = state.activeDraftId?.trim() ?? '';
+    if (draftId.isEmpty) return;
+    final idx = state.drafts.indexWhere((d) => d['id']?.toString() == draftId);
+    if (idx < 0) return;
+    final track =
+        state.selectedTrack ?? MusicApiService.resolveByName(state.selectedMusic);
+    final updated = Map<String, dynamic>.from(state.drafts[idx]);
+    if (track != null) {
+      updated['musicUrl'] = track.audioUrl;
+      updated['musicName'] =
+          state.selectedMusic ?? '${track.title} — ${track.artist}';
+      updated['musicStartSeconds'] = state.musicStartSeconds;
+      updated['musicCropDuration'] = state.musicCropDuration;
+      ReelHelpers.cacheMusic(
+        draftId,
+        ReelMusicMeta(
+          url: track.audioUrl,
+          name: updated['musicName']?.toString() ?? '',
+          startSeconds: state.musicStartSeconds,
+          durationSeconds: state.musicCropDuration,
+        ),
+      );
+    } else {
+      updated.remove('musicUrl');
+      updated.remove('musicName');
+      updated.remove('musicStartSeconds');
+      updated.remove('musicCropDuration');
+    }
+    final drafts = List<Map<String, dynamic>>.from(state.drafts);
+    drafts[idx] = updated;
+    emit(state.copyWith(drafts: drafts));
   }
 
   void updateMusicCrop(double start, double duration) {
@@ -1462,12 +1625,7 @@ class StudioCubit extends Cubit<StudioState> {
     emit(state.copyWith(videoCropAspectRatio: aspectRatio));
   }
 
-  /// Center-crops the working video file(s) with FFmpeg and replaces session paths.
-  /// Returns `null` on success, or an error message.
-  Future<String?> applyActualVideoCrop(String aspectRatio) async {
-    final ratioId = VideoCropUtils.normalize(aspectRatio);
-    emit(state.copyWith(videoCropAspectRatio: ratioId));
-
+  List<String> _currentWorkingVideoPaths() {
     final working = <String>[];
     if (state.mergedClipPaths != null && state.mergedClipPaths!.isNotEmpty) {
       working.addAll(
@@ -1480,42 +1638,66 @@ class StudioCubit extends Cubit<StudioState> {
     if (working.isEmpty && rec.isNotEmpty) {
       working.add(rec);
     }
+    return working;
+  }
+
+  void _rememberCropSourcesIfNeeded() {
+    if (_videoCropSourcePaths != null && _videoCropSourcePaths!.isNotEmpty) {
+      return;
+    }
+    final working = _currentWorkingVideoPaths();
+    if (working.isNotEmpty) {
+      _videoCropSourcePaths = List<String>.from(working);
+    }
+  }
+
+  /// Instant editor crop: update aspect ratio only (preview uses FittedBox).
+  /// Heavy FFmpeg re-encode is deferred to [ensureCroppedFilesForUpload].
+  Future<String?> applyActualVideoCrop(String aspectRatio) async {
+    final ratioId = VideoCropUtils.normalize(aspectRatio);
+    final working = _currentWorkingVideoPaths();
     if (working.isEmpty) {
       return 'No video available to crop.';
     }
+    _rememberCropSourcesIfNeeded();
+    emit(state.copyWith(videoCropAspectRatio: ratioId));
+    return null;
+  }
 
-    // First crop: remember originals. Later crops always use those sources.
-    _videoCropSourcePaths ??= List<String>.from(working);
-    final sources = _videoCropSourcePaths!;
+  /// Re-encode working clips to the selected aspect ratio before upload.
+  /// Returns `null` on success, or an error message.
+  Future<String?> ensureCroppedFilesForUpload() async {
+    final ratioId = VideoCropUtils.normalize(state.videoCropAspectRatio);
+    _rememberCropSourcesIfNeeded();
+    final sources = _videoCropSourcePaths ?? _currentWorkingVideoPaths();
     if (sources.isEmpty) {
       return 'No video available to crop.';
     }
 
+    // Encode clips in parallel — sequential FFmpeg was the main delay.
+    final results = await Future.wait(
+      List.generate(sources.length, (i) async {
+        final src = sources[i];
+        final isRemote =
+            src.startsWith('http://') || src.startsWith('https://');
+        if (isRemote) return src;
+        final file = File(src.startsWith('file://') ? src.substring(7) : src);
+        if (!await file.exists()) return null;
+        final out = await VideoCropUtils.centerCropToAspect(file.path, ratioId);
+        if (out == null) return null;
+        debugPrint(
+          'StudioCubit: export crop [$i] ${file.path} → ${out.path} ($ratioId)',
+        );
+        return out.path;
+      }),
+    );
+
     final croppedPaths = <String>[];
-    for (var i = 0; i < sources.length; i++) {
-      final src = sources[i];
-      final isRemote =
-          src.startsWith('http://') || src.startsWith('https://');
-      if (isRemote) {
-        croppedPaths.add(src);
-        continue;
-      }
-      final file = File(src.startsWith('file://') ? src.substring(7) : src);
-      if (!await file.exists()) {
-        return 'Video file not found for crop.';
-      }
-      final out = await VideoCropUtils.centerCropToAspect(file.path, ratioId);
-      if (out == null) {
+    for (final path in results) {
+      if (path == null || path.isEmpty) {
         return 'Could not crop video. Please try again.';
       }
-      croppedPaths.add(out.path);
-      debugPrint(
-        'StudioCubit: actual crop [$i] ${file.path} → ${out.path} ($ratioId)',
-      );
-    }
-
-    if (croppedPaths.isEmpty) {
-      return 'Could not crop video. Please try again.';
+      croppedPaths.add(path);
     }
 
     final durations = state.mergedClipDurations;
@@ -1525,12 +1707,14 @@ class StudioCubit extends Cubit<StudioState> {
         videoCropAspectRatio: ratioId,
         recordedVideoPath: croppedPaths.first,
         mergedClipPaths: croppedPaths,
-        mergedClipDurations: (durations != null && durations.length == croppedPaths.length)
-            ? durations
-            : state.mergedClipDurations,
-        mergedClipFilterIds: (filters != null && filters.length == croppedPaths.length)
-            ? filters
-            : state.mergedClipFilterIds,
+        mergedClipDurations:
+            (durations != null && durations.length == croppedPaths.length)
+                ? durations
+                : state.mergedClipDurations,
+        mergedClipFilterIds:
+            (filters != null && filters.length == croppedPaths.length)
+                ? filters
+                : state.mergedClipFilterIds,
       ));
     } else {
       emit(state.copyWith(

@@ -3,7 +3,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:artable_app/core/utils/formatters.dart';
-import 'package:artable_app/core/utils/media_url_utils.dart';
 import 'package:artable_app/features/profile/data/models/my_videos_response.dart';
 import 'package:artable_app/features/profile/data/repositories/profile_videos_repository.dart';
 import 'package:artable_app/features/studio/data/models/save_studio_draft_response.dart';
@@ -188,22 +187,15 @@ class MyVideosCubit extends Cubit<MyVideosState> {
           for (final v in currentReelsCubit.state.videos) {
             final vId = v['id']?.toString() ?? v['_id']?.toString() ?? '';
             if (vId.isNotEmpty && bookmarkedIds.contains(vId)) {
-              fallbackItems.add(MyVideoItem(
-                id: vId,
-                title: v['title']?.toString() ?? 'Saved Video',
-                description: v['description']?.toString(),
-                thumbnailUrl: MediaUrlUtils.extractThumbnail(v) ?? '',
-                videoUrl: MediaUrlUtils.resolve(
-                  v['videoUrl']?.toString() ?? v['video_url']?.toString() ?? '',
-                ),
-                status: 'SAVED',
-                statusLabel: 'SAVED',
-                viewsLabel: v['views']?.toString() ?? '0',
-                likesLabel: v['likes']?.toString() ?? '0',
-                talentScoreLabel: v['score']?.toString() ?? v['talentScore']?.toString() ?? '0.0',
-                dateLabel: v['date']?.toString() ?? '',
-                isLive: true,
-              ));
+              fallbackItems.add(
+                MyVideoItem.fromJson({
+                  ...v,
+                  'id': vId,
+                  'status': 'SAVED',
+                  'statusLabel': 'SAVED',
+                  'isLive': true,
+                }),
+              );
             }
           }
           if (fallbackItems.isNotEmpty) {

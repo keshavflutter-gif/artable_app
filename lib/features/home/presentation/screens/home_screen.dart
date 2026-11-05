@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -6,6 +8,7 @@ import 'package:artable_app/app/theme/app_gradients.dart';
 import 'package:artable_app/app/theme/app_typography.dart';
 import 'package:artable_app/features/home/presentation/bloc/home_cubit.dart';
 import 'package:artable_app/features/trending/presentation/bloc/trending_videos_cubit.dart';
+import 'package:artable_app/features/trending/data/models/trending_videos_response.dart';
 import 'package:artable_app/data/datasources/mock_data.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/features/shell/presentation/widgets/app_shell.dart';
@@ -20,6 +23,7 @@ import 'package:artable_app/features/home/presentation/bloc/home_state.dart';
 import 'package:artable_app/features/home/data/models/home_ui_mapper.dart';
 import 'package:artable_app/features/home/presentation/widgets/home_banner_ad.dart';
 import 'package:artable_app/core/services/app_open_ad_service.dart';
+import 'package:artable_app/features/referral/presentation/bloc/referral_cubit.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -38,11 +42,18 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      // Dashboard + dedicated trending API — home payload often omits reels,
+      // so first paint was empty until View All loaded TrendingVideosCubit.
       context.read<HomeCubit>().loadHomeDashboard(forceRefresh: true);
-      final trendingCubit = context.read<TrendingVideosCubit>();
-      trendingCubit.loadTrendingVideos(forceRefresh: true);
+      unawaited(
+        context.read<TrendingVideosCubit>().loadTrendingVideos(),
+      );
       // Splash → Home: show App Open only after Home is on screen.
       AppOpenAdService.instance.showWhenHomeReady();
+      // Apply invite code if user opened /invite/{code} while logged in.
+      unawaited(
+        context.read<ReferralCubit>().applyPendingReferralIfAny(),
+      );
     });
   }
 
@@ -142,9 +153,16 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Stack(
           children: [
             RefreshIndicator(
-              onRefresh: () => context
-                  .read<HomeCubit>()
-                  .loadHomeDashboard(forceRefresh: true),
+              onRefresh: () async {
+                await Future.wait([
+                  context
+                      .read<HomeCubit>()
+                      .loadHomeDashboard(forceRefresh: true),
+                  context
+                      .read<TrendingVideosCubit>()
+                      .loadTrendingVideos(forceRefresh: true),
+                ]);
+              },
             child: SingleChildScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
               child: Column(
@@ -1189,6 +1207,30 @@ class _MiniChallengeCard extends StatelessWidget {
   }
 }
 
+String _reelCountLabel(
+  Map<String, dynamic> reel, {
+  required List<String> labelKeys,
+  required List<String> countKeys,
+}) {
+  for (final key in labelKeys) {
+    final raw = reel[key];
+    if (raw is String) {
+      final trimmed = raw.trim();
+      if (trimmed.isNotEmpty &&
+          trimmed.toLowerCase() != 'null' &&
+          TrendingVideoItem.parseCount(trimmed) > 0) {
+        return trimmed;
+      }
+    }
+  }
+  final count = TrendingVideoItem.extractCountFromMap(
+    reel,
+    countKeys: countKeys,
+    labelKeys: labelKeys,
+  );
+  return TrendingVideoItem.formatCount(count);
+}
+
 class _ReelGrid extends StatelessWidget {
   const _ReelGrid({required this.reels});
 
@@ -1247,7 +1289,9 @@ class _ReelGrid extends StatelessWidget {
 
         return GestureDetector(
           onTap: () {
-            final reelId = reel['id']?.toString() ?? 'r1';
+            final reelId =
+                (reel['id']?.toString() ?? reel['_id']?.toString() ?? '').trim();
+            if (reelId.isEmpty) return;
             context.push('${AppRoutes.reelsFeed}?id=$reelId', extra: reel);
           },
           child: Container(
@@ -1329,19 +1373,65 @@ class _ReelGrid extends StatelessWidget {
                     children: [
                       Row(
                         children: [
-                          Icon(Icons.play_arrow, size: 13, color: Colors.white),
-                          SizedBox(width: 5),
-                          Text(
-                            reel['views'] as String? ?? '0',
-                            style: AppTypography.body(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.white,
+                          const Icon(Icons.play_arrow, size: 13, color: Colors.white),
+                          const SizedBox(width: 3),
+                          Flexible(
+                            child: Text(
+                              _reelCountLabel(
+                                reel,
+                                labelKeys: const ['views', 'viewsLabel'],
+                                countKeys: const ['viewsCount', 'viewCount'],
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppTypography.body(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 7),
+                          const Icon(Icons.favorite_border_rounded, size: 11, color: Colors.white),
+                          const SizedBox(width: 2),
+                          Flexible(
+                            child: Text(
+                              _reelCountLabel(
+                                reel,
+                                labelKeys: const ['likes', 'likesLabel'],
+                                countKeys: const ['likesCount', 'likeCount'],
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppTypography.body(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 7),
+                          const Icon(Icons.chat_bubble_outline_rounded, size: 10.5, color: Colors.white),
+                          const SizedBox(width: 2),
+                          Flexible(
+                            child: Text(
+                              _reelCountLabel(
+                                reel,
+                                labelKeys: const ['comments', 'commentsLabel'],
+                                countKeys: const ['commentsCount', 'commentCount'],
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppTypography.body(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.white,
+                              ),
                             ),
                           ),
                         ],
                       ),
-                      SizedBox(height: 6),
+                      const SizedBox(height: 6),
                       Row(
                         children: [
                           CircleAvatar(
@@ -1353,10 +1443,10 @@ class _ReelGrid extends StatelessWidget {
                                 ? null
                                 : const Icon(Icons.person, size: 12),
                           ),
-                          SizedBox(width: 5),
+                          const SizedBox(width: 5),
                           Expanded(
                             child: Text(
-                              reel['handle'] as String? ?? reel['creator'] as String,
+                              reel['handle'] as String? ?? reel['creator'] as String? ?? '',
                               overflow: TextOverflow.ellipsis,
                               style: AppTypography.body(
                                 fontSize: 11,
@@ -1366,7 +1456,7 @@ class _ReelGrid extends StatelessWidget {
                             ),
                           ),
                           if (reel['verified'] == true)
-                            Icon(Icons.verified, size: 12, color: Colors.white),
+                            const Icon(Icons.verified, size: 12, color: Colors.white),
                         ],
                       ),
                     ],

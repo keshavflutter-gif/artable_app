@@ -65,4 +65,26 @@ class RewardsRepository {
 
     return RewardsDashboardResponse.fromJson(data);
   }
+
+  Future<Map<String, dynamic>> claimReward({
+    required String rewardId,
+    String? sessionToken,
+    String? refreshToken,
+  }) async {
+    final cleanId = rewardId.trim();
+    final headers = (sessionToken != null &&
+            sessionToken.isNotEmpty &&
+            refreshToken != null &&
+            refreshToken.isNotEmpty)
+        ? ApiAuthHeaders.authenticated(
+            sessionToken: sessionToken,
+            refreshToken: refreshToken,
+          )
+        : <String, String>{};
+
+    return _apiClient.post(
+      '/app/rewards/$cleanId/claim',
+      headers: headers.isNotEmpty ? headers : null,
+    );
+  }
 }

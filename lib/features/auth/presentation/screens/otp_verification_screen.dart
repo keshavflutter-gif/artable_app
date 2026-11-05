@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -6,6 +8,7 @@ import 'package:artable_app/app/theme/app_gradients.dart';
 import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/features/auth/presentation/widgets/otp_input_row.dart';
+import 'package:artable_app/features/referral/presentation/bloc/referral_cubit.dart';
 
 class OtpVerificationScreen extends StatefulWidget {
   const OtpVerificationScreen({
@@ -127,6 +130,11 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
 
     // verifyOtp logs the user in (tokens or auto-login with email/password).
     if (auth.isLoggedIn) {
+      if (widget.from == 'signup') {
+        unawaited(
+          context.read<ReferralCubit>().applyPendingReferralIfAny(),
+        );
+      }
       context.go(AppRoutes.home);
       return;
     }

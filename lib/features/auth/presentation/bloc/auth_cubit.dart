@@ -35,6 +35,7 @@ import 'package:artable_app/features/auth/data/models/verify_otp_response.dart';
 import 'package:artable_app/features/auth/data/repositories/auth_repository.dart';
 import 'package:artable_app/app/routes/app_router.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
+import 'package:artable_app/core/auth/auth_gate.dart';
 import 'package:artable_app/core/storage/auth_storage_service.dart';
 import 'auth_state.dart';
 
@@ -46,6 +47,10 @@ class AuthCubit extends Cubit<AuthState> {
           onTokensRefreshed: applyRefreshedTokens,
           onSessionRefreshFailed: handleSessionRefreshFailed,
         );
+    stream.listen((s) {
+      if (!AuthGate.instance.initialized) return;
+      AuthGate.instance.setLoggedIn(s.isLoggedIn);
+    });
   }
 
   late final AuthRepository _authRepository;
@@ -126,6 +131,7 @@ class AuthCubit extends Cubit<AuthState> {
 
   /// Design-only preview session (no API, no validation).
   void signInForDesignPreview() {
+    AuthGate.instance.markInitialized(isLoggedIn: true);
     final updatedUser = Map<String, dynamic>.from(state.currentUser);
     updatedUser['name'] = 'Demo User';
     updatedUser['initials'] = 'DU';
@@ -165,27 +171,37 @@ class AuthCubit extends Cubit<AuthState> {
   }
 
   Future<void> _restoreSessionFromStorage() async {
-    final storedSession = await _authRepository.loadStoredSession();
-    if (storedSession == null) return;
+    try {
+      final storedSession = await _authRepository.loadStoredSession();
+      if (storedSession == null) {
+        AuthGate.instance.markInitialized(isLoggedIn: false);
+        return;
+      }
 
-    final updatedUser = Map<String, dynamic>.from(state.currentUser);
-    if (storedSession.displayName != null &&
-        storedSession.displayName!.isNotEmpty) {
-      updatedUser['name'] = storedSession.displayName;
-      updatedUser['initials'] = _initialsFromName(storedSession.displayName!);
-    }
-    _applyStoredProfileDetailsToMap(updatedUser, storedSession.profileDetails);
-    updatedUser['isLoggedIn'] = true;
+      final updatedUser = Map<String, dynamic>.from(state.currentUser);
+      if (storedSession.displayName != null &&
+          storedSession.displayName!.isNotEmpty) {
+        updatedUser['name'] = storedSession.displayName;
+        updatedUser['initials'] = _initialsFromName(storedSession.displayName!);
+      }
+      _applyStoredProfileDetailsToMap(updatedUser, storedSession.profileDetails);
+      updatedUser['isLoggedIn'] = true;
 
-    emit(state.copyWith(
-      sessionToken: storedSession.sessionToken,
-      refreshToken: storedSession.refreshToken,
-      userId: storedSession.userId,
-      currentUser: updatedUser,
-    ));
+      emit(state.copyWith(
+        sessionToken: storedSession.sessionToken,
+        refreshToken: storedSession.refreshToken,
+        userId: storedSession.userId,
+        currentUser: updatedUser,
+      ));
 
-    if (storedSession.userId != null && storedSession.userId!.isNotEmpty) {
-      fetchUserDetails();
+      AuthGate.instance.markInitialized(isLoggedIn: true);
+
+      if (storedSession.userId != null && storedSession.userId!.isNotEmpty) {
+        fetchUserDetails();
+      }
+    } catch (e) {
+      debugPrint('[AUTH_CUBIT] Session restore failed: $e');
+      AuthGate.instance.markInitialized(isLoggedIn: false);
     }
   }
 

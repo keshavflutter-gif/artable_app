@@ -520,52 +520,6 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                       const SizedBox(height: 24),
                       Row(
                         children: [
-                          GestureDetector(
-                            onTap: () {
-                              ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: const Text(
-                                    'Coming Soon',
-                                    style: TextStyle(
-                                      fontFamily: 'Poppins',
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                  duration: const Duration(milliseconds: 1500),
-                                  behavior: SnackBarBehavior.floating,
-                                  margin: const EdgeInsets.symmetric(
-                                      horizontal: 20, vertical: 16),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  backgroundColor: const Color(0xFF8B3DFF),
-                                ),
-                              );
-                            },
-                            child: Container(
-                              width: 50,
-                              height: 50,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: Colors.white,
-                                border: Border.all(
-                                    color: AppColors.inputBorder, width: 1.5),
-                                boxShadow: const [
-                                  BoxShadow(
-                                    color: Color(0x145E2EAA),
-                                    blurRadius: 14,
-                                    offset: Offset(0, 6),
-                                  ),
-                                ],
-                              ),
-                              child: const Icon(Icons.share_outlined,
-                                  size: 20, color: AppColors.text),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
                           Expanded(
                             child: GradientButton(
                               label: provider

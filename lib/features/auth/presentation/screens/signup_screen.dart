@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -7,9 +9,13 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:artable_app/app/theme/app_gradients.dart';
 import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
+import 'package:artable_app/features/referral/data/referral_storage.dart';
+import 'package:artable_app/features/referral/presentation/bloc/referral_cubit.dart';
 
 class SignupScreen extends StatefulWidget {
-  const SignupScreen({super.key});
+  const SignupScreen({super.key, this.initialReferralCode});
+
+  final String? initialReferralCode;
 
   @override
   State<SignupScreen> createState() => _SignupScreenState();
@@ -21,6 +27,7 @@ class _SignupScreenState extends State<SignupScreen> {
   final _phoneController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmController = TextEditingController();
+  final _referralController = TextEditingController();
 
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
@@ -31,13 +38,45 @@ class _SignupScreenState extends State<SignupScreen> {
   String? _confirmError;
 
   @override
+  void initState() {
+    super.initState();
+    final fromRoute = widget.initialReferralCode?.trim() ?? '';
+    if (fromRoute.isNotEmpty) {
+      _referralController.text = fromRoute.toUpperCase();
+    } else {
+      unawaited(_hydratePendingReferral());
+    }
+  }
+
+  Future<void> _hydratePendingReferral() async {
+    final pending = await ReferralStorage.readPendingCode();
+    if (!mounted || pending == null || pending.isEmpty) return;
+    if (_referralController.text.trim().isEmpty) {
+      setState(() => _referralController.text = pending);
+    }
+  }
+
+  @override
   void dispose() {
     _nameController.dispose();
     _emailController.dispose();
     _phoneController.dispose();
     _passwordController.dispose();
     _confirmController.dispose();
+    _referralController.dispose();
     super.dispose();
+  }
+
+  Future<void> _persistReferralIfAny() async {
+    await ReferralStorage.savePendingCode(_referralController.text);
+  }
+
+  Future<void> _applyReferralAfterLogin() async {
+    await _persistReferralIfAny();
+    if (!mounted) return;
+    try {
+      await context.read<ReferralCubit>().applyPendingReferralIfAny();
+    } catch (_) {}
   }
 
   Future<void> _submit() async {
@@ -103,6 +142,8 @@ class _SignupScreenState extends State<SignupScreen> {
     final auth = context.read<AuthCubit>();
     if (auth.isLoading) return;
 
+    await _persistReferralIfAny();
+
     final response = await auth.register(
       fullName: name,
       email: email,
@@ -138,6 +179,8 @@ class _SignupScreenState extends State<SignupScreen> {
         final loggedIn = await auth.login(email, pass);
         if (!mounted) return;
         if (loggedIn) {
+          await _applyReferralAfterLogin();
+          if (!mounted) return;
           context.go(AppRoutes.home);
           return;
         }
@@ -427,6 +470,18 @@ class _SignupScreenState extends State<SignupScreen> {
                     ),
                   ),
 
+                  const SizedBox(height: 10),
+
+                  // Optional referral code (from invite link / friend)
+                  _CustomAuthInput(
+                    controller: _referralController,
+                    hintText: 'Referral Code (optional)',
+                    icon: Icons.card_giftcard_outlined,
+                    keyboardType: TextInputType.text,
+                    textCapitalization: TextCapitalization.characters,
+                    onChanged: (_) {},
+                  ),
+
                   const SizedBox(height: 16),
 
                   // CREATE ACCOUNT Button
@@ -610,6 +665,7 @@ class _CustomAuthInput extends StatelessWidget {
     required this.icon,
     this.obscureText = false,
     this.keyboardType,
+    this.textCapitalization = TextCapitalization.none,
     this.suffixIcon,
     this.inputFormatters,
     this.errorText,
@@ -621,6 +677,7 @@ class _CustomAuthInput extends StatelessWidget {
   final IconData icon;
   final bool obscureText;
   final TextInputType? keyboardType;
+  final TextCapitalization textCapitalization;
   final Widget? suffixIcon;
   final List<TextInputFormatter>? inputFormatters;
   final String? errorText;
@@ -666,6 +723,7 @@ class _CustomAuthInput extends StatelessWidget {
                   controller: controller,
                   obscureText: obscureText,
                   keyboardType: keyboardType,
+                  textCapitalization: textCapitalization,
                   inputFormatters: inputFormatters,
                   onChanged: onChanged,
                   style: const TextStyle(

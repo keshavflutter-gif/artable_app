@@ -160,6 +160,7 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
           path,
           mergedClipPaths: draftClips.length > 1 ? draftClips : null,
           clearMergedClips: draftClips.length <= 1,
+          resetTrim: false,
         );
       }
     }
@@ -283,8 +284,7 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
         loop: true,
       );
       if (mounted && controller != null && controller.value.isInitialized) {
-        final hasBgm = studio.selectedMusic != null || studio.selectedTrack != null;
-        controller.setVolume((studio.isMuted || hasBgm) ? 0.0 : 1.0);
+        controller.setVolume(studio.originalAudioVolume.clamp(0.0, 1.0));
         try {
           await controller.setPlaybackSpeed(studio.speedMultiplier);
         } catch (_) {}
@@ -337,9 +337,8 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
         loop: false,
       );
       if (c == null || !c.value.isInitialized) return null;
-      final hasBgm = studio.selectedMusic != null || studio.selectedTrack != null;
       try {
-        c.setVolume((studio.isMuted || hasBgm) ? 0.0 : 1.0);
+        c.setVolume(studio.originalAudioVolume.clamp(0.0, 1.0));
       } catch (_) {}
       try {
         await c.setPlaybackSpeed(studio.speedMultiplier);
@@ -722,9 +721,8 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
 
       final nextIndex = (_currentClipIndex + 1) % _clipControllers.length;
       final nextController = _clipControllers[nextIndex];
-      final hasBgm = studio.selectedMusic != null || studio.selectedTrack != null;
       try {
-        nextController.setVolume((studio.isMuted || hasBgm) ? 0.0 : 1.0);
+        nextController.setVolume(studio.originalAudioVolume.clamp(0.0, 1.0));
       } catch (_) {}
 
       nextController.removeListener(_onVideoControllerUpdate);
@@ -864,14 +862,19 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
     if (_mergedClipPaths.isNotEmpty) {
       studio.setMergedClipPaths(
         _mergedClipPaths,
-        null,
+        studio.state.mergedClipDurations,
         _mergedClipFilterIds.isNotEmpty ? _mergedClipFilterIds : null,
+        studio.state.mergedClipTrimStarts,
+        studio.state.mergedClipTrimEnds,
       );
       final currentRec = studio.recordedVideoPath;
       studio.setRecordedVideoPath(
-        (currentRec != null && currentRec.isNotEmpty) ? currentRec : _mergedClipPaths.first,
+        (currentRec != null && currentRec.isNotEmpty)
+            ? currentRec
+            : _mergedClipPaths.first,
         mergedClipPaths: _mergedClipPaths.length > 1 ? _mergedClipPaths : null,
         clearMergedClips: _mergedClipPaths.length <= 1,
+        resetTrim: false,
       );
     }
 
@@ -1185,8 +1188,10 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
     if (_mergedClipPaths.isNotEmpty) {
       studioCubit.setMergedClipPaths(
         _mergedClipPaths,
-        null,
+        studioCubit.state.mergedClipDurations,
         _mergedClipFilterIds.isNotEmpty ? _mergedClipFilterIds : null,
+        studioCubit.state.mergedClipTrimStarts,
+        studioCubit.state.mergedClipTrimEnds,
       );
       final currentRec = studioCubit.recordedVideoPath;
       studioCubit.setRecordedVideoPath(
@@ -1195,6 +1200,7 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
             : _mergedClipPaths.first,
         mergedClipPaths: _mergedClipPaths.length > 1 ? _mergedClipPaths : null,
         clearMergedClips: _mergedClipPaths.length <= 1,
+        resetTrim: false,
       );
     }
 

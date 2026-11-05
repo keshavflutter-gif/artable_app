@@ -45,6 +45,7 @@ abstract final class AppRoutes {
   static const winners = '/winners';
   static const winnerDetail = '/winner-detail';
   static const inviteFriends = '/invite-friends';
+  static const inviteDeepLink = '/invite/:code';
   static const referralTracking = '/referral-tracking';
   static const musicLibrary = '/music-library';
   static const musicPreview = '/music-preview';

@@ -86,38 +86,14 @@ abstract final class VideoCropUtils {
       }
 
       final (tw, th) = ratioParts(ratioId);
-      // Center crop to target aspect, then force even H.264 dimensions.
+      // Center crop → cap longest side at 1280 (faster encode) → even dims.
       final vf =
           'crop=min(iw\\,ih*$tw/$th):min(ih\\,iw*$th/$tw):(iw-ow)/2:(ih-oh)/2,'
+          'scale=min(1280\\,iw):min(1280\\,ih):force_original_aspect_ratio=decrease,'
           'scale=trunc(iw/2)*2:trunc(ih/2)*2';
 
-      final args = <String>[
-        '-y',
-        '-i',
-        input.path,
-        '-vf',
-        vf,
-        '-c:v',
-        'libx264',
-        '-preset',
-        'veryfast',
-        '-crf',
-        '23',
-        '-pix_fmt',
-        'yuv420p',
-        '-c:a',
-        'copy',
-        '-movflags',
-        '+faststart',
-        outFile.path,
-      ];
-
-      debugPrint('VideoCropUtils: ${args.join(' ')}');
-      final session = await FFmpegKit.executeWithArguments(args);
-      final code = await session.getReturnCode();
-      if (!ReturnCode.isSuccess(code)) {
-        // Some clips have no audio → retry without stream copy.
-        final argsNoAudio = <String>[
+      Future<bool> runEncode({required bool withAudio}) async {
+        final args = <String>[
           '-y',
           '-i',
           input.path,
@@ -126,22 +102,32 @@ abstract final class VideoCropUtils {
           '-c:v',
           'libx264',
           '-preset',
-          'veryfast',
+          'ultrafast',
+          '-tune',
+          'fastdecode',
           '-crf',
-          '23',
+          '28',
+          '-threads',
+          '0',
           '-pix_fmt',
           'yuv420p',
-          '-an',
+          if (withAudio) ...['-c:a', 'copy'] else '-an',
           '-movflags',
           '+faststart',
           outFile.path,
         ];
+        debugPrint('VideoCropUtils: ${args.join(' ')}');
+        final session = await FFmpegKit.executeWithArguments(args);
+        final code = await session.getReturnCode();
+        return ReturnCode.isSuccess(code);
+      }
+
+      var ok = await runEncode(withAudio: true);
+      if (!ok) {
         debugPrint('VideoCropUtils: retry without audio');
-        final retry = await FFmpegKit.executeWithArguments(argsNoAudio);
-        final retryCode = await retry.getReturnCode();
-        if (!ReturnCode.isSuccess(retryCode)) {
-          final logs = await retry.getAllLogsAsString();
-          debugPrint('VideoCropUtils: crop failed code=$retryCode logs=$logs');
+        ok = await runEncode(withAudio: false);
+        if (!ok) {
+          debugPrint('VideoCropUtils: crop failed');
           try {
             if (await outFile.exists()) await outFile.delete();
           } catch (_) {}

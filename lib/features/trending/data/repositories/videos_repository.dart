@@ -13,8 +13,8 @@ import 'package:artable_app/core/widgets/app_image.dart';
 import 'package:artable_app/core/utils/media_url_utils.dart';
 import 'package:artable_app/core/utils/studio_video_player_utils.dart';
 import 'package:artable_app/core/utils/video_cache_manager.dart';
-import 'package:artable_app/core/utils/video_crop_utils.dart';
 import 'package:artable_app/core/utils/video_speed_utils.dart';
+import 'package:artable_app/core/utils/video_trim_utils.dart';
 import '../models/trending_videos_response.dart';
 
 class VideosRepository {
@@ -143,18 +143,8 @@ class VideosRepository {
       }
     } catch (_) {}
 
-    final res = await getTrendingVideos(
-      sessionToken: sessionToken,
-      refreshToken: refreshToken,
-    );
-    if (res.data != null) {
-      if (res.data!.hero?.id == cleanId) {
-        return res.data!.hero;
-      }
-      for (final v in res.data!.gridVideos) {
-        if (v.id == cleanId) return v;
-      }
-    }
+    // Do not fall back to the full trending list — that download/parse is
+    // expensive and often runs while opening a single video detail.
     return null;
   }
 
@@ -170,6 +160,8 @@ class VideosRepository {
     String? refreshToken,
     double? videoTrimStartSeconds,
     double? videoTrimEndSeconds,
+    List<double>? mergedClipTrimStarts,
+    List<double>? mergedClipTrimEnds,
     List<String>? mergedClipPaths,
     String? creator,
     String? handle,
@@ -225,66 +217,95 @@ class VideosRepository {
       return (url: url, bytes: bytes);
     }();
 
-    // 1. Draft merge → one playable file before upload (Trending/Profile need a
-    // single videoUrl; playlist metadata is often stripped by the API).
+    // 1. Bake editor trims into local files, then merge → one playable upload.
     String primaryPathOrUrl = videoPathOrUrl;
     List<String>? clipsForUpload = mergedClipPaths;
-    if (mergedClipPaths != null && mergedClipPaths.length > 1) {
-      try {
-        final mergedFile =
-            await StudioVideoPlayerUtils.combineVideoFiles(mergedClipPaths);
-        if (mergedFile != null &&
-            await mergedFile.exists() &&
-            (await mergedFile.length()) > 0) {
-          primaryPathOrUrl = mergedFile.path;
-          clipsForUpload = null;
-          debugPrint(
-            'createVideo: merged ${mergedClipPaths.length} draft clips → ${mergedFile.path}',
-          );
-        } else {
-          debugPrint(
-            'createVideo: merge unavailable; uploading clip playlist fallback',
-          );
-        }
-      } catch (e) {
-        debugPrint('createVideo: merge error, clip playlist fallback: $e');
+
+    Future<String> bakeTrimIfNeeded(String path, int index) async {
+      if (path.startsWith('http://') || path.startsWith('https://')) {
+        return path;
       }
+      final start = (mergedClipTrimStarts != null &&
+              index < mergedClipTrimStarts.length)
+          ? mergedClipTrimStarts[index]
+          : (index == 0 ? (videoTrimStartSeconds ?? 0.0) : 0.0);
+      final end = (mergedClipTrimEnds != null &&
+              index < mergedClipTrimEnds.length)
+          ? mergedClipTrimEnds[index]
+          : (index == 0 ? videoTrimEndSeconds : null);
+      if (end == null || end <= start + 0.05) return path;
+      if (start < 0.05 && end > 36000) return path;
+      final trimmed = await VideoTrimUtils.trimFile(
+        path,
+        startSeconds: start,
+        endSeconds: end,
+      );
+      return trimmed?.path ?? path;
     }
 
-    // 1b. Bake playback speed into the file (duration = source / speed).
+    if (mergedClipPaths != null && mergedClipPaths.isNotEmpty) {
+      final baked = <String>[];
+      for (var i = 0; i < mergedClipPaths.length; i++) {
+        baked.add(await bakeTrimIfNeeded(mergedClipPaths[i], i));
+      }
+      clipsForUpload = baked;
+      if (baked.length > 1) {
+        try {
+          final mergedFile =
+              await StudioVideoPlayerUtils.combineVideoFiles(baked);
+          if (mergedFile != null &&
+              await mergedFile.exists() &&
+              (await mergedFile.length()) > 0) {
+            primaryPathOrUrl = mergedFile.path;
+            clipsForUpload = null;
+            debugPrint(
+              'createVideo: merged ${baked.length} trimmed clips → ${mergedFile.path}',
+            );
+          } else {
+            debugPrint(
+              'createVideo: merge unavailable; uploading clip playlist fallback',
+            );
+          }
+        } catch (e) {
+          debugPrint('createVideo: merge error, clip playlist fallback: $e');
+        }
+      } else if (baked.length == 1) {
+        primaryPathOrUrl = baked.first;
+        clipsForUpload = null;
+      }
+    } else if (!primaryPathOrUrl.startsWith('http://') &&
+        !primaryPathOrUrl.startsWith('https://')) {
+      primaryPathOrUrl = await bakeTrimIfNeeded(primaryPathOrUrl, 0);
+    }
+
+    // 1b. Bake playback speed / mute into the file (duration = source / speed).
+    // Crop is already applied in the editor via StudioCubit.applyActualVideoCrop —
+    // re-cropping here always re-encodes and was the main cause of 60s+ uploads.
     final speed = VideoSpeedUtils.parseMultiplier(playbackSpeed);
-    Future<String> applySpeedIfNeeded(String path) async {
+    Future<String> processLocalExport(String path) async {
       final sped = await VideoSpeedUtils.applySpeedToFile(
         path,
         speed,
         muteOriginalAudio: muteOriginalAudio,
       );
       if (sped != null) {
-        debugPrint('createVideo: speed $speed applied $path → ${sped.path}');
-        return sped.path;
+        final playable =
+            await StudioVideoPlayerUtils.canPlayVideoFile(sped.path);
+        if (playable) {
+          debugPrint('createVideo: speed $speed applied $path → ${sped.path}');
+          return sped.path;
+        }
+        debugPrint(
+          'createVideo: speed output unplayable, keeping original $path',
+        );
+        try {
+          await sped.delete();
+        } catch (_) {}
       }
-      if ((speed - 1.0).abs() >= 0.01) {
-        debugPrint('createVideo: speed skipped/failed for $path ($speed)');
+      if ((speed - 1.0).abs() >= 0.01 || muteOriginalAudio) {
+        debugPrint('createVideo: speed/mute skipped/failed for $path ($speed)');
       }
       return path;
-    }
-
-    // 1c. Center-crop final file (and playlist clips) to selected aspect ratio.
-    final cropId = VideoCropUtils.normalize(videoCropAspectRatio);
-    Future<String> cropLocalIfNeeded(String path) async {
-      final cropped = await VideoCropUtils.centerCropToAspect(path, cropId);
-      if (cropped != null) {
-        debugPrint('createVideo: cropped $path → ${cropped.path} ($cropId)');
-        return cropped.path;
-      }
-      debugPrint('createVideo: crop skipped/failed for $path ($cropId)');
-      return path;
-    }
-
-    Future<String> processLocalExport(String path) async {
-      var out = await applySpeedIfNeeded(path);
-      out = await cropLocalIfNeeded(out);
-      return out;
     }
 
     if (!primaryPathOrUrl.startsWith('http://') &&
@@ -627,7 +648,6 @@ class VideosRepository {
       if (createdId != 'N/A' && createdId.isNotEmpty) {
         ReelHelpers.cacheMergedClips(createdId, finalMergedClipUrls);
       }
-      ReelHelpers.cacheMergedClips(finalVideoUrl, finalMergedClipUrls);
       newReelItem['mergedClipPaths'] = finalMergedClipUrls;
     }
     if (resolvedMusicUrl != null && resolvedMusicUrl.isNotEmpty) {
@@ -663,7 +683,9 @@ class VideosRepository {
     debugPrint('=== CREATE VIDEO === Create Video success: $isSuccess');
     debugPrint('=== CREATE VIDEO === Created video ID: $createdId');
 
-    return response;
+    final out = Map<String, dynamic>.from(response);
+    out['localReel'] = newReelItem;
+    return out;
   }
 
   List<String> _parseHashtagsList(dynamic input) {
@@ -688,25 +710,44 @@ class VideosRepository {
     return const [];
   }
 
+  /// POST `/app/videos/:id/like` with `{ "isLiked": true|false }`.
   Future<Map<String, dynamic>> likeVideo({
     required String videoId,
+    required bool isLiked,
     String? sessionToken,
     String? refreshToken,
   }) async {
-    final headers = (sessionToken != null &&
-            sessionToken.isNotEmpty &&
-            refreshToken != null &&
-            refreshToken.isNotEmpty)
+    final cleanId = videoId.trim();
+    if (cleanId.isEmpty) {
+      return {'success': false, 'message': 'videoId is required'};
+    }
+
+    var sToken = sessionToken;
+    var rToken = refreshToken;
+    if (sToken == null || sToken.isEmpty || sToken == 'design_preview') {
+      sToken = await _storageService.getSessionToken();
+    }
+    if (rToken == null || rToken.isEmpty || rToken == 'design_preview') {
+      rToken = await _storageService.getRefreshToken();
+    }
+    final headers = (sToken != null && sToken.isNotEmpty)
         ? ApiAuthHeaders.authenticated(
-            sessionToken: sessionToken,
-            refreshToken: refreshToken,
+            sessionToken: sToken,
+            refreshToken: (rToken != null && rToken.isNotEmpty) ? rToken : null,
           )
         : <String, String>{};
 
-    return _apiClient.post(
-      '/app/videos/$videoId/like',
+    final body = <String, dynamic>{'isLiked': isLiked};
+    debugPrint(
+      '=== VIDEO LIKE REQUEST === POST /app/videos/$cleanId/like body=$body',
+    );
+    final res = await _apiClient.post(
+      '/app/videos/$cleanId/like',
+      body: body,
       headers: headers.isNotEmpty ? headers : null,
     );
+    debugPrint('=== VIDEO LIKE RESPONSE === $res');
+    return res;
   }
 
   Future<Map<String, dynamic>> shareVideo({
@@ -790,12 +831,105 @@ class VideosRepository {
     );
   }
 
+  /// POST `/app/comments`
+  /// Body: `{ videoId, text, parentCommentId? }` — reply when [parentCommentId] set.
   Future<Map<String, dynamic>> createComment({
     required String videoId,
     required String text,
+    String? parentCommentId,
     String? sessionToken,
     String? refreshToken,
   }) async {
+    final cleanVideoId = videoId.trim();
+    final cleanText = text.trim();
+    if (cleanVideoId.isEmpty) {
+      return {'success': false, 'message': 'videoId is required'};
+    }
+    if (cleanText.isEmpty) {
+      return {'success': false, 'message': 'text is required'};
+    }
+
+    var sToken = sessionToken;
+    var rToken = refreshToken;
+    if (sToken == null || sToken.isEmpty || sToken == 'design_preview') {
+      sToken = await _storageService.getSessionToken();
+    }
+    if (rToken == null || rToken.isEmpty || rToken == 'design_preview') {
+      rToken = await _storageService.getRefreshToken();
+    }
+    // Session alone is enough — Refresh-Token is optional.
+    final headers = (sToken != null && sToken.isNotEmpty)
+        ? ApiAuthHeaders.authenticated(
+            sessionToken: sToken,
+            refreshToken: (rToken != null && rToken.isNotEmpty) ? rToken : null,
+          )
+        : <String, String>{};
+
+    final parentId = parentCommentId?.trim() ?? '';
+    final body = <String, dynamic>{
+      'videoId': cleanVideoId,
+      'text': cleanText,
+      if (parentId.isNotEmpty) 'parentCommentId': parentId,
+    };
+    debugPrint('=== CREATE COMMENT REQUEST === POST /app/comments');
+    debugPrint('body=$body');
+    final res = await _apiClient.post(
+      '/app/comments',
+      body: body,
+      headers: headers.isNotEmpty ? headers : null,
+    );
+    debugPrint('=== CREATE COMMENT RESPONSE === $res');
+    return res;
+  }
+
+  /// POST `/app/comments/:id/like` with `{ "isLiked": true|false }`.
+  /// Response `data` includes `isLiked` and `likeCount`.
+  Future<Map<String, dynamic>> likeComment({
+    required String commentId,
+    required bool isLiked,
+    String? sessionToken,
+    String? refreshToken,
+  }) async {
+    final cleanId = commentId.trim();
+    if (cleanId.isEmpty) {
+      return {'success': false, 'message': 'commentId is required'};
+    }
+
+    var sToken = sessionToken;
+    var rToken = refreshToken;
+    if (sToken == null || sToken.isEmpty || sToken == 'design_preview') {
+      sToken = await _storageService.getSessionToken();
+    }
+    if (rToken == null || rToken.isEmpty || rToken == 'design_preview') {
+      rToken = await _storageService.getRefreshToken();
+    }
+    final headers = (sToken != null && sToken.isNotEmpty)
+        ? ApiAuthHeaders.authenticated(
+            sessionToken: sToken,
+            refreshToken: (rToken != null && rToken.isNotEmpty) ? rToken : null,
+          )
+        : <String, String>{};
+
+    final body = <String, dynamic>{'isLiked': isLiked};
+    debugPrint(
+      '=== COMMENT LIKE REQUEST === POST /app/comments/$cleanId/like body=$body',
+    );
+    final res = await _apiClient.post(
+      '/app/comments/$cleanId/like',
+      body: body,
+      headers: headers.isNotEmpty ? headers : null,
+    );
+    debugPrint('=== COMMENT LIKE RESPONSE === $res');
+    return res;
+  }
+
+  Future<Map<String, dynamic>> reportVideo({
+    required String videoId,
+    required String reason,
+    String? sessionToken,
+    String? refreshToken,
+  }) async {
+    final cleanId = videoId.trim();
     final headers = (sessionToken != null &&
             sessionToken.isNotEmpty &&
             refreshToken != null &&
@@ -807,45 +941,64 @@ class VideosRepository {
         : <String, String>{};
 
     return _apiClient.post(
-      '/app/comments',
+      '/app/videos/$cleanId/report',
       body: {
-        'videoId': videoId,
-        'text': text,
+        'reason': reason.trim(),
       },
       headers: headers.isNotEmpty ? headers : null,
     );
   }
 
+  /// GET `/app/comments?videoId=&page=&limit=`
+  /// Pass [parentCommentId] to load replies for that comment.
   Future<Map<String, dynamic>> getComments({
     required String videoId,
+    String? parentCommentId,
     int page = 1,
     int limit = 20,
     String? sessionToken,
     String? refreshToken,
   }) async {
+    final cleanVideoId = videoId.trim();
+    if (cleanVideoId.isEmpty) {
+      return {'success': false, 'message': 'videoId is required'};
+    }
+
     final queryParams = <String, String>{
-      'videoId': videoId.trim(),
+      'videoId': cleanVideoId,
       'page': page.toString(),
       'limit': limit.toString(),
     };
+    final parentId = parentCommentId?.trim() ?? '';
+    if (parentId.isNotEmpty) {
+      queryParams['parentCommentId'] = parentId;
+    }
 
     final queryString = Uri(queryParameters: queryParams).query;
     final path = '/app/comments?$queryString';
 
-    final headers = (sessionToken != null &&
-            sessionToken.isNotEmpty &&
-            refreshToken != null &&
-            refreshToken.isNotEmpty)
+    var sToken = sessionToken;
+    var rToken = refreshToken;
+    if (sToken == null || sToken.isEmpty || sToken == 'design_preview') {
+      sToken = await _storageService.getSessionToken();
+    }
+    if (rToken == null || rToken.isEmpty || rToken == 'design_preview') {
+      rToken = await _storageService.getRefreshToken();
+    }
+    final headers = (sToken != null && sToken.isNotEmpty)
         ? ApiAuthHeaders.authenticated(
-            sessionToken: sessionToken,
-            refreshToken: refreshToken,
+            sessionToken: sToken,
+            refreshToken: (rToken != null && rToken.isNotEmpty) ? rToken : null,
           )
         : <String, String>{};
 
-    return _apiClient.get(
+    debugPrint('=== GET COMMENTS === $path');
+    final res = await _apiClient.get(
       path,
       headers: headers.isNotEmpty ? headers : null,
     );
+    debugPrint('=== GET COMMENTS RESPONSE === $res');
+    return res;
   }
 
   Future<Map<String, dynamic>> deleteComment({
@@ -854,13 +1007,22 @@ class VideosRepository {
     String? refreshToken,
   }) async {
     final cleanId = commentId.trim();
-    final headers = (sessionToken != null &&
-            sessionToken.isNotEmpty &&
-            refreshToken != null &&
-            refreshToken.isNotEmpty)
+    if (cleanId.isEmpty) {
+      return {'success': false, 'message': 'commentId is required'};
+    }
+
+    var sToken = sessionToken;
+    var rToken = refreshToken;
+    if (sToken == null || sToken.isEmpty || sToken == 'design_preview') {
+      sToken = await _storageService.getSessionToken();
+    }
+    if (rToken == null || rToken.isEmpty || rToken == 'design_preview') {
+      rToken = await _storageService.getRefreshToken();
+    }
+    final headers = (sToken != null && sToken.isNotEmpty)
         ? ApiAuthHeaders.authenticated(
-            sessionToken: sessionToken,
-            refreshToken: refreshToken,
+            sessionToken: sToken,
+            refreshToken: (rToken != null && rToken.isNotEmpty) ? rToken : null,
           )
         : <String, String>{};
 

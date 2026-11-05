@@ -17,6 +17,7 @@ import 'package:artable_app/core/utils/validators.dart';
 import 'package:artable_app/data/datasources/music_api_service.dart';
 import 'package:artable_app/features/profile/presentation/bloc/profile_cubit.dart';
 import 'package:artable_app/features/profile/presentation/bloc/my_videos_cubit.dart';
+import 'package:artable_app/features/reels/presentation/bloc/reels_cubit.dart';
 import 'package:artable_app/features/studio/data/services/studio_music_playback_service.dart';
 import 'package:artable_app/features/reels/data/services/reel_bgm_playback_service.dart';
 
@@ -103,8 +104,11 @@ class _StudioUploadScreenState extends State<StudioUploadScreen> {
           videoPath,
           mergedClipPaths: mergedClips,
           clearMergedClips: false,
+          resetTrim: false,
         );
-        debugPrint('StudioUploadScreen: Multi-clip upload prepared instantly: $videoPath (${mergedClips.length} clips)');
+        debugPrint(
+          'StudioUploadScreen: Multi-clip upload prepared instantly: $videoPath (${mergedClips.length} clips)',
+        );
       }
 
       if (videoPath == null || videoPath.trim().isEmpty) {
@@ -114,6 +118,23 @@ class _StudioUploadScreenState extends State<StudioUploadScreen> {
           throw Exception('No recorded video path found. Please re-record video.');
         }
       }
+
+      setState(() {
+        _percent = 10;
+        _stepIndex = 0;
+      });
+
+      // Apply aspect-ratio crop here (editor Apply is instant / preview-only).
+      final cropError = await studioCubit.ensureCroppedFilesForUpload();
+      if (cropError != null) {
+        throw Exception(cropError);
+      }
+      if (studioCubit.state.mergedClipPaths != null &&
+          studioCubit.state.mergedClipPaths!.isNotEmpty) {
+        mergedClips = List<String>.from(studioCubit.state.mergedClipPaths!);
+      }
+      videoPath = studioCubit.recordedVideoPath ??
+          (mergedClips.isNotEmpty ? mergedClips.first : videoPath);
 
       setState(() {
         _percent = 15;
@@ -164,10 +185,30 @@ class _StudioUploadScreenState extends State<StudioUploadScreen> {
           : (profileUser?.profilePhotoUrl ?? '');
       final realUserId = authCubit.userId ?? profileUser?.id;
 
-      final selectedTrack = studioCubit.selectedTrack ??
-          MusicApiService.resolveByName(studioCubit.selectedMusic);
-      final resolvedMusicName = studioCubit.selectedMusic ??
-          (selectedTrack != null ? '${selectedTrack.title} — ${selectedTrack.artist}' : null);
+      // Always sync draft music from the live session before submit.
+      studioCubit.syncActiveDraftMusic();
+
+      final musicName = studioCubit.selectedMusic?.trim();
+      var selectedTrack = studioCubit.selectedTrack;
+      if (selectedTrack != null &&
+          musicName != null &&
+          musicName.isNotEmpty) {
+        final label = '${selectedTrack.title} — ${selectedTrack.artist}';
+        if (label != musicName) {
+          // Session name was updated but track object was stale — use the name.
+          selectedTrack =
+              MusicApiService.resolveByName(musicName) ?? selectedTrack;
+        }
+      } else if (selectedTrack == null &&
+          musicName != null &&
+          musicName.isNotEmpty) {
+        selectedTrack = MusicApiService.resolveByName(musicName);
+      }
+      final resolvedMusicName = (musicName != null && musicName.isNotEmpty)
+          ? musicName
+          : (selectedTrack != null
+              ? '${selectedTrack.title} — ${selectedTrack.artist}'
+              : null);
       final res = await videosRepo.createVideo(
         title: title,
         videoPathOrUrl: videoPath,
@@ -182,7 +223,9 @@ class _StudioUploadScreenState extends State<StudioUploadScreen> {
             ? studioCubit.state.videoTrimStartSeconds
             : null,
         videoTrimEndSeconds: studioCubit.state.videoTrimEndSeconds,
-        mergedClipPaths: mergedClips.length > 1 ? mergedClips : null,
+        mergedClipTrimStarts: studioCubit.state.mergedClipTrimStarts,
+        mergedClipTrimEnds: studioCubit.state.mergedClipTrimEnds,
+        mergedClipPaths: mergedClips.isNotEmpty ? mergedClips : null,
         onUploadProgress: (sent, total) {
           if (!mounted || total <= 0) return;
           final pct = 30 + ((sent / total) * 55).round();
@@ -200,7 +243,7 @@ class _StudioUploadScreenState extends State<StudioUploadScreen> {
         musicUrl: selectedTrack?.audioUrl,
         musicStartSeconds: selectedTrack != null ? studioCubit.musicStartSeconds : null,
         musicCropDuration: selectedTrack != null ? studioCubit.musicCropDuration : null,
-        filterId: studioCubit.recordingFilter,
+        filterId: studioCubit.effectiveRecordingFilter,
         beautyOn: studioCubit.recordingBeautyOn,
         beautyIntensity: studioCubit.recordingBeautyIntensity,
         videoCropAspectRatio: studioCubit.videoCropAspectRatio,
@@ -215,6 +258,23 @@ class _StudioUploadScreenState extends State<StudioUploadScreen> {
       });
 
       debugPrint('Create Video API success: $res');
+
+      // Stop all studio/reel audio + release session players before leaving.
+      _silenceAllMusic();
+      try {
+        studioCubit.clearActiveVideoController(dispose: true);
+      } catch (_) {}
+
+      final localReel = res['localReel'];
+      if (localReel is Map && mounted) {
+        try {
+          context.read<ReelsCubit>().syncVideos([
+            Map<String, dynamic>.from(localReel),
+          ]);
+        } catch (e) {
+          debugPrint('Failed to seed ReelsCubit with uploaded video: $e');
+        }
+      }
 
       final targetDraftId = widget.draftId ?? studioCubit.activeDraftId;
       if (targetDraftId != null && targetDraftId.trim().isNotEmpty) {
@@ -240,7 +300,7 @@ class _StudioUploadScreenState extends State<StudioUploadScreen> {
           profileCubit.loadProfile(forceRefresh: true);
         } catch (_) {}
         try {
-          myVideosCubit.loadMyVideos(forceRefresh: true);
+          myVideosCubit.loadMyVideos(tab: 'ALL', forceRefresh: true);
         } catch (_) {}
       }
 

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -118,27 +119,41 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
       return true;
     }
 
-    void addReels(List<Map<String, dynamic>> list) {
+    void hydrateClips(Map<String, dynamic> r) {
+      if (r['mergedClipPaths'] is List &&
+          (r['mergedClipPaths'] as List).length > 1) {
+        return;
+      }
+      final id = r['id']?.toString() ?? r['_id']?.toString() ?? '';
+      final descClips = ReelHelpers.parseDescriptionClips(
+        r['description']?.toString() ?? r['caption']?.toString(),
+      ).clips;
+      // Only resolve clip playlists by video id — never by videoUrl (cross-leak).
+      final cached = descClips ??
+          (id.isNotEmpty ? ReelHelpers.getCachedMergedClips(id) : null);
+      if (cached != null && cached.length > 1) {
+        r['mergedClipPaths'] = cached;
+      }
+    }
+
+    void addReels(List<Map<String, dynamic>> list, {bool requireLive = true}) {
       for (final r in list) {
-        if (!isReelLive(r)) continue;
+        if (requireLive && !isReelLive(r)) continue;
         final id = r['id']?.toString() ?? r['_id']?.toString() ?? '';
-        final vUrl = r['videoUrl']?.toString() ?? '';
-        if (r['mergedClipPaths'] == null || (r['mergedClipPaths'] is List && (r['mergedClipPaths'] as List).isEmpty)) {
-          final descClips = ReelHelpers.parseDescriptionClips(r['description']?.toString() ?? r['caption']?.toString()).clips;
-          final cached = descClips ?? ReelHelpers.getCachedMergedClips(id) ?? ReelHelpers.getCachedMergedClips(vUrl);
-          if (cached != null && cached.isNotEmpty) {
-            r['mergedClipPaths'] = cached;
-          }
-        }
+        hydrateClips(r);
         if (id.isNotEmpty && !seenIds.contains(id)) {
           seenIds.add(id);
-          rawList.add(r);
+          rawList.add(Map<String, dynamic>.from(r));
         }
       }
     }
 
-    if (widget.initialReelData != null && widget.initialReelData!.isNotEmpty) {
-      addReels([widget.initialReelData!]);
+    // Always pin the opened reel first — even if not "live" — so tapping one
+    // video never lands on an unrelated feed item at page 0.
+    final targetId = widget.initialReelId?.trim() ?? '';
+    final opened = widget.initialReelData;
+    if (opened != null && opened.isNotEmpty) {
+      addReels([opened], requireLive: false);
     }
     if (trendingCubit.hero != null) {
       addReels([trendingCubit.hero!.toUiMap()]);
@@ -153,25 +168,33 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
       addReels(reelsCubit.videos);
     }
 
-    final targetId = widget.initialReelId?.trim();
-    if (targetId != null && targetId.isNotEmpty) {
+    if (targetId.isNotEmpty) {
       final existingIndex = rawList.indexWhere(
-        (r) => r['id']?.toString() == targetId || r['_id']?.toString() == targetId,
+        (r) =>
+            r['id']?.toString() == targetId ||
+            r['_id']?.toString() == targetId,
       );
       if (existingIndex > 0) {
         final targetItem = rawList.removeAt(existingIndex);
         rawList.insert(0, targetItem);
       } else if (existingIndex == -1) {
-        final singleItem = trendingCubit.getVideoById(targetId);
-        if (singleItem != null && singleItem.isVideoLive && !singleItem.isDraft) {
-          rawList.insert(0, singleItem.toUiMap());
+        final fromCubit = reelsCubit.getVideo(targetId);
+        if (fromCubit != null) {
+          rawList.insert(0, Map<String, dynamic>.from(fromCubit));
           seenIds.add(targetId);
         } else {
-          final helperMatch = ReelHelpers.reelById(targetId, availableReels: rawList);
-          if (helperMatch != null && isReelLive(helperMatch)) {
-            rawList.insert(0, helperMatch);
+          final singleItem = trendingCubit.getVideoById(targetId);
+          if (singleItem != null) {
+            rawList.insert(0, singleItem.toUiMap());
+            seenIds.add(targetId);
+          } else if (opened != null && opened.isNotEmpty) {
+            final stub = Map<String, dynamic>.from(opened);
+            stub['id'] = stub['id'] ?? targetId;
+            rawList.insert(0, stub);
             seenIds.add(targetId);
           }
+          // Never insert an empty {id}-only stub — it opens a dead player and
+          // can race/crash the native VideoPlayer during init/dispose.
         }
       }
     }
@@ -312,9 +335,13 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
   void _exitFeed() {
     ReelBgmPlaybackService.killNow();
     unawaited(ReelBgmPlaybackService.stop());
+    if (!mounted) return;
     if (context.canPop()) {
       context.pop();
+      return;
     }
+    // Notification / deep-link `go(reels)` leaves no stack — always escape to Home.
+    context.go(AppRoutes.home);
   }
 
   void _coverFeedAudio() {
@@ -851,8 +878,9 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
               }
               final imageUrl = reel['imageUrl'] as String? ?? reel['thumbnailUrl'] as String? ?? '';
               final isActive = index == _currentPage;
+              // Pre-warm only the next reel — prev + next + active fights bandwidth.
               final preloadNext = index == _currentPage + 1;
-              final preloadPrev = index == _currentPage - 1;
+              const preloadPrev = false;
               final forcePaused = _appInBackground ||
                   _routeCovered ||
                   _ratingReelId != null ||
@@ -919,7 +947,9 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
                 fit: StackFit.expand,
                 children: [
                   _ReelVideoPlayer(
-                    key: ValueKey(reel['id']),
+                    // Stable id key only — including videoUrl forced State
+                    // teardown on every URL hydrate and crashed ExoPlayer.
+                    key: ValueKey(reel['id'] ?? reel['_id'] ?? videoUrl),
                     videoUrl: videoUrl,
                     thumbnailUrl: imageUrl,
                     isActive: isActive,
@@ -1708,12 +1738,6 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
         raw = cachedById;
       }
     }
-    if (raw.isEmpty) {
-      final cached = ReelHelpers.getCachedMergedClips(widget.videoUrl);
-      if (cached != null && cached.length > 1) {
-        raw = cached;
-      }
-    }
     if (raw.isEmpty &&
         widget.caption != null &&
         widget.caption!.isNotEmpty) {
@@ -2062,14 +2086,19 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
         widget.videoUrl != oldWidget.videoUrl) {
       _refreshFilterMeta();
     }
-    if (widget.videoUrl != oldWidget.videoUrl ||
-        widget.mergedClipPaths != oldWidget.mergedClipPaths) {
+    final clipsChanged = !listEquals(
+      widget.mergedClipPaths,
+      oldWidget.mergedClipPaths,
+    );
+    final mediaChanged = widget.videoUrl != oldWidget.videoUrl ||
+        clipsChanged ||
+        widget.reelId != oldWidget.reelId;
+    if (mediaChanged) {
       _logDebugInfo();
       _currentClipIndex = 0;
-      _disposeControllers();
-      if (_shouldHoldPlayer) {
-        _initVideo();
-      }
+      // Detach safely — never killNow (that stops the active neighbor's BGM)
+      // and never dispose while VideoPlayer is still painted.
+      unawaited(_reloadMedia());
     } else if (widget.isActive != oldWidget.isActive ||
         widget.preloadNext != oldWidget.preloadNext ||
         widget.preloadPrev != oldWidget.preloadPrev ||
@@ -2114,7 +2143,7 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
         if (active != null && _isInitialized) {
           active.pause();
         }
-        _disposeControllers();
+        unawaited(_disposeControllers(safe: true));
       }
     } else if (widget.playbackSpeed != oldWidget.playbackSpeed) {
       unawaited(_applyPlaybackSpeed(widget.playbackSpeed));
@@ -2156,6 +2185,8 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
     return VideoCacheManager.createAndInitController(
       resolvedUrl,
       waitForInFlightDownload: const Duration(milliseconds: 400),
+      // Buffer priming play/pause races with swipe dispose and can SIGABRT.
+      primeBuffer: false,
     );
   }
 
@@ -2668,7 +2699,17 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
     }
   }
 
-  void _disposeControllers() {
+  Future<void> _reloadMedia() async {
+    await _disposeControllers(safe: true);
+    if (!mounted) return;
+    if (_shouldHoldPlayer) {
+      await _initVideo();
+    }
+  }
+
+  /// Disposes players. When [safe] is true, detaches from the tree first and
+  /// disposes on the next frame — avoids native "No active player" crashes.
+  Future<void> _disposeControllers({bool safe = false}) async {
     final notifier = widget.seekController;
     final current = notifier?.value;
     if (notifier != null &&
@@ -2687,25 +2728,75 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
     _showSlowLoading = false;
     _playbackTimer?.cancel();
     _playbackTimer = null;
-    _controller?.removeListener(_onVideoControllerUpdate);
-    _controller?.pause();
-    _controller?.dispose();
-    _controller = null;
 
-    for (final c in _clipControllers.values) {
-      c.removeListener(_onVideoControllerUpdate);
-      c.pause();
-      c.dispose();
-    }
+    final oldController = _controller;
+    final oldClips = Map<int, VideoPlayerController>.from(_clipControllers);
+    _controller = null;
     _clipControllers.clear();
     _isInitialized = false;
     _isInitializing = false;
+
+    oldController?.removeListener(_onVideoControllerUpdate);
+    for (final c in oldClips.values) {
+      c.removeListener(_onVideoControllerUpdate);
+    }
+
+    if (safe && mounted) {
+      setState(() {});
+      await Future<void>.delayed(Duration.zero);
+      await WidgetsBinding.instance.endOfFrame;
+    }
+
+    try {
+      await oldController?.pause();
+    } catch (_) {}
+    try {
+      await oldController?.dispose();
+    } catch (_) {}
+    for (final c in oldClips.values) {
+      try {
+        await c.pause();
+      } catch (_) {}
+      try {
+        await c.dispose();
+      } catch (_) {}
+    }
   }
 
   @override
   void dispose() {
     _playbackTimer?.cancel();
-    _disposeControllers();
+    _loadingHintTimer?.cancel();
+    _initGeneration++;
+    _syncBgm(play: false);
+    // Detach first; dispose AFTER this frame so VideoPlayer is unmounted.
+    // Sync dispose here caused intermittent native "No active player" crashes.
+    final oldController = _controller;
+    final oldClips = List<VideoPlayerController>.from(_clipControllers.values);
+    _controller = null;
+    _clipControllers.clear();
+    _isInitialized = false;
+    _isInitializing = false;
+    oldController?.removeListener(_onVideoControllerUpdate);
+    for (final c in oldClips) {
+      c.removeListener(_onVideoControllerUpdate);
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        await oldController?.pause();
+      } catch (_) {}
+      try {
+        await oldController?.dispose();
+      } catch (_) {}
+      for (final c in oldClips) {
+        try {
+          await c.pause();
+        } catch (_) {}
+        try {
+          await c.dispose();
+        } catch (_) {}
+      }
+    });
     super.dispose();
   }
 

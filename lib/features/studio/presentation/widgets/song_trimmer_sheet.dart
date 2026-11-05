@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 import 'package:just_audio/just_audio.dart';
 
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_text_styles.dart';
 import 'package:artable_app/features/studio/presentation/bloc/studio_cubit.dart';
+import 'package:artable_app/features/studio/data/services/studio_music_playback_service.dart';
 import 'package:artable_app/data/datasources/music_api_service.dart';
 import 'package:artable_app/core/widgets/app_network_image.dart';
 import 'package:artable_app/core/widgets/gradient_button.dart';
@@ -47,8 +49,13 @@ class SongTrimmerSheet extends StatefulWidget {
                 duration: duration,
               );
           Navigator.pop(ctx);
-          if (popParentOnApply && context.mounted && Navigator.canPop(context)) {
-            Navigator.pop(context);
+          // Prefer GoRouter so we don't desync the studio edit stack.
+          if (popParentOnApply && context.mounted) {
+            if (context.canPop()) {
+              context.pop();
+            } else if (Navigator.canPop(context)) {
+              Navigator.pop(context);
+            }
           }
           onApplied?.call();
         },
@@ -73,12 +80,20 @@ class _SongTrimmerSheetState extends State<SongTrimmerSheet> {
   @override
   void initState() {
     super.initState();
-    final videoDuration = context.read<StudioCubit>().effectiveVideoDuration;
-    _startSeconds = widget.initialStartSeconds.clamp(0.0, widget.track.duration - 1.0);
-    if (videoDuration > 0) {
+    // Avoid two just_audio players fighting (editor BGM + trimmer preview).
+    StudioMusicPlaybackService.directPause();
+    final studio = context.read<StudioCubit>();
+    // Prefer playback duration (source / speed) so music matches the edit timeline.
+    final videoDuration = studio.playbackDurationSeconds > 0
+        ? studio.playbackDurationSeconds
+        : studio.effectiveVideoDuration;
+    _startSeconds =
+        widget.initialStartSeconds.clamp(0.0, widget.track.duration - 1.0);
+    if (widget.initialCropDuration > 0 && widget.initialCropDuration != 30.0) {
+      _cropDuration =
+          widget.initialCropDuration.clamp(1.0, widget.track.duration);
+    } else if (videoDuration > 0) {
       _cropDuration = videoDuration.clamp(1.0, widget.track.duration);
-    } else if (widget.initialCropDuration > 0 && widget.initialCropDuration != 30.0) {
-      _cropDuration = widget.initialCropDuration.clamp(1.0, widget.track.duration);
     } else {
       _cropDuration = 30.0.clamp(1.0, widget.track.duration);
     }

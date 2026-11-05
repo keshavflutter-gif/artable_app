@@ -178,18 +178,9 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
       return <String, dynamic>{'id': targetId};
     }
 
-    final baseMap = available.first;
-    final res = Map<String, dynamic>.from(baseMap);
-    final id = res['id']?.toString() ?? res['_id']?.toString() ?? targetId;
-    final vUrl = res['videoUrl']?.toString() ?? '';
-    if (res['mergedClipPaths'] == null || (res['mergedClipPaths'] is List && (res['mergedClipPaths'] as List).isEmpty)) {
-      final descClips = ReelHelpers.parseDescriptionClips(res['description']?.toString() ?? res['caption']?.toString()).clips;
-      final cached = descClips ?? ReelHelpers.getCachedMergedClips(id) ?? ReelHelpers.getCachedMergedClips(vUrl);
-      if (cached != null && cached.isNotEmpty) {
-        res['mergedClipPaths'] = cached;
-      }
-    }
-    return res;
+    // Intentionally no "first available" fallback when targetId is empty —
+    // that previously showed unrelated video content.
+    return <String, dynamic>{};
   }
 
   @override
@@ -354,6 +345,11 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     _isStageInitialized = false;
     _currentLoadedVideoUrl = null;
     old?.removeListener(_onStageControllerUpdate);
+    if (mounted) setState(() {});
+    await Future<void>.delayed(Duration.zero);
+    try {
+      await WidgetsBinding.instance.endOfFrame;
+    } catch (_) {}
     try {
       await old?.pause();
     } catch (_) {}
@@ -536,9 +532,19 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
   void dispose() {
     ReelBgmPlaybackService.killNow();
     unawaited(ReelBgmPlaybackService.stop());
-    _stageController?.removeListener(_onStageControllerUpdate);
-    _stageController?.dispose();
+    _stageInitGeneration++;
+    // Detach first; dispose after frame so VideoPlayer is unmounted.
+    final old = _stageController;
     _stageController = null;
+    old?.removeListener(_onStageControllerUpdate);
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        await old?.pause();
+      } catch (_) {}
+      try {
+        await old?.dispose();
+      } catch (_) {}
+    });
     super.dispose();
   }
 
@@ -563,10 +569,16 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
         );
         // Re-apply API fields that are authoritative when present.
         final apiMap = item.toUiMap();
-        for (final key in ['title', 'description', 'caption', 'likes', 'likesCount', 'views', 'viewsCount', 'comments', 'commentsCount']) {
+        for (final key in ['title', 'description', 'caption']) {
           final v = apiMap[key]?.toString().trim() ?? '';
           if (v.isNotEmpty && v != 'null') uiMap[key] = apiMap[key];
         }
+        // Never let a sparse detail payload wipe list/home counts with 0.
+        _mergeBestEngagementCount(uiMap, apiMap, labelKey: 'views', countKey: 'viewsCount');
+        _mergeBestEngagementCount(uiMap, apiMap, labelKey: 'likes', countKey: 'likesCount');
+        _mergeBestEngagementCount(uiMap, apiMap, labelKey: 'comments', countKey: 'commentsCount');
+        _mergeBestEngagementCount(uiMap, apiMap, labelKey: 'shares', countKey: 'sharesCount');
+        _mergeBestEngagementCount(uiMap, apiMap, labelKey: 'saves', countKey: 'savesCount');
         final existingVideo = uiMap['videoUrl']?.toString().trim() ?? '';
         final apiVideo = apiMap['videoUrl']?.toString().trim() ?? '';
         final existingPlayable = existingVideo.isNotEmpty &&
@@ -619,16 +631,47 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     }
   }
 
+  bool _isUsableCountLabel(String? value) {
+    if (value == null) return false;
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return false;
+    final lower = trimmed.toLowerCase();
+    return lower != 'null' && lower != 'undefined' && lower != 'nan';
+  }
+
+  void _mergeBestEngagementCount(
+    Map<String, dynamic> target,
+    Map<String, dynamic> apiMap, {
+    required String labelKey,
+    required String countKey,
+  }) {
+    final existing = TrendingVideoItem.parseCount(
+      target[countKey] ?? target[labelKey],
+    );
+    final incoming = TrendingVideoItem.parseCount(
+      apiMap[countKey] ?? apiMap[labelKey],
+    );
+    final best = incoming > existing ? incoming : existing;
+    target[countKey] = best;
+    target[labelKey] = TrendingVideoItem.formatCount(best);
+  }
+
   String _getFormattedCount(dynamic rawCount, dynamic rawLabel) {
-    if (rawLabel is String && rawLabel.trim().isNotEmpty) {
+    if (rawLabel is String &&
+        _isUsableCountLabel(rawLabel) &&
+        TrendingVideoItem.parseCount(rawLabel) > 0) {
       return rawLabel.trim();
     }
-    if (rawCount is String && rawCount.trim().isNotEmpty) {
-      if (RegExp(r'[a-zA-Z]').hasMatch(rawCount)) {
+    if (rawCount is String && _isUsableCountLabel(rawCount)) {
+      // Prefixed labels like "1.2K" — not plain digits.
+      if (RegExp(r'[a-zA-Z]').hasMatch(rawCount) &&
+          RegExp(r'\d').hasMatch(rawCount)) {
         return rawCount.trim();
       }
     }
-    final int count = TrendingVideoItem.parseCount(rawCount);
+    final int fromCount = TrendingVideoItem.parseCount(rawCount);
+    final int fromLabel = TrendingVideoItem.parseCount(rawLabel);
+    final int count = fromCount > fromLabel ? fromCount : fromLabel;
     return TrendingVideoItem.formatCount(count);
   }
 
@@ -663,9 +706,12 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     if (!mounted) return;
     context.read<TrendingVideosCubit>().loadTrendingVideos(forceRefresh: true);
     context.read<HomeCubit>().loadHomeDashboard(forceRefresh: true);
+    if (!mounted) return;
     if (context.canPop()) {
       context.pop(true);
+      return;
     }
+    context.go(AppRoutes.home);
   }
 
   @override
@@ -1324,9 +1370,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
       currentVideo['commentsCount'] ?? currentVideo['commentCount'] ?? currentVideo['comments'],
     );
     final int commentsVal = reelsProvider.getCommentsCount(reelId, rawComments);
-    final comments = (currentVideo['commentsLabel'] is String && (currentVideo['commentsLabel'] as String).isNotEmpty)
-        ? currentVideo['commentsLabel'] as String
-        : TrendingVideoItem.formatCount(commentsVal);
+    final comments = TrendingVideoItem.formatCount(commentsVal);
 
     final shares = _getFormattedCount(
       currentVideo['sharesCount'] ?? currentVideo['shareCount'] ?? currentVideo['shares'],
@@ -1491,9 +1535,8 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
       }
     }
 
-    final displayScore = score > 0
-        ? score.toStringAsFixed(1)
-        : (reel['score']?.toString() ?? reel['rating']?.toString() ?? reel['averageRating']?.toString() ?? '0.0');
+    // Avoid showing stale "0.0" / empty rating strings from list maps.
+    final displayScore = score > 0 ? score.toStringAsFixed(1) : '—';
 
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),

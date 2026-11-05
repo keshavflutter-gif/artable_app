@@ -431,15 +431,76 @@ class TrendingVideoItem {
         return averageRating!.trim();
       }
     }
-    return '0.0';
+    // Empty → UI hides the star pill (was showing misleading "0.0").
+    return '';
   }
 
   String get displayViews {
-    if (viewsLabel != null && viewsLabel!.trim().isNotEmpty) {
-      return viewsLabel!.trim();
+    final label = cleanLabel(viewsLabel);
+    if (label != null && parseCount(label) > 0) {
+      return label;
     }
-    final count = views > 0 ? views : (viewCount > 0 ? viewCount : 0);
+    final count = views > 0
+        ? views
+        : (viewCount > 0 ? viewCount : parseCount(viewsLabel));
     return formatCount(count);
+  }
+
+  /// Best numeric engagement value from a raw API / UI map.
+  static int extractCountFromMap(
+    Map<String, dynamic> json, {
+    required List<String> countKeys,
+    List<String> labelKeys = const [],
+  }) {
+    int best = 0;
+
+    void consider(dynamic raw) {
+      if (raw == null) return;
+      if (raw is List) {
+        if (raw.length > best) best = raw.length;
+        return;
+      }
+      if (raw is Map) {
+        final map = Map<String, dynamic>.from(raw);
+        consider(
+          map['count'] ??
+              map['total'] ??
+              map['value'] ??
+              map['likes'] ??
+              map['comments'] ??
+              map['views'] ??
+              map['shares'] ??
+              map['saves'],
+        );
+        return;
+      }
+      final n = parseCount(raw);
+      if (n > best) best = n;
+    }
+
+    for (final key in countKeys) {
+      consider(json[key]);
+    }
+    for (final key in labelKeys) {
+      consider(json[key]);
+    }
+    for (final nestKey in const [
+      '_count',
+      'count',
+      'stats',
+      'engagement',
+      'metrics',
+      'analytics',
+    ]) {
+      final nested = json[nestKey];
+      if (nested is Map) {
+        final map = Map<String, dynamic>.from(nested);
+        for (final key in countKeys) {
+          consider(map[key]);
+        }
+      }
+    }
+    return best;
   }
 
   String get displayHandle {
@@ -470,11 +531,46 @@ class TrendingVideoItem {
   bool get isVerifiedUser =>
       user?.isBlueTick == true || user?.isVerified == true;
 
+  static bool isUsableLabel(String? value) {
+    if (value == null) return false;
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return false;
+    final lower = trimmed.toLowerCase();
+    return lower != 'null' && lower != 'undefined' && lower != 'nan';
+  }
+
+  static String? cleanLabel(dynamic raw) {
+    if (raw == null) return null;
+    final str = raw.toString().trim();
+    return isUsableLabel(str) ? str : null;
+  }
+
+  /// Keep compact labels like "1.2K"; drop "0" / "0.0" and normalize plain numbers.
+  static String? normalizedCountLabel(dynamic raw, {int fallbackCount = 0}) {
+    final cleaned = cleanLabel(raw);
+    if (cleaned != null) {
+      final parsed = parseCount(cleaned);
+      final hasSuffix = RegExp(r'[A-Za-z]').hasMatch(cleaned);
+      if (parsed > 0) {
+        // "12.0" → "12"; keep "1.2K" as-is.
+        if (!hasSuffix && RegExp(r'^\d+(\.\d+)?$').hasMatch(cleaned)) {
+          return formatCount(parsed);
+        }
+        return cleaned;
+      }
+      if (hasSuffix) return cleaned;
+    }
+    if (fallbackCount > 0) return formatCount(fallbackCount);
+    return null;
+  }
+
   static int parseCount(dynamic raw) {
     if (raw == null) return 0;
     if (raw is num) return raw.toInt();
     final str = raw.toString().trim().toUpperCase();
-    if (str.isEmpty) return 0;
+    if (str.isEmpty || str == 'NULL' || str == 'UNDEFINED' || str == 'NAN') {
+      return 0;
+    }
 
     final parsed = int.tryParse(str);
     if (parsed != null) return parsed;
@@ -498,31 +594,35 @@ class TrendingVideoItem {
   }
 
   String get displayLikes {
-    final count = likes > 0 ? likes : (likeCount > 0 ? likeCount : parseCount(likesLabel));
+    final label = cleanLabel(likesLabel);
+    if (label != null && parseCount(label) > 0) return label;
+    final count =
+        likes > 0 ? likes : (likeCount > 0 ? likeCount : parseCount(likesLabel));
     return formatCount(count);
   }
 
   String get displayComments {
-    if (commentsLabel != null && commentsLabel!.trim().isNotEmpty) {
-      return commentsLabel!.trim();
-    }
-    final count = comments > 0 ? comments : (commentCount > 0 ? commentCount : 0);
+    final label = cleanLabel(commentsLabel);
+    if (label != null && parseCount(label) > 0) return label;
+    final count = comments > 0
+        ? comments
+        : (commentCount > 0 ? commentCount : parseCount(commentsLabel));
     return formatCount(count);
   }
 
   String get displayShares {
-    if (sharesLabel != null && sharesLabel!.trim().isNotEmpty) {
-      return sharesLabel!.trim();
-    }
-    final count = shares > 0 ? shares : (shareCount > 0 ? shareCount : 0);
+    final label = cleanLabel(sharesLabel);
+    if (label != null && parseCount(label) > 0) return label;
+    final count =
+        shares > 0 ? shares : (shareCount > 0 ? shareCount : parseCount(sharesLabel));
     return formatCount(count);
   }
 
   String get displaySaves {
-    if (savesLabel != null && savesLabel!.trim().isNotEmpty) {
-      return savesLabel!.trim();
-    }
-    final count = saves > 0 ? saves : (saveCount > 0 ? saveCount : 0);
+    final label = cleanLabel(savesLabel);
+    if (label != null && parseCount(label) > 0) return label;
+    final count =
+        saves > 0 ? saves : (saveCount > 0 ? saveCount : parseCount(savesLabel));
     return formatCount(count);
   }
 
@@ -574,11 +674,21 @@ class TrendingVideoItem {
         ? displayCreatorName
         : (resolvedHandle.isNotEmpty ? resolvedHandle : '');
 
-    final resolvedViewsCount = views > 0 ? views : viewCount;
-    final resolvedLikesCount = likes > 0 ? likes : likeCount;
-    final resolvedCommentsCount = comments > 0 ? comments : commentCount;
-    final resolvedSharesCount = shares > 0 ? shares : shareCount;
-    final resolvedSavesCount = saves > 0 ? saves : saveCount;
+    final resolvedViewsCount = views > 0
+        ? views
+        : (viewCount > 0 ? viewCount : parseCount(viewsLabel));
+    final resolvedLikesCount = likes > 0
+        ? likes
+        : (likeCount > 0 ? likeCount : parseCount(likesLabel));
+    final resolvedCommentsCount = comments > 0
+        ? comments
+        : (commentCount > 0 ? commentCount : parseCount(commentsLabel));
+    final resolvedSharesCount = shares > 0
+        ? shares
+        : (shareCount > 0 ? shareCount : parseCount(sharesLabel));
+    final resolvedSavesCount = saves > 0
+        ? saves
+        : (saveCount > 0 ? saveCount : parseCount(savesLabel));
     final resolvedFilter = ReelHelpers.resolveFilter(
       filterId: filterId,
       beautyOn: beautyOn,
@@ -946,14 +1056,15 @@ class TrendingVideoItem {
             ? List<String>.from((json['merged_clip_paths'] as List).map((e) => e.toString()))
             : parsedClipsDesc.clips);
 
-    if (effectiveMergedClips == null || effectiveMergedClips.isEmpty) {
-      effectiveMergedClips = ReelHelpers.getCachedMergedClips(idStr) ??
-          ReelHelpers.getCachedMergedClips(videoUrlStr);
+    if ((effectiveMergedClips == null || effectiveMergedClips.isEmpty) &&
+        idStr.isNotEmpty) {
+      effectiveMergedClips = ReelHelpers.getCachedMergedClips(idStr);
     }
 
-    if (effectiveMergedClips != null && effectiveMergedClips.length > 1) {
-      if (idStr.isNotEmpty) ReelHelpers.cacheMergedClips(idStr, effectiveMergedClips);
-      if (videoUrlStr != null && videoUrlStr.isNotEmpty) ReelHelpers.cacheMergedClips(videoUrlStr, effectiveMergedClips);
+    if (effectiveMergedClips != null &&
+        effectiveMergedClips.length > 1 &&
+        idStr.isNotEmpty) {
+      ReelHelpers.cacheMergedClips(idStr, effectiveMergedClips);
     }
 
     final filterMeta = ReelHelpers.resolveFilter(
@@ -1000,19 +1111,35 @@ class TrendingVideoItem {
       durationSeconds: _parseInt(json['durationSeconds']),
       views: parsedViews,
       viewCount: parsedViews,
-      viewsLabel: json['viewsLabel']?.toString(),
+      viewsLabel: normalizedCountLabel(json['viewsLabel'], fallbackCount: parsedViews),
       likes: parsedLikes,
       likeCount: parsedLikes,
-      likesLabel: json['likesLabel']?.toString() ?? (json['likesCount'] is String ? json['likesCount'] as String : null),
+      likesLabel: normalizedCountLabel(
+        json['likesLabel'] ??
+            (json['likesCount'] is String ? json['likesCount'] : null),
+        fallbackCount: parsedLikes,
+      ),
       comments: parsedComments,
       commentCount: parsedComments,
-      commentsLabel: json['commentsLabel']?.toString() ?? (json['commentsCount'] is String ? json['commentsCount'] as String : null),
+      commentsLabel: normalizedCountLabel(
+        json['commentsLabel'] ??
+            (json['commentsCount'] is String ? json['commentsCount'] : null),
+        fallbackCount: parsedComments,
+      ),
       shares: parsedShares,
       shareCount: parsedShares,
-      sharesLabel: json['sharesLabel']?.toString() ?? (json['sharesCount'] is String ? json['sharesCount'] as String : null),
+      sharesLabel: normalizedCountLabel(
+        json['sharesLabel'] ??
+            (json['sharesCount'] is String ? json['sharesCount'] : null),
+        fallbackCount: parsedShares,
+      ),
       saves: parsedSaves,
       saveCount: parsedSaves,
-      savesLabel: json['savesLabel']?.toString() ?? (json['savesCount'] is String ? json['savesCount'] as String : null),
+      savesLabel: normalizedCountLabel(
+        json['savesLabel'] ??
+            (json['savesCount'] is String ? json['savesCount'] : null),
+        fallbackCount: parsedSaves,
+      ),
       musicName: (musicMeta?.name != null && musicMeta!.name.isNotEmpty)
           ? musicMeta.name
           : _extractMusicName(json),
@@ -1062,142 +1189,83 @@ class TrendingVideoItem {
   }
 
   static int _extractLikes(Map<String, dynamic> json) {
-    final directKeys = [
-      'likesCount',
-      'likes_count',
-      'likeCount',
-      'like_count',
-      'totalLikes',
-      'total_likes',
-      'likes',
-    ];
-    for (final key in directKeys) {
-      final val = _parseInt(json[key]);
-      if (val != null) return val;
-    }
+    var best = extractCountFromMap(
+      json,
+      countKeys: const [
+        'likesCount',
+        'likes_count',
+        'likeCount',
+        'like_count',
+        'totalLikes',
+        'total_likes',
+        'likes',
+      ],
+      labelKeys: const ['likesLabel'],
+    );
     if (json['hero'] is Map) {
-      final val = _extractLikes(Map<String, dynamic>.from(json['hero'] as Map));
-      if (val > 0) return val;
+      final hero = _extractLikes(Map<String, dynamic>.from(json['hero'] as Map));
+      if (hero > best) best = hero;
     }
-    if (json['_count'] is Map) {
-      final map = Map<String, dynamic>.from(json['_count'] as Map);
-      for (final key in ['likes', 'like', 'likesCount', 'likes_count', 'totalLikes']) {
-        final val = _parseInt(map[key]);
-        if (val != null) return val;
-      }
-    }
-    if (json['count'] is Map) {
-      final map = Map<String, dynamic>.from(json['count'] as Map);
-      for (final key in ['likes', 'like', 'likesCount', 'likes_count', 'totalLikes']) {
-        final val = _parseInt(map[key]);
-        if (val != null) return val;
-      }
-    }
-    return 0;
+    return best;
   }
 
   static int _extractComments(Map<String, dynamic> json) {
-    final directKeys = [
-      'commentsCount',
-      'comments_count',
-      'commentCount',
-      'comment_count',
-      'totalComments',
-      'total_comments',
-      'comments',
-    ];
-    for (final key in directKeys) {
-      final val = _parseInt(json[key]);
-      if (val != null) return val;
-    }
+    var best = extractCountFromMap(
+      json,
+      countKeys: const [
+        'commentsCount',
+        'comments_count',
+        'commentCount',
+        'comment_count',
+        'totalComments',
+        'total_comments',
+        'comments',
+      ],
+      labelKeys: const ['commentsLabel'],
+    );
     if (json['hero'] is Map) {
-      final val = _extractComments(Map<String, dynamic>.from(json['hero'] as Map));
-      if (val > 0) return val;
+      final hero =
+          _extractComments(Map<String, dynamic>.from(json['hero'] as Map));
+      if (hero > best) best = hero;
     }
-    if (json['comments'] is List) {
-      return (json['comments'] as List).length;
-    }
-    if (json['_count'] is Map) {
-      final map = Map<String, dynamic>.from(json['_count'] as Map);
-      for (final key in ['comments', 'comment', 'commentsCount', 'comments_count', 'totalComments']) {
-        final val = _parseInt(map[key]);
-        if (val != null) return val;
-      }
-    }
-    if (json['count'] is Map) {
-      final map = Map<String, dynamic>.from(json['count'] as Map);
-      for (final key in ['comments', 'comment', 'commentsCount', 'comments_count', 'totalComments']) {
-        final val = _parseInt(map[key]);
-        if (val != null) return val;
-      }
-    }
-    return 0;
+    return best;
   }
 
   static int _extractShares(Map<String, dynamic> json) {
-    final directKeys = [
-      'sharesCount',
-      'shares_count',
-      'shareCount',
-      'share_count',
-      'totalShares',
-      'total_shares',
-      'shares',
-    ];
-    for (final key in directKeys) {
-      final val = _parseInt(json[key]);
-      if (val != null) return val;
-    }
-    if (json['_count'] is Map) {
-      final map = Map<String, dynamic>.from(json['_count'] as Map);
-      for (final key in ['shares', 'share', 'sharesCount', 'shares_count', 'totalShares']) {
-        final val = _parseInt(map[key]);
-        if (val != null) return val;
-      }
-    }
-    if (json['count'] is Map) {
-      final map = Map<String, dynamic>.from(json['count'] as Map);
-      for (final key in ['shares', 'share', 'sharesCount', 'shares_count', 'totalShares']) {
-        final val = _parseInt(map[key]);
-        if (val != null) return val;
-      }
-    }
-    return 0;
+    return extractCountFromMap(
+      json,
+      countKeys: const [
+        'sharesCount',
+        'shares_count',
+        'shareCount',
+        'share_count',
+        'totalShares',
+        'total_shares',
+        'shares',
+      ],
+      labelKeys: const ['sharesLabel'],
+    );
   }
 
   static int _extractSaves(Map<String, dynamic> json) {
-    final directKeys = [
-      'savesCount',
-      'saves_count',
-      'saveCount',
-      'save_count',
-      'totalSaves',
-      'total_saves',
-      'saves',
-    ];
-    for (final key in directKeys) {
-      final val = _parseInt(json[key]);
-      if (val != null) return val;
-    }
+    var best = extractCountFromMap(
+      json,
+      countKeys: const [
+        'savesCount',
+        'saves_count',
+        'saveCount',
+        'save_count',
+        'totalSaves',
+        'total_saves',
+        'saves',
+      ],
+      labelKeys: const ['savesLabel'],
+    );
     if (json['hero'] is Map) {
-      final val = _extractSaves(Map<String, dynamic>.from(json['hero'] as Map));
-      if (val > 0) return val;
+      final hero = _extractSaves(Map<String, dynamic>.from(json['hero'] as Map));
+      if (hero > best) best = hero;
     }
-    if (json['_count'] is Map) {
-      final map = Map<String, dynamic>.from(json['_count'] as Map);
-      for (final key in ['saves', 'save', 'savesCount', 'saves_count', 'totalSaves', 'saveCount']) {
-        final val = _parseInt(map[key]);
-        if (val != null) return val;
-      }
-    }
-    if (json['count'] is Map) {
-      final map = Map<String, dynamic>.from(json['count'] as Map);
-      for (final key in ['saves', 'save', 'savesCount', 'saves_count', 'totalSaves', 'saveCount']) {
-        final val = _parseInt(map[key]);
-        if (val != null) return val;
-      }
-    }
-    return 0;
+    return best;
   }
 
   static TrendingVideoCategory? _parseCategory(Map<String, dynamic> json) {
@@ -1224,20 +1292,24 @@ class TrendingVideoItem {
   }
 
   static int _extractViews(Map<String, dynamic> json) {
-    final directKeys = ['views', 'viewCount', 'viewsCount', 'totalViews'];
-    for (final key in directKeys) {
-      final val = _parseInt(json[key]);
-      if (val != null) return val;
+    var best = extractCountFromMap(
+      json,
+      countKeys: const [
+        'viewsCount',
+        'views_count',
+        'viewCount',
+        'view_count',
+        'totalViews',
+        'total_views',
+        'views',
+      ],
+      labelKeys: const ['viewsLabel'],
+    );
+    if (json['hero'] is Map) {
+      final hero = _extractViews(Map<String, dynamic>.from(json['hero'] as Map));
+      if (hero > best) best = hero;
     }
-    if (json['_count'] is Map) {
-      final val = _parseInt(json['_count']['views']);
-      if (val != null) return val;
-    }
-    if (json['count'] is Map) {
-      final val = _parseInt(json['count']['views']);
-      if (val != null) return val;
-    }
-    return 0;
+    return best;
   }
 
   static String? _extractMusicName(Map<String, dynamic> json) {
@@ -1283,10 +1355,20 @@ class TrendingVideoItem {
 
   static int? _parseInt(dynamic value) {
     if (value == null) return null;
-    if (value is int) return value;
+    if (value is List || value is Map) return null;
+    // Prefer parseCount so "1.2K" / doubles are not dropped as null.
+    final n = parseCount(value);
+    if (value is String) {
+      final trimmed = value.trim();
+      if (trimmed.isEmpty ||
+          trimmed.toLowerCase() == 'null' ||
+          trimmed.toLowerCase() == 'undefined') {
+        return null;
+      }
+      return n;
+    }
     if (value is num) return value.toInt();
-    if (value is String) return int.tryParse(value);
-    return null;
+    return n;
   }
 
   static double? _parseDouble(dynamic value) {
@@ -1309,12 +1391,24 @@ class TrendingVideoItem {
         'durationSeconds': durationSeconds,
         'views': views,
         'viewCount': viewCount,
+        'viewsCount': viewCount,
         'viewsLabel': viewsLabel,
         'likes': likes,
         'likeCount': likeCount,
+        'likesCount': likeCount,
         'likesLabel': likesLabel,
+        'comments': comments,
+        'commentCount': commentCount,
+        'commentsCount': commentCount,
+        'commentsLabel': commentsLabel,
         'shares': shares,
         'shareCount': shareCount,
+        'sharesCount': shareCount,
+        'sharesLabel': sharesLabel,
+        'saves': saves,
+        'saveCount': saveCount,
+        'savesCount': saveCount,
+        'savesLabel': savesLabel,
         'averageRating': averageRating,
         'talentScore': talentScore,
         'talentScoreLabel': talentScoreLabel,

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -8,9 +10,11 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_gradients.dart';
 import 'package:artable_app/app/theme/app_text_styles.dart';
+import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/core/utils/formatters.dart';
 import 'package:artable_app/core/widgets/app_back_header.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
+import 'package:artable_app/features/referral/data/models/referral_models.dart';
 import 'package:artable_app/features/referral/presentation/bloc/referral_cubit.dart';
 import 'package:artable_app/features/referral/presentation/bloc/referral_state.dart';
 
@@ -29,7 +33,7 @@ class _InviteFriendsScreenState extends State<InviteFriendsScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      context.read<ReferralCubit>().loadInvite();
+      context.read<ReferralCubit>().loadInvite(forceRefresh: true);
     });
   }
 
@@ -49,7 +53,9 @@ class _InviteFriendsScreenState extends State<InviteFriendsScreen> {
 
   String _inviteShareText(ReferralState state) {
     final code = state.invite?.code.trim() ?? '';
-    final link = state.invite?.inviteLink.trim() ?? '';
+    final link = state.invite?.inviteLink.trim().isNotEmpty == true
+        ? state.invite!.inviteLink.trim()
+        : (code.isNotEmpty ? ReferralInviteData.buildInviteLink(code) : '');
     final shareMessage = state.invite?.shareMessage.trim() ?? '';
     if (shareMessage.isNotEmpty) return shareMessage;
     final buffer = StringBuffer('Join me on Artable!');
@@ -63,6 +69,17 @@ class _InviteFriendsScreenState extends State<InviteFriendsScreen> {
   }
 
   Future<void> _onShareOptionTap(String label, ReferralState state) async {
+    final code = state.invite?.code.trim() ?? '';
+    if (code.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Referral code is still loading. Please try again.'),
+        ),
+      );
+      unawaited(context.read<ReferralCubit>().loadInvite(forceRefresh: true));
+      return;
+    }
+
     final text = _inviteShareText(state);
     const title = 'Join me on Artable!';
     final optionId = switch (label.toLowerCase()) {
@@ -134,299 +151,356 @@ class _InviteFriendsScreenState extends State<InviteFriendsScreen> {
             child: BlocBuilder<ReferralCubit, ReferralState>(
               builder: (context, state) {
                 final code = state.invite?.code ?? '';
+                final error = state.inviteError?.trim();
                 return SingleChildScrollView(
-              child: AppContent(
-                noBottomPad: true,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                  const SizedBox(height: 12),
-                  // Top Referral Code Card
-                  Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          Color(0xFF2E2250),
-                          Color(0xFF4C307A),
-                          Color(0xFF6F32CD),
-                        ],
-                        stops: [0.0, 0.55, 1.0],
-                      ),
-                      borderRadius: BorderRadius.circular(22),
-                      boxShadow: [
-                        BoxShadow(
-                          color: const Color(0xFF6F32CD).withValues(alpha: 0.18),
-                          blurRadius: 16,
-                          offset: const Offset(0, 6),
-                        ),
-                      ],
-                    ),
+                  child: AppContent(
+                    noBottomPad: true,
                     child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        const Text(
-                          'YOUR REFERRAL CODE',
-                          style: TextStyle(
-                            fontFamily: 'Inter',
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white70,
-                            letterSpacing: 0.8,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        // Dashed Code Container
-                        CustomPaint(
-                          painter: _DashedBorderPainter(
-                            color: Colors.white.withValues(alpha: 0.35),
-                            strokeWidth: 1.2,
-                            dashWidth: 6.0,
-                            dashSpace: 4.0,
-                            borderRadius: 16,
-                          ),
-                          child: Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                            child: state.isInviteLoading && code.isEmpty
-                                ? const SizedBox(
-                                    height: 28,
-                                    child: Center(
-                                      child: SizedBox(
-                                        width: 18,
-                                        height: 18,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                                    ),
-                                  )
-                                : Text(
-                                    code.isNotEmpty ? code : '—',
-                                    textAlign: TextAlign.center,
-                                    style: const TextStyle(
-                                      fontFamily: 'Poppins',
-                                      fontSize: 22,
-                                      fontWeight: FontWeight.w900,
-                                      color: Colors.white,
-                                      letterSpacing: 1.5,
-                                    ),
-                                  ),
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        // Copy Code Button
-                        Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            onTap: code.isEmpty ? null : () => _copyCode(code),
-                            borderRadius: BorderRadius.circular(30),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(30),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withValues(alpha: 0.06),
-                                    blurRadius: 10,
-                                    offset: const Offset(0, 4),
-                                  ),
-                                ],
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    _copied ? Icons.check_circle_rounded : Icons.copy_rounded,
-                                    size: 15,
-                                    color: AppColors.purple,
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    _copied ? 'Copied!' : 'Copy Code',
-                                    style: const TextStyle(
-                                      fontFamily: 'Poppins',
-                                      fontSize: 12.5,
-                                      fontWeight: FontWeight.w800,
-                                      color: AppColors.purple,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(height: 22),
-
-                  // Section: Invite via
-                  const Text(
-                    'Invite via',
-                    style: TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.text,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-
-                  // Share Options Grid
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    children: [
-                      _ShareOptionItem(
-                        icon: Icons.chat_bubble_outline_rounded,
-                        label: 'WhatsApp',
-                        onTap: () => _onShareOptionTap('WhatsApp', state),
-                      ),
-                      _ShareOptionItem(
-                        icon: Icons.sms_outlined,
-                        label: 'SMS',
-                        onTap: () => _onShareOptionTap('SMS', state),
-                      ),
-                      _ShareOptionItem(
-                        icon: Icons.mail_outline_rounded,
-                        label: 'Email',
-                        onTap: () => _onShareOptionTap('Email', state),
-                      ),
-                      _ShareOptionItem(
-                        icon: Icons.share_outlined,
-                        label: 'Social Share',
-                        onTap: () => _onShareOptionTap('Social Share', state),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 20),
-
-                  // Info Note Card: Earn rewards for every friend
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [
-                          Color(0x0F8B3DFF),
-                          Color(0x0DFF8A3D),
-                        ],
-                      ),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: const Color(0x248B3DFF),
-                        width: 1,
-                      ),
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
+                        const SizedBox(height: 12),
                         Container(
-                          width: 32,
-                          height: 32,
+                          padding: const EdgeInsets.all(20),
                           decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: Colors.white,
+                            gradient: const LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                Color(0xFF2E2250),
+                                Color(0xFF4C307A),
+                                Color(0xFF6F32CD),
+                              ],
+                              stops: [0.0, 0.55, 1.0],
+                            ),
+                            borderRadius: BorderRadius.circular(22),
                             boxShadow: [
                               BoxShadow(
-                                color: const Color(0xFF8B3DFF).withValues(alpha: 0.16),
-                                blurRadius: 10,
-                                offset: const Offset(0, 4),
+                                color: const Color(0xFF6F32CD)
+                                    .withValues(alpha: 0.18),
+                                blurRadius: 16,
+                                offset: const Offset(0, 6),
                               ),
                             ],
                           ),
-                          child: const Icon(
-                            Icons.mail_outline_rounded,
-                            size: 15,
-                            color: AppColors.purple,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        const Expanded(
                           child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                'Earn rewards for every friend',
-                                style: TextStyle(
-                                  fontFamily: 'Inter',
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w800,
-                                  color: AppColors.text,
-                                ),
-                              ),
-                              SizedBox(height: 3),
-                              Text(
-                                'You and your friend both get rewarded when they join and complete their first challenge.',
+                              const Text(
+                                'YOUR REFERRAL CODE',
                                 style: TextStyle(
                                   fontFamily: 'Inter',
                                   fontSize: 11,
-                                  fontWeight: FontWeight.w400,
-                                  color: AppColors.textSoft,
-                                  height: 1.4,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white70,
+                                  letterSpacing: 0.8,
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              CustomPaint(
+                                painter: _DashedBorderPainter(
+                                  color: Colors.white.withValues(alpha: 0.35),
+                                  strokeWidth: 1.2,
+                                  dashWidth: 6.0,
+                                  dashSpace: 4.0,
+                                  borderRadius: 16,
+                                ),
+                                child: Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 12,
+                                    horizontal: 16,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                  child: state.isInviteLoading && code.isEmpty
+                                      ? const SizedBox(
+                                          height: 28,
+                                          child: Center(
+                                            child: SizedBox(
+                                              width: 18,
+                                              height: 18,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                color: Colors.white,
+                                              ),
+                                            ),
+                                          ),
+                                        )
+                                      : Text(
+                                          code.isNotEmpty ? code : '—',
+                                          textAlign: TextAlign.center,
+                                          style: const TextStyle(
+                                            fontFamily: 'Poppins',
+                                            fontSize: 22,
+                                            fontWeight: FontWeight.w900,
+                                            color: Colors.white,
+                                            letterSpacing: 1.5,
+                                          ),
+                                        ),
+                                ),
+                              ),
+                              const SizedBox(height: 14),
+                              Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  onTap: code.isEmpty
+                                      ? null
+                                      : () => _copyCode(code),
+                                  borderRadius: BorderRadius.circular(30),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 20,
+                                      vertical: 10,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(30),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black
+                                              .withValues(alpha: 0.06),
+                                          blurRadius: 10,
+                                          offset: const Offset(0, 4),
+                                        ),
+                                      ],
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          _copied
+                                              ? Icons.check_circle_rounded
+                                              : Icons.copy_rounded,
+                                          size: 15,
+                                          color: AppColors.purple,
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          _copied ? 'Copied!' : 'Copy Code',
+                                          style: const TextStyle(
+                                            fontFamily: 'Poppins',
+                                            fontSize: 12.5,
+                                            fontWeight: FontWeight.w800,
+                                            color: AppColors.purple,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
                                 ),
                               ),
                             ],
                           ),
                         ),
-                      ],
-                    ),
-                  ),
 
-                  const SizedBox(height: 24),
-
-                  // Bottom Button: Track My Referrals
-                  Container(
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(28),
-                      boxShadow: [
-                        BoxShadow(
-                          color: const Color(0xFF8B3DFF).withValues(alpha: 0.20),
-                          blurRadius: 14,
-                          offset: const Offset(0, 6),
-                        ),
-                      ],
-                    ),
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: () => context.push('/referral-tracking'),
-                        borderRadius: BorderRadius.circular(28),
-                        child: Container(
-                          height: 52,
-                          decoration: BoxDecoration(
-                            gradient: AppGradients.button,
-                            borderRadius: BorderRadius.circular(28),
+                        if (error != null &&
+                            error.isNotEmpty &&
+                            code.isEmpty) ...[
+                          const SizedBox(height: 14),
+                          Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFF1F0),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: const Color(0xFFFFC9C5),
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Text(
+                                  error,
+                                  style: const TextStyle(
+                                    fontFamily: 'Inter',
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFFB42318),
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+                                Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: TextButton(
+                                    onPressed: state.isInviteLoading
+                                        ? null
+                                        : () => context
+                                            .read<ReferralCubit>()
+                                            .loadInvite(forceRefresh: true),
+                                    child: const Text('Retry'),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                          child: const Center(
-                            child: Text(
-                              'Track My Referrals',
-                              style: TextStyle(
-                                fontFamily: 'Poppins',
-                                fontSize: 15.5,
-                                fontWeight: FontWeight.w800,
-                                color: Colors.white,
+                        ],
+
+                        const SizedBox(height: 22),
+
+                        const Text(
+                          'Invite via',
+                          style: TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.text,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceAround,
+                          children: [
+                            _ShareOptionItem(
+                              icon: Icons.chat_bubble_outline_rounded,
+                              label: 'WhatsApp',
+                              enabled: code.isNotEmpty,
+                              onTap: () =>
+                                  _onShareOptionTap('WhatsApp', state),
+                            ),
+                            _ShareOptionItem(
+                              icon: Icons.sms_outlined,
+                              label: 'SMS',
+                              enabled: code.isNotEmpty,
+                              onTap: () => _onShareOptionTap('SMS', state),
+                            ),
+                            _ShareOptionItem(
+                              icon: Icons.mail_outline_rounded,
+                              label: 'Email',
+                              enabled: code.isNotEmpty,
+                              onTap: () => _onShareOptionTap('Email', state),
+                            ),
+                            _ShareOptionItem(
+                              icon: Icons.share_outlined,
+                              label: 'Social Share',
+                              enabled: code.isNotEmpty,
+                              onTap: () =>
+                                  _onShareOptionTap('Social Share', state),
+                            ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 20),
+
+                        Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [
+                                Color(0x0F8B3DFF),
+                                Color(0x0DFF8A3D),
+                              ],
+                            ),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: const Color(0x248B3DFF),
+                              width: 1,
+                            ),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                width: 32,
+                                height: 32,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: Colors.white,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: const Color(0xFF8B3DFF)
+                                          .withValues(alpha: 0.16),
+                                      blurRadius: 10,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ],
+                                ),
+                                child: const Icon(
+                                  Icons.mail_outline_rounded,
+                                  size: 15,
+                                  color: AppColors.purple,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              const Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Earn rewards for every friend',
+                                      style: TextStyle(
+                                        fontFamily: 'Inter',
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w800,
+                                        color: AppColors.text,
+                                      ),
+                                    ),
+                                    SizedBox(height: 3),
+                                    Text(
+                                      'You and your friend both get rewarded when they join and complete their first challenge.',
+                                      style: TextStyle(
+                                        fontFamily: 'Inter',
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w400,
+                                        color: AppColors.textSoft,
+                                        height: 1.4,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        const SizedBox(height: 24),
+
+                        Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(28),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF8B3DFF)
+                                    .withValues(alpha: 0.20),
+                                blurRadius: 14,
+                                offset: const Offset(0, 6),
+                              ),
+                            ],
+                          ),
+                          child: Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              onTap: () =>
+                                  context.push(AppRoutes.referralTracking),
+                              borderRadius: BorderRadius.circular(28),
+                              child: Container(
+                                height: 52,
+                                decoration: BoxDecoration(
+                                  gradient: AppGradients.button,
+                                  borderRadius: BorderRadius.circular(28),
+                                ),
+                                child: const Center(
+                                  child: Text(
+                                    'Track My Referrals',
+                                    style: TextStyle(
+                                      fontFamily: 'Poppins',
+                                      fontSize: 15.5,
+                                      fontWeight: FontWeight.w800,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ),
                               ),
                             ),
                           ),
                         ),
-                      ),
+
+                        const SizedBox(height: 24),
+                      ],
                     ),
                   ),
-
-                  const SizedBox(height: 24),
-                ],
-              ),
-            ),
-          );
+                );
               },
             ),
           ),
@@ -441,11 +515,13 @@ class _ShareOptionItem extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onTap,
+    this.enabled = true,
   });
 
   final IconData icon;
   final String label;
   final VoidCallback onTap;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
@@ -456,19 +532,22 @@ class _ShareOptionItem extends StatelessWidget {
           Material(
             color: Colors.transparent,
             child: InkWell(
-              onTap: onTap,
+              onTap: enabled ? onTap : null,
               borderRadius: BorderRadius.circular(24),
-              child: Container(
-                width: 46,
-                height: 46,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Color(0xFFF5F2FC),
-                ),
-                child: Icon(
-                  icon,
-                  size: 19,
-                  color: AppColors.purple,
+              child: Opacity(
+                opacity: enabled ? 1 : 0.45,
+                child: Container(
+                  width: 46,
+                  height: 46,
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Color(0xFFF5F2FC),
+                  ),
+                  child: Icon(
+                    icon,
+                    size: 19,
+                    color: AppColors.purple,
+                  ),
                 ),
               ),
             ),
@@ -479,11 +558,11 @@ class _ShareOptionItem extends StatelessWidget {
             textAlign: TextAlign.center,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
+            style: TextStyle(
               fontFamily: 'Inter',
               fontSize: 9.5,
               fontWeight: FontWeight.w700,
-              color: AppColors.textSoft,
+              color: enabled ? AppColors.textSoft : AppColors.textSoft.withValues(alpha: 0.5),
             ),
           ),
         ],
@@ -554,7 +633,7 @@ class _ReferralTrackingScreenState extends State<ReferralTrackingScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      context.read<ReferralCubit>().loadTracking();
+      context.read<ReferralCubit>().loadTracking(forceRefresh: true);
     });
   }
 
@@ -571,6 +650,36 @@ class _ReferralTrackingScreenState extends State<ReferralTrackingScreen> {
                 if (state.isTrackingLoading && state.tracking == null) {
                   return const Center(
                     child: CircularProgressIndicator(color: AppColors.purple),
+                  );
+                }
+
+                final error = state.trackingError?.trim();
+                if (error != null && error.isNotEmpty && state.tracking == null) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            error,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 13,
+                              color: AppColors.textSoft,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          TextButton(
+                            onPressed: () => context
+                                .read<ReferralCubit>()
+                                .loadTracking(forceRefresh: true),
+                            child: const Text('Retry'),
+                          ),
+                        ],
+                      ),
+                    ),
                   );
                 }
 
@@ -622,15 +731,18 @@ class _ReferralTrackingScreenState extends State<ReferralTrackingScreen> {
                           ),
                           title: Text(
                             r.name.isNotEmpty ? r.name : 'Artable user',
-                            style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w700),
+                            style: AppTextStyles.body
+                                .copyWith(fontWeight: FontWeight.w700),
                           ),
                           subtitle: Text(
                             subtitle,
-                            style: AppTextStyles.bodySoft.copyWith(fontSize: 11),
+                            style:
+                                AppTextStyles.bodySoft.copyWith(fontSize: 11),
                           ),
                           trailing: Text(
                             r.amount,
-                            style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w700),
+                            style: AppTextStyles.body
+                                .copyWith(fontWeight: FontWeight.w700),
                           ),
                         );
                       }).toList(),
@@ -645,4 +757,3 @@ class _ReferralTrackingScreenState extends State<ReferralTrackingScreen> {
     );
   }
 }
-

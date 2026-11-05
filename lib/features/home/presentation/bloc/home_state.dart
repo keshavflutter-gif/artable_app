@@ -50,9 +50,16 @@ class HomeState {
           .where((item) => HomeUiMapper.isItemLive(item))
           .map(HomeUiMapper.trendingVideoToUiMap)
           .where((reel) {
-            return HomeUiMapper.isItemLive(reel) &&
-                ((reel['title'] as String).isNotEmpty ||
-                    (reel['imageUrl'] as String).isNotEmpty);
+            if (!HomeUiMapper.isItemLive(reel)) return false;
+            final id = reel['id']?.toString().trim() ?? '';
+            if (id.isEmpty) return false;
+            final title = reel['title']?.toString() ?? '';
+            final image = reel['imageUrl']?.toString() ??
+                reel['thumbnailUrl']?.toString() ??
+                '';
+            final video = reel['videoUrl']?.toString() ?? '';
+            // Keep items that have any usable media/title (thumb may load later).
+            return title.isNotEmpty || image.isNotEmpty || video.isNotEmpty;
           })
           .toList();
     }

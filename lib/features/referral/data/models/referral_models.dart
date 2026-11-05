@@ -48,11 +48,25 @@ class ReferralInviteResponse {
   final ReferralInviteData? data;
 
   factory ReferralInviteResponse.fromJson(Map<String, dynamic> json) {
-    final dataRaw = _asMap(json['data']) ?? json;
+    final dataRaw = json['data'];
+    // Some backends return the code as a bare string under data.
+    if (dataRaw is String && dataRaw.trim().isNotEmpty) {
+      final code = dataRaw.trim();
+      return ReferralInviteResponse(
+        success: json['success'] != false,
+        message: json['message']?.toString(),
+        data: ReferralInviteData(
+          code: code,
+          inviteLink: ReferralInviteData.buildInviteLink(code),
+        ),
+      );
+    }
+    final map = _asMap(dataRaw) ?? json;
     return ReferralInviteResponse(
-      success: json['success'] == true,
+      success: json['success'] != false ||
+          ReferralInviteData.fromJson(map).code.isNotEmpty,
       message: json['message']?.toString(),
-      data: ReferralInviteData.fromJson(dataRaw),
+      data: ReferralInviteData.fromJson(map),
     );
   }
 }
@@ -68,6 +82,8 @@ class ReferralInviteData {
     this.pendingRewards = '—',
   });
 
+  static const String inviteHost = 'https://artable.app';
+
   final String code;
   final String inviteLink;
   final String shareMessage;
@@ -76,30 +92,67 @@ class ReferralInviteData {
   final String rewardsEarned;
   final String pendingRewards;
 
-  factory ReferralInviteData.fromJson(Map<String, dynamic> json) {
-    final nested = _asMap(json['invite']) ?? _asMap(json['referral']) ?? json;
+  static String buildInviteLink(String code) {
+    final clean = code.trim();
+    if (clean.isEmpty) return inviteHost;
+    return '$inviteHost/invite/${Uri.encodeComponent(clean)}';
+  }
+
+  /// Ensures a usable watch/share link even when the API omits inviteLink.
+  ReferralInviteData withFallbackLink() {
+    if (inviteLink.trim().isNotEmpty || code.trim().isEmpty) return this;
     return ReferralInviteData(
-      code: _firstNonEmpty([
-        nested['referralCode'],
-        nested['referral_code'],
-        nested['inviteCode'],
-        nested['invite_code'],
-        nested['code'],
-        json['referralCode'],
-        json['code'],
-      ]),
-      inviteLink: _firstNonEmpty([
-        nested['inviteLink'],
-        nested['invite_link'],
-        nested['shareUrl'],
-        nested['share_url'],
-        nested['link'],
-        json['inviteLink'],
-      ]),
+      code: code,
+      inviteLink: buildInviteLink(code),
+      shareMessage: shareMessage,
+      totalInvites: totalInvites,
+      joinedUsers: joinedUsers,
+      rewardsEarned: rewardsEarned,
+      pendingRewards: pendingRewards,
+    );
+  }
+
+  factory ReferralInviteData.fromJson(Map<String, dynamic> json) {
+    final nested = _asMap(json['invite']) ??
+        _asMap(json['referral']) ??
+        _asMap(json['referralInfo']) ??
+        _asMap(json['referral_info']) ??
+        _asMap(json['user']) ??
+        json;
+    final code = _firstNonEmpty([
+      nested['referralCode'],
+      nested['referral_code'],
+      nested['inviteCode'],
+      nested['invite_code'],
+      nested['myReferralCode'],
+      nested['my_referral_code'],
+      nested['code'],
+      json['referralCode'],
+      json['referral_code'],
+      json['inviteCode'],
+      json['code'],
+    ]);
+    final link = _firstNonEmpty([
+      nested['inviteLink'],
+      nested['invite_link'],
+      nested['shareUrl'],
+      nested['share_url'],
+      nested['shareLink'],
+      nested['share_link'],
+      nested['url'],
+      nested['link'],
+      json['inviteLink'],
+      json['invite_link'],
+      json['shareUrl'],
+    ]);
+    return ReferralInviteData(
+      code: code,
+      inviteLink: link.isNotEmpty ? link : (code.isNotEmpty ? buildInviteLink(code) : ''),
       shareMessage: _firstNonEmpty([
         nested['shareMessage'],
         nested['share_message'],
         nested['caption'],
+        nested['message'],
         json['shareMessage'],
       ]),
       totalInvites: _asInt(nested['totalInvites'] ?? nested['total_invites']),

@@ -47,6 +47,10 @@ class _StudioSuccessScreenState extends State<StudioSuccessScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // Ensure studio preview audio cannot keep running under this screen.
+      try {
+        context.read<StudioCubit>().clearActiveVideoController(dispose: true);
+      } catch (_) {}
       await _loadSubmittedChallenge();
       await VideoInterstitialAd.instance.load();
       if (!mounted) return;
@@ -89,89 +93,98 @@ class _StudioSuccessScreenState extends State<StudioSuccessScreen> {
     if (mounted) setState(() => _loadingChallenge = false);
   }
 
+  void _goHome() {
+    try {
+      context.read<HomeCubit>().loadHomeDashboard(forceRefresh: true);
+    } catch (_) {}
+    try {
+      context.read<TrendingVideosCubit>().loadTrendingVideos(forceRefresh: true);
+    } catch (_) {}
+    context.go(AppRoutes.home);
+  }
+
   @override
   Widget build(BuildContext context) {
     final hasCard = (_challenge['title'] as String? ?? '').trim().isNotEmpty;
 
-    return Scaffold(
-      backgroundColor: AppColors.bg,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(22, 40, 22, 24),
-          child: Column(
-            children: [
-              Container(
-                width: 84,
-                height: 84,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: AppGradients.button,
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFFFF3D77).withValues(alpha: 0.32),
-                      blurRadius: 28,
-                      offset: const Offset(0, 14),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        _goHome();
+      },
+      child: Scaffold(
+        backgroundColor: AppColors.bg,
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(22, 40, 22, 24),
+            child: Column(
+              children: [
+                Container(
+                  width: 84,
+                  height: 84,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: AppGradients.button,
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFFFF3D77).withValues(alpha: 0.32),
+                        blurRadius: 28,
+                        offset: const Offset(0, 14),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(Icons.check, size: 40, color: Colors.white),
+                ),
+                const SizedBox(height: 18),
+                Text(
+                  'Entry Submitted!',
+                  style: AppTextStyles.displayBold21.copyWith(fontWeight: FontWeight.w800),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Your video has been submitted for review.',
+                  style: AppTextStyles.bodyRegular14.copyWith(fontSize: 13),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 22),
+                if (_loadingChallenge && !hasCard)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 24),
+                    child: CircularProgressIndicator(),
+                  )
+                else if (hasCard)
+                  ChallengeSummaryCard(challenge: _challenge),
+                const SizedBox(height: 20),
+                SecondaryOutlineButton(
+                  label: 'Join More Challenges',
+                  height: 50,
+                  onPressed: () => context.push(AppRoutes.categories),
+                ),
+                const SizedBox(height: 12),
+                SecondaryOutlineButton(
+                  label: 'Back to Home',
+                  height: 50,
+                  onPressed: _goHome,
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.info_outline, size: 14, color: AppColors.purple),
+                    const SizedBox(width: 7),
+                    Flexible(
+                      child: Text(
+                        'Your entry will be reviewed before it goes live.',
+                        style: AppTextStyles.hint12.copyWith(fontSize: 11.5),
+                        textAlign: TextAlign.center,
+                      ),
                     ),
                   ],
                 ),
-                child: const Icon(Icons.check, size: 40, color: Colors.white),
-              ),
-              const SizedBox(height: 18),
-              Text(
-                'Entry Submitted!',
-                style: AppTextStyles.displayBold21.copyWith(fontWeight: FontWeight.w800),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Your video has been submitted for review.',
-                style: AppTextStyles.bodyRegular14.copyWith(fontSize: 13),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 22),
-              if (_loadingChallenge && !hasCard)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 24),
-                  child: CircularProgressIndicator(),
-                )
-              else if (hasCard)
-                ChallengeSummaryCard(challenge: _challenge),
-              const SizedBox(height: 20),
-              SecondaryOutlineButton(
-                label: 'Join More Challenges',
-                height: 50,
-                onPressed: () => context.push(AppRoutes.categories),
-              ),
-              const SizedBox(height: 12),
-              SecondaryOutlineButton(
-                label: 'Back to Home',
-                height: 50,
-                onPressed: () {
-                  try {
-                    context.read<HomeCubit>().loadHomeDashboard(forceRefresh: true);
-                  } catch (_) {}
-                  try {
-                    context.read<TrendingVideosCubit>().loadTrendingVideos(forceRefresh: true);
-                  } catch (_) {}
-                  context.go(AppRoutes.home);
-                },
-              ),
-              const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.info_outline, size: 14, color: AppColors.purple),
-                  const SizedBox(width: 7),
-                  Flexible(
-                    child: Text(
-                      'Your entry will be reviewed before it goes live.',
-                      style: AppTextStyles.hint12.copyWith(fontSize: 11.5),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                ],
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

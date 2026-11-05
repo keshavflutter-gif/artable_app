@@ -6,6 +6,8 @@ import 'package:artable_app/app/theme/app_gradients.dart';
 import 'package:artable_app/app/theme/app_text_styles.dart';
 import 'dart:async';
 
+import 'package:artable_app/core/utils/comment_permissions.dart';
+import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
 import 'package:artable_app/features/reels/presentation/bloc/reels_cubit.dart';
 import 'package:artable_app/core/widgets/app_network_image.dart';
 import 'package:artable_app/core/widgets/app_screen_header.dart';
@@ -23,8 +25,15 @@ class CommentsScreen extends StatefulWidget {
 
 class _CommentsScreenState extends State<CommentsScreen> {
   final _inputController = TextEditingController();
+  final _inputFocus = FocusNode();
+  final _scrollController = ScrollController();
   String _sortMode = 'top';
   bool _isSubmitting = false;
+  String? _replyParentId;
+  String? _replyUsername;
+  final Set<String> _expandedReplyParents = <String>{};
+  final Set<String> _loadedReplyParents = <String>{};
+  final Set<String> _loadingReplyParents = <String>{};
 
   @override
   void initState() {
@@ -32,6 +41,7 @@ class _CommentsScreenState extends State<CommentsScreen> {
     ReelBgmPlaybackService.silenceForNavigation();
     StudioMusicPlaybackService.directPause();
     unawaited(StudioMusicPlaybackService.stop());
+    _scrollController.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ReelBgmPlaybackService.silenceForNavigation();
       final reelId = widget.reelId ?? 'r1';
@@ -39,11 +49,23 @@ class _CommentsScreenState extends State<CommentsScreen> {
     });
   }
 
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final pos = _scrollController.position;
+    if (pos.pixels < pos.maxScrollExtent - 240) return;
+    final reelId = widget.reelId ?? 'r1';
+    final cubit = context.read<ReelsCubit>();
+    if (cubit.hasMoreComments(reelId) && !cubit.isLoadingComments(reelId)) {
+      unawaited(cubit.loadMoreComments(reelId));
+    }
+  }
+
   Future<void> _postComment() async {
     final text = _inputController.text.trim();
     if (text.isEmpty || _isSubmitting) return;
 
     final reelId = widget.reelId ?? 'r1';
+    final parentId = _replyParentId;
 
     setState(() {
       _isSubmitting = true;
@@ -52,9 +74,23 @@ class _CommentsScreenState extends State<CommentsScreen> {
     FocusScope.of(context).unfocus();
 
     try {
-      final success = await context.read<ReelsCubit>().addComment(reelId, text);
+      final success = await context.read<ReelsCubit>().addComment(
+            reelId,
+            text,
+            parentCommentId: parentId,
+          );
       if (success) {
         _inputController.clear();
+        if (mounted) {
+          setState(() {
+            if (parentId != null && parentId.trim().isNotEmpty) {
+              _expandedReplyParents.add(parentId.trim());
+              _loadedReplyParents.add(parentId.trim());
+            }
+            _replyParentId = null;
+            _replyUsername = null;
+          });
+        }
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -83,17 +119,139 @@ class _CommentsScreenState extends State<CommentsScreen> {
     }
   }
 
+  void _startReply(Map<String, dynamic> comment) {
+    final id =
+        (comment['id']?.toString() ?? comment['_id']?.toString() ?? '').trim();
+    if (id.isEmpty) return;
+    final username = comment['username']?.toString() ??
+        comment['userName']?.toString() ??
+        'User';
+    setState(() {
+      _replyParentId = id;
+      _replyUsername = username;
+      final mention = '@$username ';
+      if (!_inputController.text.startsWith(mention)) {
+        _inputController.text = mention;
+        _inputController.selection = TextSelection.collapsed(
+          offset: _inputController.text.length,
+        );
+      }
+    });
+    _inputFocus.requestFocus();
+  }
+
+  Future<void> _toggleLike(Map<String, dynamic> comment) async {
+    final id =
+        (comment['id']?.toString() ?? comment['_id']?.toString() ?? '').trim();
+    if (id.isEmpty) return;
+    final reelId = widget.reelId ?? 'r1';
+    final ok = await context.read<ReelsCubit>().toggleCommentLike(
+          videoId: reelId,
+          commentId: id,
+        );
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not update like. Please try again.'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    }
+  }
+
+  int _replyCountOf(Map<String, dynamic> c) {
+    if (c['replyCount'] is int) return c['replyCount'] as int;
+    return int.tryParse(c['replyCount']?.toString() ?? '') ?? 0;
+  }
+
+  Future<void> _toggleReplies(Map<String, dynamic> comment) async {
+    final parentId = _commentId(comment);
+    if (parentId.isEmpty) return;
+
+    if (_expandedReplyParents.contains(parentId)) {
+      setState(() => _expandedReplyParents.remove(parentId));
+      return;
+    }
+
+    if (_loadedReplyParents.contains(parentId)) {
+      setState(() => _expandedReplyParents.add(parentId));
+      return;
+    }
+
+    if (_loadingReplyParents.contains(parentId)) return;
+
+    setState(() => _loadingReplyParents.add(parentId));
+    final reelId = widget.reelId ?? 'r1';
+    final ok = await context.read<ReelsCubit>().fetchCommentReplies(
+          videoId: reelId,
+          parentCommentId: parentId,
+        );
+    if (!mounted) return;
+    setState(() {
+      _loadingReplyParents.remove(parentId);
+      if (ok) {
+        _loadedReplyParents.add(parentId);
+        _expandedReplyParents.add(parentId);
+      }
+    });
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not load replies. Please try again.'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    }
+  }
+
   @override
   void dispose() {
     // Don't re-lock BGM on pop — feed uncover must be able to resume video.
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
     _inputController.dispose();
+    _inputFocus.dispose();
     super.dispose();
   }
 
-  Future<void> _confirmDeleteComment(String commentId) async {
-    final cleanId = commentId.trim();
+  Future<void> _loadMoreReplies(String parentId) async {
+    if (parentId.isEmpty || _loadingReplyParents.contains(parentId)) return;
+    setState(() => _loadingReplyParents.add(parentId));
+    final reelId = widget.reelId ?? 'r1';
+    final ok = await context.read<ReelsCubit>().loadMoreCommentReplies(
+          videoId: reelId,
+          parentCommentId: parentId,
+        );
+    if (!mounted) return;
+    setState(() => _loadingReplyParents.remove(parentId));
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not load more replies. Please try again.'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    }
+  }
+
+  Future<void> _confirmDeleteComment(Map<String, dynamic> comment) async {
+    final cleanId =
+        (comment['id']?.toString() ?? comment['_id']?.toString() ?? '').trim();
     if (cleanId.isEmpty) return;
     final reelId = widget.reelId ?? 'r1';
+    final reels = context.read<ReelsCubit>();
+    if (!reels.canDeleteComment(reelId, comment)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'You can only delete your own comments, or comments on your videos.',
+          ),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
 
     final confirm = await showDialog<bool>(
       context: context,
@@ -229,28 +387,82 @@ class _CommentsScreenState extends State<CommentsScreen> {
     }
   }
 
+  String _commentId(Map<String, dynamic> c) =>
+      (c['id']?.toString() ?? c['_id']?.toString() ?? '').trim();
+
+  String _parentIdOf(Map<String, dynamic> c) =>
+      (c['parentCommentId']?.toString() ??
+              c['parent_comment_id']?.toString() ??
+              '')
+          .trim();
+
+  /// Roots first (sorted), then expanded replies indented underneath.
+  List<({Map<String, dynamic> comment, bool isReply, String? loadMoreParentId})>
+      _threadedComments(
+    List<Map<String, dynamic>> comments, {
+    required bool Function(String parentId) hasMoreReplies,
+  }) {
+    int likesOf(Map<String, dynamic> c) => c['likes'] is int
+        ? c['likes'] as int
+        : (int.tryParse(c['likes']?.toString() ?? '') ?? 0);
+    DateTime dateOf(Map<String, dynamic> c) =>
+        DateTime.tryParse(c['createdAt']?.toString() ?? '') ?? DateTime(1970);
+
+    int compare(Map<String, dynamic> a, Map<String, dynamic> b) {
+      if (_sortMode == 'recent') return dateOf(b).compareTo(dateOf(a));
+      return likesOf(b).compareTo(likesOf(a));
+    }
+
+    final roots = <Map<String, dynamic>>[];
+    final repliesByParent = <String, List<Map<String, dynamic>>>{};
+    for (final c in comments) {
+      final parent = _parentIdOf(c);
+      if (parent.isEmpty) {
+        roots.add(c);
+      } else {
+        repliesByParent.putIfAbsent(parent, () => []).add(c);
+      }
+    }
+    roots.sort(compare);
+    for (final list in repliesByParent.values) {
+      list.sort(compare);
+    }
+
+    final out =
+        <({Map<String, dynamic> comment, bool isReply, String? loadMoreParentId})>[];
+    for (final root in roots) {
+      out.add((comment: root, isReply: false, loadMoreParentId: null));
+      final id = _commentId(root);
+      if (!_expandedReplyParents.contains(id)) continue;
+      final replies = repliesByParent[id] ?? const [];
+      for (final reply in replies) {
+        out.add((comment: reply, isReply: true, loadMoreParentId: null));
+      }
+      if (hasMoreReplies(id)) {
+        out.add((
+          comment: root,
+          isReply: true,
+          loadMoreParentId: id,
+        ));
+      }
+    }
+    return out;
+  }
+
   @override
   Widget build(BuildContext context) {
     final reelId = widget.reelId ?? 'r1';
     final reelsProvider = context.watch<ReelsCubit>();
     final comments = reelsProvider.getComments(reelId);
+    final threaded = _threadedComments(
+      comments,
+      hasMoreReplies: reelsProvider.hasMoreReplies,
+    );
+    final totalCount = reelsProvider.getCommentsCount(reelId);
     final countLabel =
-        '${comments.length} comment${comments.length == 1 ? '' : 's'}';
-
-    final List<Map<String, dynamic>> displayedComments = List.from(comments);
-    if (_sortMode == 'recent') {
-      displayedComments.sort((a, b) {
-        final aDate = DateTime.tryParse(a['createdAt']?.toString() ?? '') ?? DateTime(1970);
-        final bDate = DateTime.tryParse(b['createdAt']?.toString() ?? '') ?? DateTime(1970);
-        return bDate.compareTo(aDate);
-      });
-    } else if (_sortMode == 'top') {
-      displayedComments.sort((a, b) {
-        final aLikes = a['likes'] is int ? a['likes'] as int : (int.tryParse(a['likes']?.toString() ?? '') ?? 0);
-        final bLikes = b['likes'] is int ? b['likes'] as int : (int.tryParse(b['likes']?.toString() ?? '') ?? 0);
-        return bLikes.compareTo(aLikes);
-      });
-    }
+        '$totalCount comment${totalCount == 1 ? '' : 's'}';
+    final hasMore = reelsProvider.hasMoreComments(reelId);
+    final loadingMore = reelsProvider.isLoadingComments(reelId);
 
     return Scaffold(
       backgroundColor: AppColors.bg,
@@ -281,7 +493,7 @@ class _CommentsScreenState extends State<CommentsScreen> {
               ),
             ),
             Expanded(
-              child: displayedComments.isEmpty
+              child: threaded.isEmpty
                   ? Center(
                       child: Text(
                         'No comments yet. Be the first to comment.',
@@ -290,20 +502,181 @@ class _CommentsScreenState extends State<CommentsScreen> {
                       ),
                     )
                   : ListView.builder(
+                      controller: _scrollController,
                       padding: const EdgeInsets.fromLTRB(22, 6, 22, 12),
-                      itemCount: displayedComments.length,
+                      itemCount: threaded.length + ((hasMore || loadingMore) ? 1 : 0),
                       itemBuilder: (context, i) {
-                        final item = displayedComments[i];
-                        final cId = item['id']?.toString() ?? item['_id']?.toString() ?? '';
-                        return _CommentItem(
-                          comment: item,
-                          liked: false,
-                          onLike: () {},
-                          onDelete: cId.isNotEmpty ? () => _confirmDeleteComment(cId) : null,
+                        if (i >= threaded.length) {
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            child: Center(
+                              child: loadingMore
+                                  ? const SizedBox(
+                                      width: 22,
+                                      height: 22,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : TextButton(
+                                      onPressed: () => context
+                                          .read<ReelsCubit>()
+                                          .loadMoreComments(reelId),
+                                      child: Text(
+                                        'Load more comments',
+                                        style: AppTextStyles.hint12.copyWith(
+                                          fontWeight: FontWeight.w700,
+                                          color: AppColors.purple,
+                                        ),
+                                      ),
+                                    ),
+                            ),
+                          );
+                        }
+                        final entry = threaded[i];
+                        final loadMoreParentId = entry.loadMoreParentId;
+                        if (loadMoreParentId != null) {
+                          final loading =
+                              _loadingReplyParents.contains(loadMoreParentId) ||
+                                  reelsProvider
+                                      .isLoadingReplies(loadMoreParentId);
+                          return Padding(
+                            padding: const EdgeInsets.only(left: 28, bottom: 10),
+                            child: GestureDetector(
+                              onTap: loading
+                                  ? null
+                                  : () => unawaited(
+                                        _loadMoreReplies(loadMoreParentId),
+                                      ),
+                              child: Row(
+                                children: [
+                                  if (loading)
+                                    const SizedBox(
+                                      width: 12,
+                                      height: 12,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 1.6,
+                                      ),
+                                    )
+                                  else
+                                    Icon(
+                                      Icons.expand_more_rounded,
+                                      size: 16,
+                                      color: AppColors.purple
+                                          .withValues(alpha: 0.85),
+                                    ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'Load more replies',
+                                    style: AppTextStyles.hint12.copyWith(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.purple,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }
+                        final item = entry.comment;
+                        final cId = _commentId(item);
+                        final auth = context.read<AuthCubit>();
+                        final currentUserId = (auth.userId ??
+                                auth.state.userId ??
+                                auth.state.currentUser['id']?.toString())
+                            ?.trim();
+                        final canDelete = cId.isNotEmpty &&
+                            CommentPermissions.canDeleteComment(
+                              currentUserId: currentUserId,
+                              comment: item,
+                              video: reelsProvider.getVideo(reelId),
+                            );
+                        final replyCount = _replyCountOf(item);
+                        final hasLoadedReplies =
+                            _loadedReplyParents.contains(cId);
+                        final isExpanded =
+                            _expandedReplyParents.contains(cId);
+                        final isLoadingReplies =
+                            _loadingReplyParents.contains(cId);
+                        // Probe once when replyCount is unknown; hide after empty load.
+                        final showViewReplies = !entry.isReply &&
+                            cId.isNotEmpty &&
+                            (isLoadingReplies ||
+                                isExpanded ||
+                                replyCount > 0 ||
+                                !hasLoadedReplies);
+                        final repliesLabel = !showViewReplies
+                            ? null
+                            : (isExpanded
+                                ? 'Hide replies'
+                                : (replyCount > 0
+                                    ? 'View $replyCount ${replyCount == 1 ? 'reply' : 'replies'}'
+                                    : 'View replies'));
+                        return Padding(
+                          padding: EdgeInsets.only(left: entry.isReply ? 28 : 0),
+                          child: _CommentItem(
+                            comment: item,
+                            liked: item['liked'] == true,
+                            onLike: () => _toggleLike(item),
+                            onReply: () => _startReply(
+                              entry.isReply
+                                  ? comments.firstWhere(
+                                      (c) =>
+                                          _commentId(c) == _parentIdOf(item),
+                                      orElse: () => item,
+                                    )
+                                  : item,
+                            ),
+                            onDelete: canDelete
+                                ? () => _confirmDeleteComment(item)
+                                : null,
+                            repliesLabel: repliesLabel,
+                            repliesLoading: isLoadingReplies,
+                            onToggleReplies: showViewReplies
+                                ? () => _toggleReplies(item)
+                                : null,
+                          ),
                         );
                       },
                     ),
             ),
+            if (_replyUsername != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(22, 0, 22, 0),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Replying to @$_replyUsername',
+                        style: AppTextStyles.hint12.copyWith(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.purple,
+                        ),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () => setState(() {
+                        _replyParentId = null;
+                        _replyUsername = null;
+                      }),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      child: Text(
+                        'Cancel',
+                        style: AppTextStyles.hint12.copyWith(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             Container(
               padding: EdgeInsets.fromLTRB(
                 16,
@@ -334,10 +707,13 @@ class _CommentsScreenState extends State<CommentsScreen> {
                       ),
                       child: TextField(
                         controller: _inputController,
+                        focusNode: _inputFocus,
                         enabled: !_isSubmitting,
                         decoration: InputDecoration(
                           filled: false,
-                          hintText: 'Add a comment...',
+                          hintText: _replyUsername != null
+                              ? 'Write a reply...'
+                              : 'Add a comment...',
                           hintStyle: AppTextStyles.hint12.copyWith(fontSize: 13),
                           border: InputBorder.none,
                           contentPadding: const EdgeInsets.symmetric(
@@ -436,13 +812,34 @@ class _CommentItem extends StatelessWidget {
     required this.comment,
     required this.liked,
     required this.onLike,
+    required this.onReply,
     this.onDelete,
+    this.repliesLabel,
+    this.repliesLoading = false,
+    this.onToggleReplies,
   });
 
   final Map<String, dynamic> comment;
   final bool liked;
   final VoidCallback onLike;
+  final VoidCallback onReply;
   final VoidCallback? onDelete;
+  final String? repliesLabel;
+  final bool repliesLoading;
+  final VoidCallback? onToggleReplies;
+
+  String _likesLabel(Map<String, dynamic> c) {
+    final raw = c['likes'] ?? c['likeCount'] ?? c['likesCount'];
+    if (raw is int) return raw.toString();
+    final asText = raw?.toString().trim().toLowerCase();
+    if (asText == null ||
+        asText.isEmpty ||
+        asText == 'null' ||
+        asText == 'undefined') {
+      return '0';
+    }
+    return (int.tryParse(asText) ?? 0).toString();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -566,7 +963,7 @@ class _CommentItem extends StatelessWidget {
                             ),
                             const SizedBox(width: 5),
                             Text(
-                              '${comment['likes']}',
+                              _likesLabel(comment),
                               style: TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.w700,
@@ -578,7 +975,7 @@ class _CommentItem extends StatelessWidget {
                       ),
                     ),
                     TextButton(
-                      onPressed: () {},
+                      onPressed: onReply,
                       style: TextButton.styleFrom(
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
                         minimumSize: Size.zero,
@@ -608,6 +1005,37 @@ class _CommentItem extends StatelessWidget {
                     ],
                   ],
                 ),
+                if (repliesLabel != null) ...[
+                  const SizedBox(height: 6),
+                  GestureDetector(
+                    onTap: repliesLoading ? null : onToggleReplies,
+                    child: Row(
+                      children: [
+                        if (repliesLoading)
+                          const SizedBox(
+                            width: 12,
+                            height: 12,
+                            child: CircularProgressIndicator(strokeWidth: 1.6),
+                          )
+                        else
+                          Icon(
+                            Icons.subdirectory_arrow_right_rounded,
+                            size: 14,
+                            color: AppColors.purple.withValues(alpha: 0.85),
+                          ),
+                        const SizedBox(width: 6),
+                        Text(
+                          repliesLabel!,
+                          style: AppTextStyles.hint12.copyWith(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.purple,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ],
             ),
           ),

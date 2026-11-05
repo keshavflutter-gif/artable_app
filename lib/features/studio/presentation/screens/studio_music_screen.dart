@@ -8,6 +8,7 @@ import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_gradients.dart';
 import 'package:artable_app/app/theme/app_text_styles.dart';
 import 'package:artable_app/features/studio/presentation/bloc/studio_cubit.dart';
+import 'package:artable_app/features/studio/data/services/studio_music_playback_service.dart';
 import 'package:artable_app/data/datasources/music_api_service.dart';
 import 'package:artable_app/core/widgets/app_network_image.dart';
 import 'package:artable_app/core/widgets/app_screen_header.dart';
@@ -144,22 +145,37 @@ class _StudioMusicScreenState extends State<StudioMusicScreen>
     try {
       await _audioPlayer?.stop();
     } catch (_) {}
-    if (mounted) {
-      setState(() => _playingTrackId = null);
-      final studio = context.read<StudioCubit>();
-      final isCurrentTrack = studio.selectedTrack?.id == track.id;
-      SongTrimmerSheet.show(
-        context,
-        track: track,
-        initialStart: isCurrentTrack ? studio.musicStartSeconds : 0.0,
-        initialDuration: isCurrentTrack ? studio.musicCropDuration : 30.0,
-        popParentOnApply: true,
-      );
-    }
+    // Stop editor BGM before trimmer preview so old/new tracks don't fight.
+    StudioMusicPlaybackService.directPause();
+    await StudioMusicPlaybackService.stop();
+    if (!mounted) return;
+    setState(() => _playingTrackId = null);
+    final studio = context.read<StudioCubit>();
+    final isCurrentTrack = studio.selectedTrack?.id == track.id;
+    // Apply immediately so music sticks even if the trimmer is dismissed.
+    // Always re-apply when switching tracks so service invalidates cleanly.
+    studio.setSelectedTrack(
+      track,
+      start: isCurrentTrack ? studio.musicStartSeconds : 0.0,
+      duration: isCurrentTrack
+          ? studio.musicCropDuration
+          : studio.playbackDurationSeconds,
+    );
+    SongTrimmerSheet.show(
+      context,
+      track: track,
+      initialStart: isCurrentTrack ? studio.musicStartSeconds : 0.0,
+      initialDuration: isCurrentTrack
+          ? studio.musicCropDuration
+          : studio.playbackDurationSeconds,
+      popParentOnApply: true,
+    );
   }
 
   Future<void> _togglePlayTrack(FreeToUseTrack track) async {
     final player = _audioPlayer ??= AudioPlayer();
+    // Keep editor BGM out of the way while previewing list tracks.
+    StudioMusicPlaybackService.directPause();
 
     if (_playingTrackId == track.id) {
       try {
@@ -170,25 +186,27 @@ class _StudioMusicScreenState extends State<StudioMusicScreen>
           _playingTrackId = null;
         });
       }
-    } else {
-      if (mounted) {
+      return;
+    }
+
+    final previewId = track.id;
+    if (mounted) {
+      setState(() {
+        _playingTrackId = previewId;
+      });
+    }
+    try {
+      await player.stop();
+      await player.setUrl(track.audioUrl);
+      // User may have tapped another track (or cancelled) while URL was loading.
+      if (!mounted || _playingTrackId != previewId) return;
+      await player.play();
+    } catch (e) {
+      debugPrint('Error playing audio track: $e');
+      if (mounted && _playingTrackId == previewId) {
         setState(() {
-          _playingTrackId = track.id;
+          _playingTrackId = null;
         });
-      }
-      try {
-        await player.stop();
-        await player.setUrl(track.audioUrl);
-        if (mounted && _playingTrackId == track.id) {
-          await player.play();
-        }
-      } catch (e) {
-        debugPrint('Error playing audio track: $e');
-        if (mounted && _playingTrackId == track.id) {
-          setState(() {
-            _playingTrackId = null;
-          });
-        }
       }
     }
   }
@@ -525,6 +543,9 @@ class _StudioMusicScreenState extends State<StudioMusicScreen>
                             await _audioPlayer?.dispose();
                           } catch (_) {}
                           _audioPlayer = null;
+                          // Leave editor free to force-reload the chosen track.
+                          StudioMusicPlaybackService.directPause();
+                          StudioMusicPlaybackService.invalidateLoadedTrack();
                           if (context.mounted) {
                             context.pop();
                           }

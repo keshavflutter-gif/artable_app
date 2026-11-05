@@ -49,12 +49,22 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
     }
   }
 
-  void _refreshLiveData() {
-    // No blocking loader — show profile UI immediately (auth/cache fallback),
-    // then quietly refresh live API data.
-    context.read<ProfileCubit>().loadProfile(forceRefresh: true);
-    context.read<MyVideosCubit>().loadMyVideos(forceRefresh: true);
-    context.read<AuthCubit>().fetchUserDetails();
+  Future<void> _refreshLiveData() async {
+    // Wait for session restore so profile/videos calls are authenticated.
+    final auth = context.read<AuthCubit>();
+    await auth.ensureInitialized();
+    if (!mounted) return;
+
+    // No blocking full-screen loader — refresh APIs in parallel.
+    unawaited(auth.fetchUserDetails());
+    unawaited(context.read<ProfileCubit>().loadProfile(forceRefresh: true));
+    // Explicit ALL tab so Recent Videos is filled without needing "See All".
+    unawaited(
+      context.read<MyVideosCubit>().loadMyVideos(
+            tab: 'ALL',
+            forceRefresh: true,
+          ),
+    );
   }
 
   @override
@@ -761,20 +771,26 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
   // --- 6. Recent Videos Grid ---
   Widget _buildRecentVideosGrid(BuildContext context) {
     final profileState = context.watch<ProfileCubit>();
-    final myLiveVideos = context
-        .watch<MyVideosCubit>()
-        .videos
-        .where((v) => v.isVideoLive && !v.isDraft)
+    final myVideosCubit = context.watch<MyVideosCubit>();
+    final myRecentVideos = myVideosCubit.videos
+        .where((v) => v.isRecentEligible)
+        .toList();
+    final profileRecent = profileState.recentVideos
+        .where((v) => v.isRecentEligible)
         .toList();
     final seenIds = <String>{};
     final videos = <MyVideoItem>[];
-    for (final video in [...myLiveVideos, ...profileState.liveRecentVideos]) {
+    // Prefer My Videos API (same source as See All), then profile recent.
+    for (final video in [...myRecentVideos, ...profileRecent]) {
       if (video.id.isEmpty || seenIds.contains(video.id)) continue;
       seenIds.add(video.id);
       videos.add(video);
     }
 
-    if (profileState.isLoading && videos.isEmpty) {
+    final stillLoading = videos.isEmpty &&
+        (profileState.isLoading || myVideosCubit.isLoading || !myVideosCubit.hasLoaded);
+
+    if (stillLoading) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 40),
         child: Center(
@@ -827,7 +843,8 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
         crossAxisCount: 2,
         crossAxisSpacing: 12,
         mainAxisSpacing: 12,
-        childAspectRatio: 0.54,
+        // Tighter card: less empty gap between stats and View/Share.
+        childAspectRatio: 0.66,
       ),
       itemCount: videos.take(6).length,
       itemBuilder: (context, i) {
@@ -895,7 +912,6 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
     final status = video.status.toLowerCase();
     final title = video.title.isNotEmpty ? video.title : 'Challenge Video';
     final challengeObj = video.challenge;
-    final challengeId = challengeObj?['id']?.toString() ?? '';
     final challengeBanner = (challengeObj?['bannerUrl']?.toString() ??
             challengeObj?['imageUrl']?.toString() ??
             challengeObj?['coverUrl']?.toString() ??
@@ -921,6 +937,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
 
     final views = video.viewsLabel;
     final likes = video.likesLabel;
+    final comments = video.commentsLabel;
     final date = video.dateLabel;
     final rejectReason = video.rejectionReason ?? 'Video did not meet content guidelines.';
 
@@ -980,7 +997,8 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
                         }
                         return;
                       }
-                      final routeId = video.id.isNotEmpty ? video.id : challengeId;
+                      final routeId = video.id.trim();
+                      if (routeId.isEmpty) return;
                       final uiMap = _enrichUiMap(context, video);
                       context.read<ReelsCubit>().syncVideos([uiMap]);
                       context.push('/video-detail?id=$routeId', extra: uiMap);
@@ -1067,35 +1085,37 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
             ),
           ),
 
-          // Card Content
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Title
-                  Text(
-                    title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.text,
-                      height: 1.2,
-                    ),
+          // Card Content — packed (no Spacer) so View sits under title/stats.
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontFamily: 'Poppins',
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.text,
+                    height: 1.2,
                   ),
-                  const SizedBox(height: 5),
+                ),
+                const SizedBox(height: 5),
 
-                  // Stats row (Views, Likes, Date)
-                  Row(
-                    children: [
-                      const Icon(Icons.remove_red_eye_outlined, size: 10.5, color: AppColors.textSoft),
-                      const SizedBox(width: 2.5),
-                      Text(
+                // Stats: views / likes / comments
+                Row(
+                  children: [
+                    const Icon(Icons.remove_red_eye_outlined, size: 10.5, color: AppColors.textSoft),
+                    const SizedBox(width: 2),
+                    Flexible(
+                      child: Text(
                         views,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           fontFamily: 'Inter',
                           fontSize: 9.5,
@@ -1103,11 +1123,15 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
                           color: AppColors.textSoft,
                         ),
                       ),
-                      const SizedBox(width: 6),
-                      const Icon(Icons.favorite_border_rounded, size: 10.5, color: AppColors.textSoft),
-                      const SizedBox(width: 2.5),
-                      Text(
+                    ),
+                    const SizedBox(width: 5),
+                    const Icon(Icons.favorite_border_rounded, size: 10.5, color: AppColors.textSoft),
+                    const SizedBox(width: 2),
+                    Flexible(
+                      child: Text(
                         likes,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           fontFamily: 'Inter',
                           fontSize: 9.5,
@@ -1115,50 +1139,106 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
                           color: AppColors.textSoft,
                         ),
                       ),
-                      const Spacer(),
-                      Text(
-                        date,
+                    ),
+                    const SizedBox(width: 5),
+                    const Icon(Icons.chat_bubble_outline_rounded, size: 10, color: AppColors.textSoft),
+                    const SizedBox(width: 2),
+                    Flexible(
+                      child: Text(
+                        comments,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           fontFamily: 'Inter',
-                          fontSize: 8.5,
-                          fontWeight: FontWeight.w500,
-                          color: AppColors.textFaint,
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textSoft,
                         ),
-                      ),
-                    ],
-                  ),
-
-                  // Rejected warning note
-                  if (status == 'rejected') ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      rejectReason,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 8.5,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFFFF3B30),
-                        height: 1.15,
                       ),
                     ),
                   ],
+                ),
+                if (date.isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    date,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 8.5,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.textFaint,
+                    ),
+                  ),
+                ],
 
-                  const Spacer(),
+                if (status == 'rejected') ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    rejectReason,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 8.5,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFFFF3B30),
+                      height: 1.15,
+                    ),
+                  ),
+                ],
 
-                  // Bottom Action Buttons
-                  if (status == 'draft' || video.canContinueDraft)
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildSmallActionButton(
-                            icon: Icons.edit_outlined,
-                            label: 'Continue',
-                            onTap: () => context.push('/studio-drafts'),
-                          ),
+                const SizedBox(height: 8),
+
+                if (status == 'draft' || video.canContinueDraft)
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildSmallActionButton(
+                          icon: Icons.edit_outlined,
+                          label: 'Continue',
+                          onTap: () => context.push('/studio-drafts'),
                         ),
-                        const SizedBox(width: 4),
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: _buildSmallActionButton(
+                          icon: Icons.share_outlined,
+                          label: 'Share',
+                          onTap: () {
+                            unawaited(VideoShareHelper.precacheVideo(video.videoUrl, videoId: video.id));
+                            context.push(
+                              '${AppRoutes.shareReport}?id=${video.id}',
+                              extra: {
+                                'reelId': video.id,
+                                'videoUrl': video.videoUrl,
+                                'title': video.title,
+                              },
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  )
+                else
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildSmallActionButton(
+                          icon: Icons.remove_red_eye_outlined,
+                          label: 'View',
+                          onTap: () {
+                            final routeId = video.id.trim();
+                            if (routeId.isEmpty) return;
+                            final uiMap = _enrichUiMap(context, video);
+                            context.read<ReelsCubit>().syncVideos([uiMap]);
+                            context.push('/video-detail?id=$routeId', extra: uiMap);
+                          },
+                        ),
+                      ),
+                      if (video.canShare) ...[
+                        const SizedBox(width: 5),
                         Expanded(
                           child: _buildSmallActionButton(
                             icon: Icons.share_outlined,
@@ -1177,47 +1257,9 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
                           ),
                         ),
                       ],
-                    )
-                  else
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildSmallActionButton(
-                            icon: Icons.remove_red_eye_outlined,
-                            label: 'View',
-                            onTap: () {
-                              final routeId = video.id.isNotEmpty ? video.id : challengeId;
-                              final uiMap = _enrichUiMap(context, video);
-                              context.read<ReelsCubit>().syncVideos([uiMap]);
-                              context.push('/video-detail?id=$routeId', extra: uiMap);
-                            },
-                          ),
-                        ),
-                        if (video.canShare) ...[
-                          const SizedBox(width: 5),
-                          Expanded(
-                            child: _buildSmallActionButton(
-                              icon: Icons.share_outlined,
-                              label: 'Share',
-                              onTap: () {
-                                unawaited(VideoShareHelper.precacheVideo(video.videoUrl, videoId: video.id));
-                                context.push(
-                                  '${AppRoutes.shareReport}?id=${video.id}',
-                                  extra: {
-                                    'reelId': video.id,
-                                    'videoUrl': video.videoUrl,
-                                    'title': video.title,
-                                  },
-                                );
-                              },
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-
-                ],
-              ),
+                    ],
+                  ),
+              ],
             ),
           ),
         ],

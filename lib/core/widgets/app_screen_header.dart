@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/app/theme/app_text_styles.dart';
 
 class AppScreenHeader extends StatelessWidget {
@@ -36,7 +37,14 @@ class AppScreenHeader extends StatelessWidget {
         children: [
           if (showBack)
             IconButton(
-              onPressed: onBack ?? () => context.pop(),
+              onPressed: onBack ??
+                  () {
+                    if (context.canPop()) {
+                      context.pop();
+                    } else {
+                      context.go(AppRoutes.home);
+                    }
+                  },
               icon: const Icon(Icons.chevron_left, size: 28),
               style: IconButton.styleFrom(
                 foregroundColor: const Color(0xFF241E38),

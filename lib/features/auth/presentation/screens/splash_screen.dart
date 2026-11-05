@@ -14,7 +14,7 @@ import 'package:artable_app/core/storage/onboarding_storage_service.dart';
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
-  static const _splashDelay = Duration(milliseconds: 1800);
+  static const _splashDelay = Duration(milliseconds: 1200);
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
@@ -50,13 +50,8 @@ class _SplashScreenState extends State<SplashScreen> {
     if (!mounted) return;
 
     if (auth.isLoggedIn) {
-      // Splash → Home: finish loading here, show from Home after the
-      // route settles (showing during go() is dropped by Android).
-      await AppOpenAdService.instance.load().timeout(
-        const Duration(seconds: 8),
-        onTimeout: () {},
-      );
-      if (!mounted) return;
+      // Do not block navigation on AdMob — load() already started in
+      // initState; Home shows the ad when ready via showWhenHomeReady().
       AppOpenAdService.instance.markPendingHomeShow();
       context.go(AppRoutes.home);
     } else if (!onboardingCompleted) {
