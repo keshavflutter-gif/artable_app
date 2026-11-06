@@ -180,7 +180,7 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
     final oldController = _videoController;
     final oldClips = List<VideoPlayerController>.from(_clipControllers);
 
-    _videoController = null;
+      _videoController = null;
     _clipControllers.clear();
 
     if (mounted) {
@@ -198,9 +198,9 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
     // 2. Safely dispose old controllers now that UI is detached
     for (final c in oldClips) {
       try {
-        c.removeListener(_onVideoControllerUpdate);
+      c.removeListener(_onVideoControllerUpdate);
         c.pause();
-        c.dispose();
+      c.dispose();
       } catch (_) {}
     }
 
@@ -344,7 +344,7 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
         await c.setPlaybackSpeed(studio.speedMultiplier);
       } catch (_) {}
       return c;
-    } catch (e) {
+        } catch (e) {
       debugPrint('Error initializing details clip $path: $e');
       return null;
     }
@@ -368,21 +368,21 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
     _clipControllers
       ..clear()
       ..add(first);
-    _currentClipIndex = 0;
+        _currentClipIndex = 0;
     _playlistLoadComplete = _mergedClipPaths.length <= 1;
     first.addListener(_onVideoControllerUpdate);
     try {
       await first.play();
     } catch (_) {}
     if (gen != _playerGen || !mounted) return false;
-    setState(() {
+          setState(() {
       _videoController = first;
-      _isVideoInitialized = true;
+            _isVideoInitialized = true;
       _videoError = false;
-      _playing = true;
+            _playing = true;
       _userPaused = false;
-    });
-    _startPlaybackTimer();
+          });
+          _startPlaybackTimer();
     _startBgmWhenVideoReady(studio, () => first.value.position.inMilliseconds);
 
     if (_mergedClipPaths.length > 1) {
@@ -645,7 +645,7 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
       return;
     }
 
-    final studio = context.read<StudioCubit>();
+      final studio = context.read<StudioCubit>();
     _updateDisplayTimer(studio, posMs);
 
     // Never pause BGM on decoder hiccups — only when the user paused.
@@ -668,7 +668,7 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
       final trimStart = studio.state.videoTrimStartSeconds;
       final trimEnd = studio.state.videoTrimEndSeconds;
 
-      final startMs = (trimStart * 1000).round();
+        final startMs = (trimStart * 1000).round();
       final endMs = (trimEnd != null && trimEnd > trimStart)
           ? (trimEnd * 1000).round()
           : totalDurMs;
@@ -732,10 +732,10 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
       if (!nextController.value.isPlaying) {
         try {
           if (nextController.value.position.inMilliseconds > 80) {
-            await nextController.seekTo(Duration.zero);
+      await nextController.seekTo(Duration.zero);
           }
         } catch (_) {}
-        await nextController.play();
+      await nextController.play();
       }
 
       _currentClipIndex = nextIndex;
@@ -778,9 +778,9 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
 
     for (final c in oldClips) {
       try {
-        c.removeListener(_onVideoControllerUpdate);
-        c.pause();
-        c.dispose();
+      c.removeListener(_onVideoControllerUpdate);
+      c.pause();
+      c.dispose();
       } catch (_) {}
     }
 
@@ -901,7 +901,7 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
       _playing = false;
       _playbackTimer?.cancel();
       try {
-        _videoController?.pause();
+      _videoController?.pause();
       } catch (_) {}
       StudioMusicPlaybackService.directPause();
       await StudioMusicPlaybackService.stop();
@@ -1309,9 +1309,9 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
 
       if (categoryId.isNotEmpty) {
         for (final c in challengesCubit.getChallengesForCategory(categoryId)) {
-          final id = c['id']?.toString() ?? '';
-          final title = c['title']?.toString() ?? '';
-          if (id.isNotEmpty && title.isNotEmpty) challengeMap[id] = title;
+        final id = c['id']?.toString() ?? '';
+        final title = c['title']?.toString() ?? '';
+        if (id.isNotEmpty && title.isNotEmpty) challengeMap[id] = title;
         }
       }
 
@@ -1413,13 +1413,13 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
                             const SizedBox(width: 7),
                             Flexible(
                               child: Text(
-                                music,
+                              music,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 11.5,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppColors.text,
+                              style: const TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.text,
                                 ),
                               ),
                             ),
@@ -1560,9 +1560,9 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
                               ),
                             )
                           : DropdownButtonHideUnderline(
-                              child: DropdownButton<String>(
-                                value: selectedChallengeValue,
-                                isExpanded: true,
+                        child: DropdownButton<String>(
+                          value: selectedChallengeValue,
+                          isExpanded: true,
                                 hint: Text(
                                   challengeItems.isEmpty
                                       ? 'No challenges for this category'
@@ -1572,20 +1572,20 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
                                     color: AppColors.textFaint,
                                   ),
                                 ),
-                                items: challengeItems,
+                          items: challengeItems,
                                 onChanged: challengeItems.isEmpty
                                     ? null
                                     : (v) {
                                         if (v == null) return;
-                                        setState(() => _challengeId = v);
-                                        _syncCategoryFromChallenge();
-                                      },
-                              ),
-                            ),
+                              setState(() => _challengeId = v);
+                              _syncCategoryFromChallenge();
+                          },
+                        ),
+                      ),
                     ),
                     if ((challenge['title'] as String? ?? '').trim().isNotEmpty) ...[
-                      const SizedBox(height: 18),
-                      ChallengeSummaryCard(challenge: challenge),
+                    const SizedBox(height: 18),
+                    ChallengeSummaryCard(challenge: challenge),
                     ],
                     const SizedBox(height: 26),
                     Text(

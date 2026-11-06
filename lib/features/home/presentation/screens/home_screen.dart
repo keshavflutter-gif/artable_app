@@ -22,7 +22,6 @@ import 'package:artable_app/core/widgets/no_internet_dialog.dart';
 import 'package:artable_app/features/home/presentation/bloc/home_state.dart';
 import 'package:artable_app/features/home/data/models/home_ui_mapper.dart';
 import 'package:artable_app/features/home/presentation/widgets/home_banner_ad.dart';
-import 'package:artable_app/core/services/app_open_ad_service.dart';
 import 'package:artable_app/features/referral/presentation/bloc/referral_cubit.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -48,8 +47,6 @@ class _HomeScreenState extends State<HomeScreen> {
       unawaited(
         context.read<TrendingVideosCubit>().loadTrendingVideos(),
       );
-      // Splash → Home: show App Open only after Home is on screen.
-      AppOpenAdService.instance.showWhenHomeReady();
       // Apply invite code if user opened /invite/{code} while logged in.
       unawaited(
         context.read<ReferralCubit>().applyPendingReferralIfAny(),
