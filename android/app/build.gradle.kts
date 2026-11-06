@@ -32,6 +32,21 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            // R8 was stripping WorkManager/Room → crash on open:
+            // "Failed to create an instance of androidx.work.impl.WorkDatabase"
+            isMinifyEnabled = false
+            isShrinkResources = false
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
+        }
+    }
+
+    packaging {
+        jniLibs {
+            // Some OEMs crash if native libs stay compressed inside the APK.
+            useLegacyPackaging = true
         }
     }
 }

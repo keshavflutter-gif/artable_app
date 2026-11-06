@@ -7,6 +7,7 @@
         android:label="artable_app"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
+        android:extractNativeLibs="true"
         android:usesCleartextTraffic="true">
         
         <!-- Default Notification Channel ID & Icon for Firebase Cloud Messaging -->
