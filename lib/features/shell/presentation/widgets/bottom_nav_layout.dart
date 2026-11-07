@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:artable_app/app/theme/app_colors.dart';
@@ -143,10 +142,15 @@ class StudioHeader extends StatelessWidget {
             height: 38,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(11),
-              gradient: AppGradients.button,
-              boxShadow: const [BoxShadow(color: Color(0x66FF3D77), blurRadius: 14, offset: Offset(0, 6))],
+              boxShadow: const [BoxShadow(color: Color(0x66000000), blurRadius: 14, offset: Offset(0, 6))],
             ),
-            child: Center(child: SvgPicture.asset('assets/logo.svg', width: 21, height: 21)),
+            clipBehavior: Clip.antiAlias,
+            child: Image.asset(
+              'assets/logo1.png',
+              width: 38,
+              height: 38,
+              fit: BoxFit.cover,
+            ),
           ),
           const SizedBox(width: 9),
           Column(

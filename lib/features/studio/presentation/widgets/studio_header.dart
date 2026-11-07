@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 import 'package:artable_app/app/theme/app_gradients.dart';
 import 'package:artable_app/app/theme/app_typography.dart';
@@ -55,22 +54,21 @@ class _HeaderLeft extends StatelessWidget {
           width: 36,
           height: 36,
           decoration: BoxDecoration(
-            gradient: AppGradients.button,
             borderRadius: BorderRadius.circular(10),
             boxShadow: const [
               BoxShadow(
-                color: Color(0x66FF3D77),
+                color: Color(0x66000000),
                 blurRadius: 10,
                 offset: Offset(0, 4),
               ),
             ],
           ),
-          child: Center(
-            child: SvgPicture.asset(
-              'assets/logo.svg',
-              width: 20,
-              height: 20,
-            ),
+          clipBehavior: Clip.antiAlias,
+          child: Image.asset(
+            'assets/logo1.png',
+            width: 36,
+            height: 36,
+            fit: BoxFit.cover,
           ),
         ),
         const SizedBox(width: 8),

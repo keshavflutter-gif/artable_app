@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:video_player/video_player.dart';
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_gradients.dart';
 import 'package:artable_app/app/theme/app_typography.dart';
@@ -197,7 +198,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     apiBannerSlides: heroBannerSlides,
                   ),
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(22, 0, 22, 22),
+                    padding: const EdgeInsets.fromLTRB(22, 0, 22, 8),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -209,8 +210,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           viewAllRoute: AppRoutes.trendingVideos,
                           marginTop: 18,
                         ),
-                        _ReelGrid(reels: trendingReels.take(5).toList()),
-                        const SizedBox(height: 26),
+                        _ReelGrid(reels: trendingReels.take(6).toList()),
+                        const SizedBox(height: 12),
                         _MegaPromoScroll(banners: megaPromoBanners),
                       ],
                     ),
@@ -1726,146 +1727,258 @@ class _MegaPromoScroll extends StatelessWidget {
   }
 }
 
-class _DownloadBanner extends StatelessWidget {
+class _DownloadBanner extends StatefulWidget {
   const _DownloadBanner();
+
+  static const String adVideoAsset = 'assets/videos/ad_promo.mp4';
+
+  @override
+  State<_DownloadBanner> createState() => _DownloadBannerState();
+}
+
+class _DownloadBannerState extends State<_DownloadBanner> {
+  VideoPlayerController? _controller;
+  bool _ready = false;
+  bool _failed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_initAdVideo());
+  }
+
+  Future<void> _initAdVideo() async {
+    final controller = VideoPlayerController.asset(
+      _DownloadBanner.adVideoAsset,
+      videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
+    );
+    _controller = controller;
+    controller.addListener(_onVideoTick);
+    try {
+      await controller.initialize();
+      if (!mounted || _controller != controller) {
+        await controller.dispose();
+        return;
+      }
+      await controller.setLooping(true);
+      await controller.setVolume(0);
+      await controller.play();
+      if (!mounted || _controller != controller) return;
+      setState(() {
+        _ready = controller.value.isInitialized;
+        _failed = !controller.value.isInitialized;
+      });
+    } catch (e, st) {
+      debugPrint('Download Ad video failed: $e\n$st');
+      controller.removeListener(_onVideoTick);
+      await controller.dispose();
+      if (_controller == controller) _controller = null;
+      if (mounted) {
+        setState(() {
+          _ready = false;
+          _failed = true;
+        });
+      }
+    }
+  }
+
+  void _onVideoTick() {
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  Future<void> _togglePlay() async {
+    final c = _controller;
+    if (c == null || !_ready) return;
+    if (c.value.isPlaying) {
+      await c.pause();
+    } else {
+      await c.play();
+    }
+  }
+
+  @override
+  void dispose() {
+    final c = _controller;
+    _controller = null;
+    c?.removeListener(_onVideoTick);
+    unawaited(c?.dispose() ?? Future<void>.value());
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
+    final playing = _controller?.value.isPlaying ?? false;
+
     return Container(
-      margin: const EdgeInsets.fromLTRB(22, 26, 22, 28),
-      padding: const EdgeInsets.fromLTRB(22, 22, 22, 24),
+      margin: const EdgeInsets.fromLTRB(22, 10, 22, 20),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
           colors: [Color(0xFF150A30), Color(0xFF1F1049)],
         ),
         borderRadius: BorderRadius.circular(24),
       ),
-      child: Stack(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Positioned(
-            top: 18,
-            right: 18,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-              decoration: BoxDecoration(
-                color: Color(0xFFFFC24D),
-                borderRadius: BorderRadius.circular(7),
-              ),
-              child: Text(
-                'Ad',
-                style: AppTypography.body(
-                  fontSize: 9,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF2A1608),
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            right: 18,
-            bottom: 24,
-            child: Container(
-              width: 62,
-              height: 112,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(14),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x73000000),
-                    blurRadius: 22,
-                    offset: Offset(0, 10),
-                  ),
-                ],
-                border: Border.all(color: Colors.white.withValues(alpha: 0.16), width: 3),
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: const NetworkImageWidget(
-                url: 'https://images.unsplash.com/photo-1518091043644-c1d4457512c6?w=220&h=380&q=80&auto=format&fit=crop',
-              ),
-            ),
-          ),
-          SizedBox(
-            width: MediaQuery.sizeOf(context).width * 0.7,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        gradient: AppGradients.button,
-                        borderRadius: BorderRadius.circular(12),
-                        boxShadow: const [
-                          BoxShadow(
-                            color: Color(0x59FF3D77),
-                            blurRadius: 14,
-                            offset: Offset(0, 6),
-                          ),
-                        ],
-                      ),
-                      child: const Icon(Icons.star, color: Colors.white, size: 22),
-                    ),
-                    const SizedBox(width: 10),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'ARTABLE STUDIO',
-                          style: AppTypography.display(
-                            fontSize: 14.5,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.white,
-                            letterSpacing: 0.2,
-                          ),
-                        ),
-                        Text(
-                          'By Artable Studio Pvt. Ltd.',
-                          style: AppTypography.body(
-                            fontSize: 9.5,
-                            color: Colors.white.withValues(alpha: 0.65),
-                          ),
-                        ),
-                      ],
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x59000000),
+                      blurRadius: 14,
+                      offset: Offset(0, 6),
                     ),
                   ],
                 ),
-                const SizedBox(height: 14),
-                Text(
-                  'PLAY. PARTICIPATE.\nWIN BIG.',
-                  style: AppTypography.display(
-                    fontSize: 19,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFFFFC24D),
-                    height: 1.2,
-                  ),
+                clipBehavior: Clip.antiAlias,
+                child: Image.asset(
+                  'assets/logo1.png',
+                  width: 40,
+                  height: 40,
+                  fit: BoxFit.cover,
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  'Real Talent. Real Rewards.',
-                  style: AppTypography.body(
-                    fontSize: 12.5,
-                    color: Colors.white.withValues(alpha: 0.85),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-                  decoration: BoxDecoration(
-                    gradient: AppGradients.button,
-                    borderRadius: BorderRadius.circular(24),
-                  ),
-                  child: Text(
-                    'DOWNLOAD NOW',
-                    style: AppTypography.display(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.white,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'ARTABLE STUDIO',
+                      style: AppTypography.display(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                        letterSpacing: 0.2,
+                      ),
                     ),
+                    Text(
+                      'By Artable Studio Pvt. Ltd.',
+                      style: AppTypography.body(
+                        fontSize: 9.5,
+                        color: Colors.white.withValues(alpha: 0.65),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFC24D),
+                  borderRadius: BorderRadius.circular(7),
+                ),
+                child: Text(
+                  'Ad',
+                  style: AppTypography.body(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w800,
+                    color: const Color(0xFF2A1608),
                   ),
                 ),
-              ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          GestureDetector(
+            onTap: _togglePlay,
+            child: AspectRatio(
+              aspectRatio: _ready && _controller != null
+                  ? _controller!.value.aspectRatio.clamp(0.75, 2.2)
+                  : 16 / 9,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    if (_ready && _controller != null)
+                      FittedBox(
+                        fit: BoxFit.cover,
+                        child: SizedBox(
+                          width: _controller!.value.size.width,
+                          height: _controller!.value.size.height,
+                          child: VideoPlayer(_controller!),
+                        ),
+                      )
+                    else if (_failed)
+                      const ColoredBox(
+                        color: Color(0xFF2A1A4A),
+                        child: Center(
+                          child: Icon(
+                            Icons.videocam_off_rounded,
+                            color: Colors.white54,
+                            size: 36,
+                          ),
+                        ),
+                      )
+                    else
+                      const ColoredBox(
+                        color: Color(0xFF2A1A4A),
+                        child: Center(
+                          child: SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.2,
+                              color: Colors.white70,
+                            ),
+                          ),
+                        ),
+                      ),
+                    if (_ready && !playing)
+                      Container(
+                        color: Colors.black45,
+                        alignment: Alignment.center,
+                        child: const Icon(
+                          Icons.play_circle_fill_rounded,
+                          color: Colors.white,
+                          size: 52,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'DOWNLOAD & WIN EXCITING PRIZES',
+            style: AppTypography.display(
+              fontSize: 17,
+              fontWeight: FontWeight.w800,
+              color: const Color(0xFFFFC24D),
+              height: 1.2,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Play. Participate. Win big rewards on Artable.',
+            style: AppTypography.body(
+              fontSize: 12.5,
+              color: Colors.white.withValues(alpha: 0.85),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+            decoration: BoxDecoration(
+              gradient: AppGradients.button,
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: Text(
+              'DOWNLOAD NOW',
+              style: AppTypography.display(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w800,
+                color: Colors.white,
+              ),
             ),
           ),
         ],
