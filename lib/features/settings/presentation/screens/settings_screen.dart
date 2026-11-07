@@ -25,7 +25,20 @@ class SettingsScreen extends StatelessWidget {
     final avatarUrl = (currentUser['avatarUrl'] as String?)?.isNotEmpty == true
         ? currentUser['avatarUrl'] as String
         : u['avatarUrl'] as String;
+    final email = (currentUser['email'] ??
+            currentUser['userEmail'] ??
+            currentUser['mail'] ??
+            '')
+        .toString()
+        .trim();
     final emailHandle = handle.replaceAll('@', '');
+    final displayEmail =
+        email.isNotEmpty ? email : '$emailHandle@artable.app';
+    final showPrime = currentUser['prime'] == true ||
+        currentUser['isPrime'] == true ||
+        currentUser['is_prime'] == true ||
+        (currentUser['membership']?.toString().toLowerCase() == 'prime') ||
+        u['prime'] == true;
 
     return AppScreen(
       child: Column(
@@ -42,8 +55,8 @@ class SettingsScreen extends StatelessWidget {
                       avatarUrl: avatarUrl,
                       name: name,
                       handle: handle,
-                      email: '$emailHandle@artable.app',
-                      showPrime: u['prime'] == true,
+                      email: displayEmail,
+                      showPrime: showPrime,
                     ),
                     SettingsGroup(
                       title: 'Account',

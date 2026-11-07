@@ -25,6 +25,8 @@ class ReelsCubit extends Cubit<ReelsState> {
 
   AuthCubit? _authCubit;
   final VideosRepository _videosRepository;
+  /// Session dedupe — one recorded view per video while the app is alive.
+  final Set<String> _recordedViewIds = <String>{};
 
   void updateAuth(AuthCubit authCubit) {
     _authCubit = authCubit;
@@ -235,24 +237,30 @@ class ReelsCubit extends Cubit<ReelsState> {
           changed = true;
         }
         // Prefer the higher engagement totals so sparse API payloads don't wipe UI.
-        void mergeEngagement(String labelKey, String countKey) {
+        void mergeEngagement(String labelKey, String countKey, [String? alt]) {
           final a = TrendingVideoItem.parseCount(
-            existing[countKey] ?? existing[labelKey],
+            existing[countKey] ??
+                (alt != null ? existing[alt] : null) ??
+                existing[labelKey],
           );
-          final b = TrendingVideoItem.parseCount(nv[countKey] ?? nv[labelKey]);
+          final b = TrendingVideoItem.parseCount(
+            nv[countKey] ?? (alt != null ? nv[alt] : null) ?? nv[labelKey],
+          );
           final best = a > b ? a : b;
           final formatted = TrendingVideoItem.formatCount(best);
-          if (existing[countKey] != best || existing[labelKey]?.toString() != formatted) {
+          if (existing[countKey] != best ||
+              existing[labelKey]?.toString() != formatted) {
             existing[countKey] = best;
+            if (alt != null) existing[alt] = best;
             existing[labelKey] = formatted;
             changed = true;
           }
         }
-        mergeEngagement('views', 'viewsCount');
-        mergeEngagement('likes', 'likesCount');
-        mergeEngagement('comments', 'commentsCount');
-        mergeEngagement('shares', 'sharesCount');
-        mergeEngagement('saves', 'savesCount');
+        mergeEngagement('views', 'viewsCount', 'viewCount');
+        mergeEngagement('likes', 'likesCount', 'likeCount');
+        mergeEngagement('comments', 'commentsCount', 'commentCount');
+        mergeEngagement('shares', 'sharesCount', 'shareCount');
+        mergeEngagement('saves', 'savesCount', 'saveCount');
         if (nv.containsKey('saves') || nv.containsKey('savesCount') || nv.containsKey('isSaved')) {
           if (nv.containsKey('isSaved')) {
             existing['isSaved'] = nv['isSaved'];
@@ -674,6 +682,93 @@ class ReelsCubit extends Cubit<ReelsState> {
     }
   }
 
+  /// Record that the user watched [videoId]. Optimistic local +1, then API.
+  /// No-ops if already recorded this session (avoids swipe spam).
+  Future<Map<String, dynamic>> recordView(
+    String videoId, {
+    Map<String, dynamic>? fallbackVideo,
+  }) async {
+    final vId = videoId.trim();
+    if (vId.isEmpty) return {'success': false};
+    if (_recordedViewIds.contains(vId)) {
+      return {'success': true, 'deduped': true};
+    }
+    _recordedViewIds.add(vId);
+
+    final videos = List<Map<String, dynamic>>.from(
+      state.videos.map((v) => Map<String, dynamic>.from(v)),
+    );
+    var idx = videos.indexWhere((v) {
+      final curId = v['id']?.toString() ?? v['_id']?.toString() ?? '';
+      return curId == vId;
+    });
+    if (idx == -1 && fallbackVideo != null) {
+      videos.add(Map<String, dynamic>.from(fallbackVideo));
+      idx = videos.length - 1;
+    }
+    if (idx != -1) {
+      final v = videos[idx];
+      final int currentViews = TrendingVideoItem.parseCount(
+        v['viewsCount'] ?? v['viewCount'] ?? v['views'],
+      );
+      final int newViews = currentViews + 1;
+      v['views'] = TrendingVideoItem.formatCount(newViews);
+      v['viewsCount'] = newViews;
+      v['viewCount'] = newViews;
+      emit(state.copyWith(videos: videos));
+    }
+
+    try {
+      final token = _authCubit?.sessionToken;
+      final refresh = _authCubit?.refreshToken;
+      final res = await _videosRepository.viewVideo(
+        videoId: vId,
+        sessionToken: (token != null && token != 'design_preview') ? token : null,
+        refreshToken:
+            (refresh != null && refresh != 'design_preview') ? refresh : null,
+      );
+      debugPrint('View Video API response: $res');
+
+      final data = res['data'];
+      if (data is Map) {
+        final dataMap = Map<String, dynamic>.from(data);
+        final updatedVideos = List<Map<String, dynamic>>.from(
+          state.videos.map((v) => Map<String, dynamic>.from(v)),
+        );
+        var uIdx = updatedVideos.indexWhere((v) {
+          final curId = v['id']?.toString() ?? v['_id']?.toString() ?? '';
+          return curId == vId || curId == dataMap['id']?.toString();
+        });
+        if (uIdx == -1 && fallbackVideo != null) {
+          updatedVideos.add({...fallbackVideo, ...dataMap, 'id': dataMap['id'] ?? vId});
+          uIdx = updatedVideos.length - 1;
+        }
+        if (uIdx != -1) {
+          final v = updatedVideos[uIdx];
+          final rawV =
+              dataMap['views'] ?? dataMap['viewCount'] ?? dataMap['viewsCount'];
+          if (rawV != null) {
+            final int vCount = TrendingVideoItem.parseCount(rawV);
+            // Never let a stale API zero wipe the optimistic bump.
+            final local = TrendingVideoItem.parseCount(
+              v['viewsCount'] ?? v['viewCount'] ?? v['views'],
+            );
+            final best = vCount > local ? vCount : local;
+            v['views'] = TrendingVideoItem.formatCount(best);
+            v['viewsCount'] = best;
+            v['viewCount'] = best;
+          }
+          emit(state.copyWith(videos: updatedVideos));
+        }
+      }
+      return res;
+    } catch (e) {
+      debugPrint('recordView API error: $e');
+      // Keep optimistic count — backend may not have the route yet.
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
   Future<Map<String, dynamic>> recordShare(
     String videoId, {
     Map<String, dynamic>? fallbackVideo,
@@ -1035,21 +1130,32 @@ class ReelsCubit extends Cubit<ReelsState> {
         final updatedVideos = List<Map<String, dynamic>>.from(
           state.videos.map((v) => Map<String, dynamic>.from(v)),
         );
-        for (final v in updatedVideos) {
+        final videoIdx = updatedVideos.indexWhere((v) {
           final id = v['id']?.toString() ?? v['_id']?.toString() ?? '';
-          if (id == vId) {
-            // Prefer authoritative pagination total on refresh; never shrink on load-more.
-            final prev = v['commentsCount'] is int
-                ? v['commentsCount'] as int
-                : (int.tryParse(v['commentsCount']?.toString() ?? '') ?? 0);
-            final nextTotal = refresh
-                ? totalCount
-                : (totalCount > prev ? totalCount : prev);
-            v['commentsCount'] = nextTotal;
-            v['comments'] = TrendingVideoItem.formatCount(nextTotal);
-            v['commentsLabel'] = TrendingVideoItem.formatCount(nextTotal);
-            break;
-          }
+          return id == vId;
+        });
+        // Prefer the stronger total so a sparse comments API response
+        // (missing/low total) cannot make Full Reel show less than Home.
+        // If the video isn't seeded yet (Video Detail race), create a stub
+        // so getCommentsCount / Home overlay still see the API total.
+        if (videoIdx >= 0) {
+          final v = updatedVideos[videoIdx];
+          final prev = TrendingVideoItem.parseCount(
+            v['commentsCount'] ?? v['commentCount'] ?? v['comments'],
+          );
+          final applied = totalCount > prev ? totalCount : prev;
+          v['commentsCount'] = applied;
+          v['commentCount'] = applied;
+          v['comments'] = TrendingVideoItem.formatCount(applied);
+          v['commentsLabel'] = TrendingVideoItem.formatCount(applied);
+        } else if (totalCount > 0) {
+          updatedVideos.add({
+            'id': vId,
+            'commentsCount': totalCount,
+            'commentCount': totalCount,
+            'comments': TrendingVideoItem.formatCount(totalCount),
+            'commentsLabel': TrendingVideoItem.formatCount(totalCount),
+          });
         }
 
         emit(state.copyWith(
@@ -1198,14 +1304,16 @@ class ReelsCubit extends Cubit<ReelsState> {
     String commentText, {
     String? parentCommentId,
   }) async {
+    final vId = videoId.trim();
     final text = commentText.trim();
-    if (text.isEmpty) return false;
+    if (vId.isEmpty || text.isEmpty) return false;
 
     final name = (_authCubit?.userName.isNotEmpty == true)
         ? _authCubit!.userName
         : 'User';
     final avatar = _authCubit?.avatarUrl ?? '';
     final parentId = parentCommentId?.trim() ?? '';
+    final nowIso = DateTime.now().toUtc().toIso8601String();
 
     final tempCommentId = 'cm_${DateTime.now().millisecondsSinceEpoch}';
     final tempComment = {
@@ -1218,6 +1326,7 @@ class ReelsCubit extends Cubit<ReelsState> {
       'text': text,
       'timeAgo': 'Just now',
       'time': 'Just now',
+      'createdAt': nowIso,
       'likes': 0,
       'liked': false,
       if (parentId.isNotEmpty) 'parentCommentId': parentId,
@@ -1225,7 +1334,7 @@ class ReelsCubit extends Cubit<ReelsState> {
 
     final comments = Map<String, List<Map<String, dynamic>>>.from(state.commentsMap);
     final list = comments.putIfAbsent(
-      videoId,
+      vId,
       () => <Map<String, dynamic>>[],
     );
     list.insert(0, tempComment);
@@ -1246,15 +1355,7 @@ class ReelsCubit extends Cubit<ReelsState> {
     final videos = List<Map<String, dynamic>>.from(
       state.videos.map((v) => Map<String, dynamic>.from(v)),
     );
-    for (final v in videos) {
-      if (v['id'] == videoId) {
-        final current = v['commentsCount'] as int? ?? 0;
-        final newCount = (current + 1).clamp(0, 999999);
-        v['commentsCount'] = newCount;
-        v['comments'] = TrendingVideoItem.formatCount(newCount);
-        break;
-      }
-    }
+    _bumpVideoCommentsCount(videos, vId, delta: 1);
 
     emit(state.copyWith(
       commentsMap: comments,
@@ -1265,79 +1366,168 @@ class ReelsCubit extends Cubit<ReelsState> {
       final token = _authCubit?.sessionToken;
       final refresh = _authCubit?.refreshToken;
       final res = await _videosRepository.createComment(
-        videoId: videoId,
+        videoId: vId,
         text: text,
         parentCommentId: parentId.isNotEmpty ? parentId : null,
         sessionToken: token != 'design_preview' ? token : null,
         refreshToken: refresh != 'design_preview' ? refresh : null,
       );
 
-      if (res['success'] == true && res['data'] is Map) {
-        final data = Map<String, dynamic>.from(res['data'] as Map);
-        final realId = data['id']?.toString() ?? tempCommentId;
-        final realText = data['text']?.toString() ?? text;
-        final createdAtStr = data['createdAt']?.toString();
-        final timeAgoStr = _formatTimeAgo(createdAtStr);
-
-        final userObj = data['user'] is Map ? Map<String, dynamic>.from(data['user'] as Map) : null;
-        final realUserName = userObj?['fullName']?.toString() ??
-            userObj?['username']?.toString() ??
-            name;
-        final realAvatar = userObj?['profilePhotoUrl']?.toString() ??
-            userObj?['avatarUrl']?.toString() ??
-            avatar;
-
-        final updatedComments = Map<String, List<Map<String, dynamic>>>.from(state.commentsMap);
-        final currentList = updatedComments[videoId];
-        if (currentList != null) {
-          // Check for duplicate realId
-          final dupIdx = currentList.indexWhere((c) => c['id'] == realId);
-          if (dupIdx != -1 && realId != tempCommentId) {
-            currentList.removeWhere((c) => c['id'] == tempCommentId);
-          } else {
-            final idx = currentList.indexWhere((c) => c['id'] == tempCommentId);
-            if (idx != -1) {
-              final apiParent = data['parentCommentId']?.toString() ??
-                  data['parent_comment_id']?.toString() ??
-                  parentId;
-              currentList[idx] = {
-                'id': realId,
-                'userId': data['userId']?.toString() ?? userObj?['id']?.toString() ?? '',
-                'videoId': data['videoId']?.toString() ?? videoId,
-                'userName': realUserName,
-                'username': userObj?['username']?.toString() ?? realUserName,
-                'userAvatar': realAvatar,
-                'avatarUrl': realAvatar,
-                'text': realText,
-                'timeAgo': timeAgoStr,
-                'time': timeAgoStr,
-                'createdAt': createdAtStr,
-                'updatedAt': data['updatedAt']?.toString(),
-                'user': userObj,
-                'likes': data['likes'] is int
-                    ? data['likes'] as int
-                    : (data['likeCount'] is int ? data['likeCount'] as int : 0),
-                'liked': data['isLiked'] == true || data['liked'] == true,
-                if (apiParent.trim().isNotEmpty) 'parentCommentId': apiParent.trim(),
-              };
-            }
-          }
-          emit(state.copyWith(commentsMap: updatedComments));
-        }
-        return true;
-      } else {
-        _rollbackTempComment(videoId, tempCommentId);
+      // Explicit failure only — many APIs return success without a Map `data`
+      // (or nest the comment). Treating that as failure caused: temp comment
+      // shows → rollback + error snackbar → works on 2nd try (already on server).
+      if (res['success'] == false) {
+        debugPrint('addComment rejected by API: $res');
+        _rollbackTempComment(vId, tempCommentId);
         return false;
       }
-    } catch (_) {
-      _rollbackTempComment(videoId, tempCommentId);
+
+      final data = _extractCreatedCommentMap(res);
+      try {
+        if (data != null) {
+          final realId = (data['id'] ?? data['_id'])?.toString() ?? tempCommentId;
+          final realText = data['text']?.toString() ??
+              data['content']?.toString() ??
+              text;
+          final createdAtStr = data['createdAt']?.toString() ?? nowIso;
+          final timeAgoStr = _formatTimeAgo(createdAtStr);
+
+          final userObj = data['user'] is Map
+              ? Map<String, dynamic>.from(data['user'] as Map)
+              : null;
+          final realUserName = userObj?['fullName']?.toString() ??
+              userObj?['username']?.toString() ??
+              name;
+          final realAvatar = userObj?['profilePhotoUrl']?.toString() ??
+              userObj?['avatarUrl']?.toString() ??
+              avatar;
+
+          final updatedComments =
+              Map<String, List<Map<String, dynamic>>>.from(state.commentsMap);
+          final currentList = updatedComments[vId];
+          if (currentList != null) {
+            final dupIdx = currentList.indexWhere((c) =>
+                (c['id']?.toString() ?? c['_id']?.toString() ?? '') == realId);
+            if (dupIdx != -1 && realId != tempCommentId) {
+              currentList.removeWhere((c) => c['id'] == tempCommentId);
+            } else {
+              final idx =
+                  currentList.indexWhere((c) => c['id'] == tempCommentId);
+              if (idx != -1) {
+                final apiParent = data['parentCommentId']?.toString() ??
+                    data['parent_comment_id']?.toString() ??
+                    parentId;
+                currentList[idx] = {
+                  'id': realId,
+                  'userId': data['userId']?.toString() ??
+                      userObj?['id']?.toString() ??
+                      '',
+                  'videoId': data['videoId']?.toString() ?? vId,
+                  'userName': realUserName,
+                  'username':
+                      userObj?['username']?.toString() ?? realUserName,
+                  'userAvatar': realAvatar,
+                  'avatarUrl': realAvatar,
+                  'text': realText,
+                  'timeAgo': timeAgoStr,
+                  'time': timeAgoStr,
+                  'createdAt': createdAtStr,
+                  'updatedAt': data['updatedAt']?.toString(),
+                  'user': userObj,
+                  'likes': data['likes'] is int
+                      ? data['likes'] as int
+                      : (data['likeCount'] is int
+                          ? data['likeCount'] as int
+                          : 0),
+                  'liked':
+                      data['isLiked'] == true || data['liked'] == true,
+                  if (apiParent.trim().isNotEmpty)
+                    'parentCommentId': apiParent.trim(),
+                };
+              }
+            }
+            emit(state.copyWith(commentsMap: updatedComments));
+          }
+        } else {
+          debugPrint(
+            'addComment OK without comment map — keeping optimistic row. res=$res',
+          );
+        }
+      } catch (e) {
+        // Server already accepted the comment — never roll back on parse issues.
+        debugPrint('addComment parse/merge warning: $e');
+      }
+      return true;
+    } on ApiException catch (e) {
+      debugPrint('addComment API error: ${e.statusCode} ${e.message}');
+      _rollbackTempComment(vId, tempCommentId);
+      return false;
+    } catch (e) {
+      debugPrint('addComment error: $e');
+      _rollbackTempComment(vId, tempCommentId);
       return false;
     }
   }
 
+  /// Pull the created comment object from varied API envelopes.
+  Map<String, dynamic>? _extractCreatedCommentMap(Map<String, dynamic> res) {
+    final data = res['data'];
+    if (data is Map) {
+      final map = Map<String, dynamic>.from(data);
+      final nested = map['comment'] ?? map['item'] ?? map['result'];
+      if (nested is Map) return Map<String, dynamic>.from(nested);
+      if (map['id'] != null ||
+          map['_id'] != null ||
+          map['text'] != null ||
+          map['content'] != null) {
+        return map;
+      }
+    }
+    if (data is List && data.isNotEmpty && data.first is Map) {
+      return Map<String, dynamic>.from(data.first as Map);
+    }
+    final top = res['comment'];
+    if (top is Map) return Map<String, dynamic>.from(top);
+    return null;
+  }
+
+  /// Bump/create engagement totals so Home can overlay without a manual refresh.
+  void _bumpVideoCommentsCount(
+    List<Map<String, dynamic>> videos,
+    String videoId, {
+    required int delta,
+  }) {
+    final cleanId = videoId.trim();
+    if (cleanId.isEmpty || delta == 0) return;
+    final idx = videos.indexWhere((v) {
+      final id = v['id']?.toString() ?? v['_id']?.toString() ?? '';
+      return id == cleanId;
+    });
+    if (idx < 0) {
+      if (delta <= 0) return;
+      videos.add({
+        'id': cleanId,
+        'commentsCount': delta,
+        'commentCount': delta,
+        'comments': TrendingVideoItem.formatCount(delta),
+      });
+      return;
+    }
+    final v = videos[idx];
+    final current = TrendingVideoItem.parseCount(
+      v['commentsCount'] ?? v['commentCount'] ?? v['comments'],
+    );
+    final newCount = (current + delta).clamp(0, 999999);
+    v['commentsCount'] = newCount;
+    v['commentCount'] = newCount;
+    v['comments'] = TrendingVideoItem.formatCount(newCount);
+  }
+
   void _rollbackTempComment(String videoId, String tempCommentId) {
-    final updatedComments = Map<String, List<Map<String, dynamic>>>.from(state.commentsMap);
-    final currentList = updatedComments[videoId];
+    final vId = videoId.trim();
+    final updatedComments =
+        Map<String, List<Map<String, dynamic>>>.from(state.commentsMap);
+    final currentList = updatedComments[vId];
     if (currentList != null) {
       String? parentId;
       for (final c in currentList) {
@@ -1368,15 +1558,7 @@ class ReelsCubit extends Cubit<ReelsState> {
       final videos = List<Map<String, dynamic>>.from(
         state.videos.map((v) => Map<String, dynamic>.from(v)),
       );
-      for (final v in videos) {
-        if (v['id'] == videoId) {
-          final current = v['commentsCount'] as int? ?? 0;
-          final newCount = (current - 1).clamp(0, 999999);
-          v['commentsCount'] = newCount;
-          v['comments'] = TrendingVideoItem.formatCount(newCount);
-          break;
-        }
-      }
+      _bumpVideoCommentsCount(videos, vId, delta: -1);
 
       emit(state.copyWith(
         commentsMap: updatedComments,
@@ -1607,17 +1789,11 @@ class ReelsCubit extends Cubit<ReelsState> {
       final videos = List<Map<String, dynamic>>.from(
         state.videos.map((v) => Map<String, dynamic>.from(v)),
       );
-      for (final v in videos) {
-        final vId = v['id']?.toString() ?? v['_id']?.toString() ?? '';
-        if (vId == cleanVideoId) {
-          final current = v['commentsCount'] as int? ?? 0;
-          final newCount =
-              (current - (removedCount > 0 ? removedCount : 1)).clamp(0, 999999);
-          v['commentsCount'] = newCount;
-          v['comments'] = TrendingVideoItem.formatCount(newCount);
-          break;
-        }
-      }
+      _bumpVideoCommentsCount(
+        videos,
+        cleanVideoId,
+        delta: -(removedCount > 0 ? removedCount : 1),
+      );
 
       emit(state.copyWith(commentsMap: comments, videos: videos));
       return true;

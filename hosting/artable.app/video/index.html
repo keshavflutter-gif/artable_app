@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Open in Artable</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: system-ui, -apple-system, Segoe UI, sans-serif;
+      background: linear-gradient(160deg, #1a0b2e 0%, #2d1b4e 50%, #15083c 100%);
+      color: #fff;
+      text-align: center;
+      padding: 24px;
+    }
+    .card { max-width: 360px; }
+    h1 { font-size: 22px; margin: 0 0 8px; }
+    p { opacity: 0.85; font-size: 14px; line-height: 1.45; }
+    a.btn {
+      display: inline-block;
+      margin-top: 18px;
+      padding: 14px 28px;
+      border-radius: 28px;
+      background: linear-gradient(90deg, #e01d5c, #9b51e0);
+      color: #fff;
+      text-decoration: none;
+      font-weight: 700;
+      font-size: 15px;
+    }
+  </style>
+  <script>
+    (function () {
+      var parts = location.pathname.split('/').filter(Boolean);
+      // /video/:id
+      var id = parts.length >= 2 && parts[0] === 'video' ? parts[1] : '';
+      var playStore = 'https://play.google.com/store/apps/details?id=com.artable';
+      var appStore = 'https://apps.apple.com/app/idYOUR_IOS_APP_ID';
+      var custom = id ? ('artable://video/' + encodeURIComponent(id)) : 'artable://';
+      var intent = id
+        ? ('intent://video/' + encodeURIComponent(id) +
+           '#Intent;scheme=artable;package=com.artable;S.browser_fallback_url=' +
+           encodeURIComponent(playStore) + ';end')
+        : ('intent://#Intent;scheme=artable;package=com.artable;S.browser_fallback_url=' +
+           encodeURIComponent(playStore) + ';end');
+
+      function isAndroid() { return /Android/i.test(navigator.userAgent); }
+      function isIOS() { return /iPhone|iPad|iPod/i.test(navigator.userAgent); }
+
+      window.__artableOpen = function () {
+        if (isAndroid()) {
+          location.href = intent;
+          setTimeout(function () { location.href = playStore; }, 1800);
+        } else if (isIOS()) {
+          location.href = custom;
+          setTimeout(function () { location.href = appStore; }, 1800);
+        } else {
+          location.href = playStore;
+        }
+      };
+
+      // Auto-try open app on load
+      setTimeout(window.__artableOpen, 300);
+    })();
+  </script>
+</head>
+<body>
+  <div class="card">
+    <h1>Open this video in Artable</h1>
+    <p>If the app is installed it should open automatically. Otherwise tap below to get Artable.</p>
+    <a class="btn" href="javascript:__artableOpen()">Open Artable</a>
+  </div>
+</body>
+</html>

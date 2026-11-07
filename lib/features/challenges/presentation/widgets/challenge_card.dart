@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_gradients.dart';
 import 'package:artable_app/app/theme/app_typography.dart';
@@ -211,8 +212,14 @@ class ChallengeCard extends StatelessWidget {
                   height: 46,
                   fontSize: 13.5,
                   letterSpacing: 0.3,
-                  label: challengeCtaLabel(status),
-                  onTap: () => context.push('/challenge-detail?id=$id'),
+                  label: challengeCtaLabel(
+                    status,
+                    joined: challenge['joined'] == true ||
+                        challenge['hasJoined'] == true,
+                  ),
+                  onTap: () => context.push(
+                    '${AppRoutes.challengeDetail}?id=$id',
+                  ),
                 ),
               ],
             ),

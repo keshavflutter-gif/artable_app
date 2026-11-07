@@ -6,5 +6,10 @@
 	<array>
 		<string>Default</string>
 	</array>
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:artable.app</string>
+		<string>applinks:www.artable.app</string>
+	</array>
 </dict>
 </plist>

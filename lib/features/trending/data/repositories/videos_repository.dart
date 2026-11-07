@@ -77,22 +77,29 @@ class VideosRepository {
         : <String, String>{};
 
     Map<String, dynamic> data = {};
+    Object? primaryError;
     try {
       data = await _apiClient.get(
         path,
         headers: headers.isNotEmpty ? headers : null,
       );
     } catch (e) {
+      primaryError = e;
       debugPrint('[VideosRepository] getTrendingVideos API error for $path: $e');
     }
 
     var res = TrendingVideosResponse.fromJson(data);
+    final empty = res.data == null ||
+        (res.data!.hero == null && res.data!.gridVideos.isEmpty);
 
-    if (res.data == null || (res.data!.hero == null && res.data!.gridVideos.isEmpty)) {
+    if (empty) {
       final altQueryParams = <String, String>{
-        if (cleanTab != null && cleanTab.isNotEmpty) 'tab': cleanTab.toLowerCase(),
-        if (category != null && category.trim().isNotEmpty) 'category': category.trim(),
-        if (categoryId != null && categoryId.trim().isNotEmpty) 'categoryId': categoryId.trim(),
+        if (cleanTab != null && cleanTab.isNotEmpty)
+          'tab': cleanTab.toLowerCase(),
+        if (category != null && category.trim().isNotEmpty)
+          'category': category.trim(),
+        if (categoryId != null && categoryId.trim().isNotEmpty)
+          'categoryId': categoryId.trim(),
         'page': page.toString(),
         'limit': limit.toString(),
       };
@@ -104,10 +111,22 @@ class VideosRepository {
           headers: headers.isNotEmpty ? headers : null,
         );
         final altRes = TrendingVideosResponse.fromJson(altData);
-        if (altRes.data != null && (altRes.data!.hero != null || altRes.data!.gridVideos.isNotEmpty)) {
-          res = altRes;
+        if (altRes.data != null &&
+            (altRes.data!.hero != null ||
+                altRes.data!.gridVideos.isNotEmpty)) {
+          return altRes;
         }
-      } catch (_) {}
+      } catch (e) {
+        debugPrint(
+          '[VideosRepository] getTrendingVideos alt API error for $altPath: $e',
+        );
+      }
+    }
+
+    // Primary request failed and nothing usable — let cubit show Retry.
+    // A successful empty payload stays empty (no false error).
+    if (primaryError != null && empty) {
+      throw primaryError;
     }
 
     return res;
@@ -779,6 +798,47 @@ class VideosRepository {
       '/app/videos/$cleanId/share',
       headers: headers.isNotEmpty ? headers : null,
     );
+  }
+
+  /// POST `/app/videos/:id/view` — record a watch / impression.
+  /// Backend should increment `viewsCount` (once per user/session preferred).
+  Future<Map<String, dynamic>> viewVideo({
+    required String videoId,
+    String? sessionToken,
+    String? refreshToken,
+  }) async {
+    final cleanId = videoId.trim();
+    if (cleanId.isEmpty) {
+      return {'success': false, 'message': 'Invalid video ID'};
+    }
+
+    final effectiveToken = (sessionToken != null && sessionToken.trim().isNotEmpty)
+        ? sessionToken.trim()
+        : await _storageService.getSessionToken();
+    final effectiveRefresh = (refreshToken != null && refreshToken.trim().isNotEmpty)
+        ? refreshToken.trim()
+        : await _storageService.getRefreshToken();
+
+    final headers = (effectiveToken != null &&
+            effectiveToken.isNotEmpty &&
+            effectiveToken != 'design_preview')
+        ? ApiAuthHeaders.authenticated(
+            sessionToken: effectiveToken,
+            refreshToken: (effectiveRefresh != null &&
+                    effectiveRefresh.isNotEmpty &&
+                    effectiveRefresh != 'design_preview')
+                ? effectiveRefresh
+                : null,
+          )
+        : <String, String>{};
+
+    debugPrint('=== VIDEO VIEW REQUEST === POST /app/videos/$cleanId/view');
+    final res = await _apiClient.post(
+      '/app/videos/$cleanId/view',
+      headers: headers.isNotEmpty ? headers : null,
+    );
+    debugPrint('=== VIDEO VIEW RESPONSE === $res');
+    return res;
   }
 
   Future<Map<String, dynamic>> saveVideo({

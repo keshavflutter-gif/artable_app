@@ -191,19 +191,47 @@ abstract final class ReelHelpers {
   }
 
   static Map<String, dynamic>? challengeForReel(Map<String, dynamic> reel) {
-    final cid = reel['challengeId'] as String?;
-    if (cid == null) return null;
-    for (final c in MockData.CHALLENGES) {
-      if (c['id'] == cid) return c;
+    final nested = reel['challenge'];
+    String cid = (reel['challengeId'] ?? reel['challenge_id'])?.toString().trim() ?? '';
+    String title =
+        (reel['challengeTitle'] ?? reel['challenge_title'])?.toString().trim() ??
+            '';
+    if (nested is Map) {
+      if (cid.isEmpty) {
+        cid = (nested['id'] ?? nested['_id'])?.toString().trim() ?? '';
+      }
+      if (title.isEmpty) {
+        title = nested['title']?.toString().trim() ?? '';
+      }
     }
-    return null;
+    if (cid.isEmpty && title.isEmpty) return null;
+    for (final c in MockData.CHALLENGES) {
+      if (c['id']?.toString() == cid) return c;
+    }
+    // Live API challenge ids are real CUIDs — return a map from the reel
+    // itself so Video Detail / feed badges work without MockData.
+    return {
+      'id': cid,
+      'title': title.isNotEmpty ? title : 'Challenge',
+      'challengeId': cid,
+      'challengeTitle': title,
+    };
   }
 
   static Map<String, dynamic>? challengeById(String id) {
+    final clean = id.trim();
+    if (clean.isEmpty) return null;
     for (final c in MockData.CHALLENGES) {
-      if (c['id'] == id) return c;
+      if (c['id']?.toString() == clean) return c;
     }
-    return MockData.CHALLENGES.isNotEmpty ? MockData.CHALLENGES.first : null;
+    // Stub for real API ids so studio chrome doesn't force-unwrap to a wrong mock.
+    return {
+      'id': clean,
+      'title': 'Challenge',
+      'category': 'Dance',
+      'status': 'active',
+      'prize': '',
+    };
   }
 
   static Color categoryTint(String category) {
@@ -535,19 +563,87 @@ abstract final class ReelHelpers {
     }
 
     // Keep the stronger engagement totals when merging list → detail maps.
-    void mergeCount(String labelKey, String countKey) {
-      final a = _parseEngagementCount(out[countKey] ?? out[labelKey]);
-      final b = _parseEngagementCount(fallback[countKey] ?? fallback[labelKey]);
+    void mergeCount(String labelKey, String countKey, [String? altCountKey]) {
+      final a = _parseEngagementCount(
+        out[countKey] ??
+            (altCountKey != null ? out[altCountKey] : null) ??
+            out[labelKey],
+      );
+      final b = _parseEngagementCount(
+        fallback[countKey] ??
+            (altCountKey != null ? fallback[altCountKey] : null) ??
+            fallback[labelKey],
+      );
       final best = a > b ? a : b;
       out[countKey] = best;
+      if (altCountKey != null) out[altCountKey] = best;
       out[labelKey] = _formatEngagementCount(best);
     }
 
-    mergeCount('views', 'viewsCount');
-    mergeCount('likes', 'likesCount');
-    mergeCount('comments', 'commentsCount');
-    mergeCount('shares', 'sharesCount');
-    mergeCount('saves', 'savesCount');
+    mergeCount('views', 'viewsCount', 'viewCount');
+    mergeCount('likes', 'likesCount', 'likeCount');
+    mergeCount('comments', 'commentsCount', 'commentCount');
+    mergeCount('shares', 'sharesCount', 'shareCount');
+    mergeCount('saves', 'savesCount', 'saveCount');
+    return out;
+  }
+
+  /// Overlay live engagement from [live] (e.g. ReelsCubit) onto a list card map.
+  /// Unlike [mergeReelMaps] max-merge, cubit values win so unlike/comment delete
+  /// also update Home / Trending grids after Full Reel.
+  static Map<String, dynamic> withLiveEngagement(
+    Map<String, dynamic> base,
+    Map<String, dynamic>? live,
+  ) {
+    if (live == null || live.isEmpty) {
+      return Map<String, dynamic>.from(base);
+    }
+    final out = Map<String, dynamic>.from(base);
+
+    void takeCount(String labelKey, String countKey, [String? altCountKey]) {
+      final liveRaw = live[countKey] ??
+          (altCountKey != null ? live[altCountKey] : null) ??
+          live[labelKey];
+      if (liveRaw == null) return;
+      final liveN = _parseEngagementCount(liveRaw);
+      final baseN = _parseEngagementCount(
+        out[countKey] ??
+            (altCountKey != null ? out[altCountKey] : null) ??
+            out[labelKey],
+      );
+      // Cubit wins so unlike / comment-delete refresh Home, but never let a
+      // sparse stub (0) erase a positive Home/trending total.
+      if (liveN == 0 && baseN > 0) {
+        final isLikes = countKey == 'likesCount' || countKey == 'likeCount';
+        if (isLikes) {
+          final liveLiked = live['isLiked'] == true || live['liked'] == true;
+          final baseLiked = out['isLiked'] == true || out['liked'] == true;
+          // Only trust a drop to 0 when the user clearly unliked this reel.
+          if (!(baseLiked && !liveLiked)) return;
+        } else {
+          return;
+        }
+      }
+      out[countKey] = liveN;
+      if (altCountKey != null) out[altCountKey] = liveN;
+      out[labelKey] = _formatEngagementCount(liveN);
+    }
+
+    takeCount('views', 'viewsCount', 'viewCount');
+    takeCount('likes', 'likesCount', 'likeCount');
+    takeCount('comments', 'commentsCount', 'commentCount');
+    takeCount('shares', 'sharesCount', 'shareCount');
+    takeCount('saves', 'savesCount', 'saveCount');
+
+    for (final key in [
+      'isLiked',
+      'liked',
+      'hasLiked',
+      'userLiked',
+      'isUserLiked',
+    ]) {
+      if (live.containsKey(key)) out[key] = live[key];
+    }
     return out;
   }
 

@@ -6,6 +6,7 @@ import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
+import 'core/services/deep_link_service.dart';
 import 'core/services/notification_service.dart';
 import 'core/storage/local_storage.dart';
 import 'app/app.dart';
@@ -54,13 +55,20 @@ void main() async {
   // 5. Preload only the faces used on splash / first paint
   await _preloadCriticalFonts();
 
-  // 6. Initialize application
+  // 6. Capture cold-start App Link / custom scheme before first navigation.
+  try {
+    await DeepLinkService.start();
+  } catch (e) {
+    debugPrint('DeepLinkService init warning: $e');
+  }
+
+  // 7. Initialize application
   runApp(const ArtableApp());
 
-  // 7. Background warm-up after first frame (does not block Home)
+  // 8. Background warm-up after first frame (does not block Home)
   unawaited(_warmAfterFirstFrame());
 
-  // 8. Remove native splash once critical fonts are ready
+  // 9. Remove native splash once critical fonts are ready
   FlutterNativeSplash.remove();
 }
 

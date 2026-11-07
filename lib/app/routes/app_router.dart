@@ -1,6 +1,7 @@
 import 'package:go_router/go_router.dart';
 
 import 'package:artable_app/core/auth/auth_gate.dart';
+import 'package:artable_app/core/storage/deep_link_storage.dart';
 import 'package:artable_app/features/auth/presentation/screens/forgot_password_screen.dart';
 import 'package:artable_app/features/auth/presentation/screens/login_screen.dart';
 import 'package:artable_app/features/auth/presentation/screens/onboarding_screen.dart';
@@ -76,6 +77,9 @@ abstract final class AppRouter {
   static bool _isPublicLocation(String loc) {
     if (_publicExact.contains(loc)) return true;
     if (loc.startsWith('/invite/')) return true;
+    // Deep-link paths may hit the router before DeepLinkService rewrites them.
+    if (loc.startsWith('/video/')) return true;
+    if (loc.startsWith('/profile/')) return true;
     return false;
   }
 
@@ -151,6 +155,30 @@ abstract final class AppRouter {
             return code.isEmpty
                 ? AppRoutes.signup
                 : '${AppRoutes.signup}?ref=$encoded';
+          },
+        ),
+        GoRoute(
+          path: AppRoutes.videoShareDeepLink,
+          redirect: (context, state) {
+            final id = state.pathParameters['id']?.trim() ?? '';
+            if (id.isEmpty) return AppRoutes.reelsFeed;
+            if (!AuthGate.instance.isLoggedIn) {
+              DeepLinkStorage.savePendingUri('https://artable.app/video/$id');
+              return AppRoutes.login;
+            }
+            return '${AppRoutes.reelsFeed}?id=${Uri.encodeComponent(id)}';
+          },
+        ),
+        GoRoute(
+          path: AppRoutes.profileShareDeepLink,
+          redirect: (context, state) {
+            final id = state.pathParameters['id']?.trim() ?? '';
+            if (id.isEmpty) return AppRoutes.home;
+            if (!AuthGate.instance.isLoggedIn) {
+              DeepLinkStorage.savePendingUri('https://artable.app/profile/$id');
+              return AppRoutes.login;
+            }
+            return '${AppRoutes.publicProfile}?id=${Uri.encodeComponent(id)}';
           },
         ),
         GoRoute(
@@ -236,7 +264,7 @@ abstract final class AppRouter {
         GoRoute(
           path: AppRoutes.challengeDetail,
           builder: (context, state) {
-            final id = state.uri.queryParameters['id'] ?? 'c1';
+            final id = state.uri.queryParameters['id'] ?? '';
             return ChallengeDetailScreen(challengeId: id);
           },
         ),

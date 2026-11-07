@@ -1169,15 +1169,26 @@ class AuthCubit extends Cubit<AuthState> {
           uploadedProfileUrl = path;
         } else {
           try {
-            debugPrint('=== UPLOADING PROFILE PIC === Path: $path, Folder: profile_pic');
+            debugPrint(
+              '=== UPLOADING PROFILE PIC === Path: $path, Folder: profile_pic',
+            );
             uploadedProfileUrl = await _authRepository.uploadFile(
               path,
               folder: 'profile_pic',
               sessionToken: state.sessionToken,
               refreshToken: state.refreshToken,
             );
+            if (uploadedProfileUrl.trim().isEmpty) {
+              throw Exception('Profile photo upload returned empty URL');
+            }
           } catch (e) {
             debugPrint('Profile pic upload error: $e');
+            emit(state.copyWith(
+              isUpdatingProfile: false,
+              errorMessage:
+                  'Could not upload profile photo. Please try again.',
+            ));
+            return false;
           }
         }
       }
@@ -1189,15 +1200,26 @@ class AuthCubit extends Cubit<AuthState> {
           uploadedCoverUrl = path;
         } else {
           try {
-            debugPrint('=== UPLOADING COVER PIC === Path: $path, Folder: cover_pic');
+            debugPrint(
+              '=== UPLOADING COVER PIC === Path: $path, Folder: cover_pic',
+            );
             uploadedCoverUrl = await _authRepository.uploadFile(
               path,
               folder: 'cover_pic',
               sessionToken: state.sessionToken,
               refreshToken: state.refreshToken,
             );
+            if (uploadedCoverUrl.trim().isEmpty) {
+              throw Exception('Cover photo upload returned empty URL');
+            }
           } catch (e) {
             debugPrint('Cover pic upload error: $e');
+            emit(state.copyWith(
+              isUpdatingProfile: false,
+              errorMessage:
+                  'Could not upload cover photo. Please try again.',
+            ));
+            return false;
           }
         }
       }

@@ -1089,12 +1089,12 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
 
     final ids = list.map((c) => c.id).where((id) => id.isNotEmpty).toList();
     String nextChallengeId = '';
+    // Keep an explicit selection; never auto-force the first challenge so
+    // Home free upload can stay challenge-optional.
     if (keepSelectionIfPossible &&
         Validators.isRealDatabaseId(_challengeId) &&
         ids.contains(_challengeId)) {
       nextChallengeId = _challengeId;
-    } else if (ids.isNotEmpty) {
-      nextChallengeId = ids.first;
     }
 
     if (_challengeId != nextChallengeId || _categoryId != categoryId) {

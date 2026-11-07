@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -38,14 +40,12 @@ class _ChallengesScreenState extends State<ChallengesScreen> {
 
   late int _selectedTab;
   var _hasLoadedOnce = false;
+  Timer? _searchDebounce;
 
   @override
   void initState() {
     super.initState();
-    _selectedTab = _tabKeys.indexWhere(
-      (k) => k.toLowerCase() == widget.initialTab.toLowerCase(),
-    );
-    if (_selectedTab < 0) _selectedTab = 0;
+    _selectedTab = _indexForTab(widget.initialTab);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && widget.isActive) {
@@ -55,41 +55,83 @@ class _ChallengesScreenState extends State<ChallengesScreen> {
   }
 
   @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    super.dispose();
+  }
+
+  int _indexForTab(String tab) {
+    final idx = _tabKeys.indexWhere(
+      (k) => k.toLowerCase() == tab.trim().toLowerCase(),
+    );
+    return idx < 0 ? 0 : idx;
+  }
+
+  bool get _hasCategory =>
+      widget.categoryFilter != null && widget.categoryFilter!.trim().isNotEmpty;
+
+  @override
   void didUpdateWidget(covariant ChallengesScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.isActive && !oldWidget.isActive) {
-      // Reload if never loaded, or last load failed (empty + error).
+
+    final tabChanged =
+        oldWidget.initialTab.trim().toLowerCase() !=
+        widget.initialTab.trim().toLowerCase();
+    final categoryChanged =
+        (oldWidget.categoryFilter ?? '').trim() !=
+        (widget.categoryFilter ?? '').trim();
+    final becameActive = widget.isActive && !oldWidget.isActive;
+
+    if (tabChanged && !_hasCategory) {
+      final next = _indexForTab(widget.initialTab);
+      if (next != _selectedTab) {
+        setState(() => _selectedTab = next);
+      }
+      if (widget.isActive) {
+        _loadCurrentTab(forceRefresh: true);
+      }
+    }
+
+    if (categoryChanged && widget.isActive) {
+      if (_hasCategory) {
+        context
+            .read<ChallengesCubit>()
+            .loadChallengesByCategory(widget.categoryFilter!.trim());
+      } else {
+        // Category cleared (e.g. /challenges?categoryId=x → /challenges).
+        _loadCurrentTab(forceRefresh: true);
+      }
+    }
+
+    if (becameActive) {
       final cubit = context.read<ChallengesCubit>();
       final tabKey = _tabKeys[_selectedTab];
-      final hadError = cubit.getTabChallengesError(tabKey) != null;
+      final hadError = _hasCategory
+          ? cubit.getCategoryChallengesError(widget.categoryFilter!) != null
+          : cubit.getTabChallengesError(tabKey) != null;
+      // First open or failed load — don't spam API on every tab switch.
+      // Join state is patched in ChallengesCubit; pull-to-refresh for full reload.
       if (!_hasLoadedOnce || hadError) {
         _bootstrapLoad();
       }
     }
-    if (oldWidget.categoryFilter != widget.categoryFilter &&
-        widget.categoryFilter != null &&
-        widget.categoryFilter!.isNotEmpty &&
-        widget.isActive) {
-      context
-          .read<ChallengesCubit>()
-          .loadChallengesByCategory(widget.categoryFilter!);
-    }
   }
 
-  void _bootstrapLoad() {
+  void _bootstrapLoad({bool forceRefresh = false}) {
     _hasLoadedOnce = true;
-    if (widget.categoryFilter != null && widget.categoryFilter!.isNotEmpty) {
-      context
-          .read<ChallengesCubit>()
-          .loadChallengesByCategory(widget.categoryFilter!);
+    if (_hasCategory) {
+      context.read<ChallengesCubit>().loadChallengesByCategory(
+            widget.categoryFilter!.trim(),
+            forceRefresh: forceRefresh,
+          );
     } else {
-      _loadCurrentTab();
+      _loadCurrentTab(forceRefresh: forceRefresh);
     }
   }
 
-  void _loadCurrentTab({bool forceRefresh = false}) {
+  Future<void> _loadCurrentTab({bool forceRefresh = false}) {
     final tabKey = _tabKeys[_selectedTab];
-    context.read<ChallengesCubit>().loadTabChallenges(
+    return context.read<ChallengesCubit>().loadTabChallenges(
           tabKey,
           forceRefresh: forceRefresh,
         );
@@ -97,16 +139,43 @@ class _ChallengesScreenState extends State<ChallengesScreen> {
 
   void _onTabSelected(int index) {
     setState(() => _selectedTab = index);
-    final tabKey = _tabKeys[index];
-    context.read<ChallengesCubit>().loadTabChallenges(tabKey);
+    context.read<ChallengesCubit>().loadTabChallenges(_tabKeys[index]);
+  }
+
+  void _onSearchChanged(String value) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 350), () {
+      if (!mounted) return;
+      context.read<ChallengesCubit>().setChallengeQuery(
+            value,
+            tab: _tabKeys[_selectedTab],
+            categoryId: widget.categoryFilter,
+          );
+    });
+  }
+
+  String _emptyCopy({required bool hasError, required String? err}) {
+    if (hasError) return err ?? 'Something went wrong.';
+    if (_hasCategory) {
+      return 'No challenges in this category yet — check back soon.';
+    }
+    switch (_tabKeys[_selectedTab]) {
+      case 'UPCOMING':
+        return 'No upcoming challenges yet — check back soon.';
+      case 'COMPLETED':
+        return 'No completed challenges to show.';
+      case 'FEATURED':
+        return 'No featured challenges right now.';
+      default:
+        return 'No active challenges right now — check back soon.';
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<ChallengesCubit>();
     final currentTab = _tabKeys[_selectedTab];
-    final hasCategory =
-        widget.categoryFilter != null && widget.categoryFilter!.isNotEmpty;
+    final hasCategory = _hasCategory;
     final challenges = hasCategory
         ? provider.getChallengesForCategory(
             widget.categoryFilter!,
@@ -114,7 +183,6 @@ class _ChallengesScreenState extends State<ChallengesScreen> {
           )
         : provider.getChallengesForTab(
             currentTab,
-            categoryId: widget.categoryFilter,
             query: provider.challengeQuery,
           );
     final isLoading = hasCategory
@@ -135,26 +203,18 @@ class _ChallengesScreenState extends State<ChallengesScreen> {
           ),
           SearchBarWidget(
             placeholder: 'Search challenges...',
-            onChanged: (value) => context
-                .read<ChallengesCubit>()
-                .setChallengeQuery(
-                  value,
-                  tab: _tabKeys[_selectedTab],
-                  categoryId: widget.categoryFilter,
-                ),
+            onChanged: _onSearchChanged,
           ),
           Expanded(
             child: RefreshIndicator(
               onRefresh: () async {
                 if (hasCategory) {
-                  await context
-                      .read<ChallengesCubit>()
-                      .loadChallengesByCategory(
+                  await context.read<ChallengesCubit>().loadChallengesByCategory(
                         widget.categoryFilter!,
                         forceRefresh: true,
                       );
                 } else {
-                  _loadCurrentTab(forceRefresh: true);
+                  await _loadCurrentTab(forceRefresh: true);
                 }
               },
               child: SingleChildScrollView(
@@ -197,9 +257,7 @@ class _ChallengesScreenState extends State<ChallengesScreen> {
                             child: Column(
                               children: [
                                 Text(
-                                  hasError
-                                      ? err
-                                      : 'No challenges in this category yet — check back soon.',
+                                  _emptyCopy(hasError: hasError, err: err),
                                   textAlign: TextAlign.center,
                                   style: AppTypography.body(
                                     fontSize: 13.5,
@@ -217,7 +275,9 @@ class _ChallengesScreenState extends State<ChallengesScreen> {
                                               widget.categoryFilter!,
                                             );
                                       } else {
-                                        _loadCurrentTab(forceRefresh: true);
+                                        unawaited(
+                                          _loadCurrentTab(forceRefresh: true),
+                                        );
                                       }
                                     },
                                     child: const Text('Retry'),
@@ -234,7 +294,8 @@ class _ChallengesScreenState extends State<ChallengesScreen> {
                         final challenge = entry.value;
                         return Padding(
                           padding: EdgeInsets.only(
-                              bottom: index < challenges.length - 1 ? 14 : 0),
+                            bottom: index < challenges.length - 1 ? 14 : 0,
+                          ),
                           child: ChallengeCard(challenge: challenge),
                         );
                       }),

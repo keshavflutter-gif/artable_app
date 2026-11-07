@@ -1,3 +1,5 @@
+import 'package:artable_app/features/trending/data/models/trending_videos_response.dart';
+
 class ReelsState {
   ReelsState({
     List<Map<String, dynamic>>? videos,
@@ -114,31 +116,30 @@ class ReelsState {
 
   int getCommentsCount(String videoId, [int fallback = 0]) {
     final cleanId = videoId.trim();
+    var best = fallback < 0 ? 0 : fallback;
     for (final v in videos) {
       final vId = v['id']?.toString() ?? v['_id']?.toString() ?? '';
-      if (vId == cleanId) {
-        if (v['commentsCount'] is int) {
-          return v['commentsCount'] as int;
-        }
-        final parsed = int.tryParse(
-          (v['commentsCount'] ?? v['commentCount'] ?? v['comments'])
-                  ?.toString() ??
-              '',
-        );
-        if (parsed != null && parsed >= 0) return parsed;
-      }
+      if (vId != cleanId) continue;
+      final parsed = TrendingVideoItem.parseCount(
+        v['commentsCount'] ?? v['commentCount'] ?? v['comments'],
+      );
+      if (parsed > best) best = parsed;
+      break;
     }
-    // Fallback: count root comments only (exclude loaded replies).
+    // Root comments currently loaded for this video.
     if (commentsMap.containsKey(cleanId)) {
-      return commentsMap[cleanId]!.where((c) {
+      final fromMap = commentsMap[cleanId]!.where((c) {
         final parent = (c['parentCommentId']?.toString() ??
                 c['parent_comment_id']?.toString() ??
                 '')
             .trim();
         return parent.isEmpty;
       }).length;
+      if (fromMap > best) best = fromMap;
     }
-    return fallback;
+    // Never return below [fallback] — Full Reel was showing 0 after a comments
+    // fetch wiped the video field while Home still correctly showed 2+.
+    return best;
   }
 
   ReelsState copyWith({

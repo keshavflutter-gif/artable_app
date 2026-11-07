@@ -205,61 +205,82 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
                     const SizedBox(height: 12),
 
                     // Blocked Users ListTile Card
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
+                    Material(
+                      color: Colors.transparent,
+                      child: InkWell(
                         borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: const Color(0xFFECE8F5), width: 1.2),
-                      ),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 36,
-                            height: 36,
-                            decoration: const BoxDecoration(
-                              color: Color(0xFFF8F7FC),
-                              shape: BoxShape.circle,
+                        onTap: () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Blocked users management is coming soon.',
+                              ),
                             ),
-                            child: const Icon(
-                              Icons.block_flipped,
-                              color: Color(0xFF8B849C),
-                              size: 18,
+                          );
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: const Color(0xFFECE8F5),
+                              width: 1.2,
                             ),
                           ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  'Blocked Users',
-                                  style: TextStyle(
-                                    fontFamily: 'Poppins',
-                                    color: Color(0xFF241E38),
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 13,
-                                  ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 36,
+                                height: 36,
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFFF8F7FC),
+                                  shape: BoxShape.circle,
                                 ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  '${_privacy['blockedUsersCount'] ?? 0} blocked',
-                                  style: const TextStyle(
-                                    fontFamily: 'Inter',
-                                    color: Color(0xFF8B849C),
-                                    fontWeight: FontWeight.w500,
-                                    fontSize: 10,
-                                  ),
+                                child: const Icon(
+                                  Icons.block_flipped,
+                                  color: Color(0xFF8B849C),
+                                  size: 18,
                                 ),
-                              ],
-                            ),
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Blocked Users',
+                                      style: TextStyle(
+                                        fontFamily: 'Poppins',
+                                        color: Color(0xFF241E38),
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      '${_privacy['blockedUsersCount'] ?? 0} blocked',
+                                      style: const TextStyle(
+                                        fontFamily: 'Inter',
+                                        color: Color(0xFF8B849C),
+                                        fontWeight: FontWeight.w500,
+                                        fontSize: 10,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const Icon(
+                                Icons.chevron_right_rounded,
+                                color: Color(0xFFB7B1C6),
+                                size: 20,
+                              ),
+                            ],
                           ),
-                          const Icon(
-                            Icons.chevron_right_rounded,
-                            color: Color(0xFFB7B1C6),
-                            size: 20,
-                          ),
-                        ],
+                        ),
                       ),
                     ),
                     const SizedBox(height: 16),

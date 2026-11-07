@@ -282,16 +282,16 @@ class MockData {
   { 'id': 'other',        'label': 'Other' },
 ];
   static final QUICK_ACTIONS = [
-  { 'label': 'Upload Video',       'icon': 'upload',   'href': 'submit-entry.html',            'highlight': true, 'tint': 'red' },
-  { 'label': 'Active Challenges',  'icon': 'flame',    'href': 'challenges.html?tab=active',   'tint': 'purple' },
-  { 'label': 'Winners',            'icon': 'medal',    'href': '#',                            'tint': 'orange' },
-  { 'label': 'Rewards',            'icon': 'gift',     'href': '#',                            'tint': 'green' },
-  { 'label': 'Invite Friends',     'icon': 'invite',   'href': '#',                            'tint': 'blue' },
-  { 'label': 'Leaderboard',        'icon': 'chart',    'href': '#',                            'tint': 'red' },
-  { 'label': 'Music Library',      'icon': 'music',    'href': '#',                            'tint': 'cyan' },
-  { 'label': 'Trending Videos',    'icon': 'video',    'href': '#',                            'tint': 'orange' },
-  { 'label': 'Daily Bonus',        'icon': 'calendar', 'href': '#',                            'tint': 'purple' },
-  { 'label': 'My Badges',          'icon': 'shield',   'href': '#',                            'tint': 'blue' },
+  { 'label': 'Upload Video',       'icon': 'upload',   'href': '/studio-start',                'highlight': true, 'tint': 'red' },
+  { 'label': 'Active Challenges',  'icon': 'flame',    'href': '/challenges?tab=active',       'tint': 'purple' },
+  { 'label': 'Winners',            'icon': 'medal',    'href': '/winners',                     'tint': 'orange' },
+  { 'label': 'Rewards',            'icon': 'gift',     'href': '/rewards',                     'tint': 'green' },
+  { 'label': 'Invite Friends',     'icon': 'invite',   'href': '/invite-friends',              'tint': 'blue' },
+  { 'label': 'Leaderboard',        'icon': 'chart',    'href': '/leaderboard',                 'tint': 'red' },
+  { 'label': 'Music Library',      'icon': 'music',    'href': '/music-library',               'tint': 'cyan' },
+  { 'label': 'Trending Videos',    'icon': 'video',    'href': '/trending-videos',             'tint': 'orange' },
+  { 'label': 'Daily Bonus',        'icon': 'calendar', 'href': '/daily-bonus',                 'tint': 'purple' },
+  { 'label': 'My Badges',          'icon': 'shield',   'href': '/achievements',                'tint': 'blue' },
 ];
   static final HOME_ACTIVE_CHALLENGES = [
   { 'id': 'c1', 'title': 'Dance Challenge',   'timeLeft': '23h 45m Left', 'prize': '₹5,000',  'imageUrl': 'https://images.unsplash.com/photo-1598963561591-3a14d9ba6a7b?w=400&h=320&q=80&auto=format&fit=crop&crop=faces,entropy' },

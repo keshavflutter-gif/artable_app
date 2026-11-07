@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.artable",
+      "sha256_cert_fingerprints": [
+        "8C16C49B1D0E1610E9D06106812381DFE8BC4B5B18B9F622D87B4FA9C59A86C5"
+      ]
+    }
+  }
+]

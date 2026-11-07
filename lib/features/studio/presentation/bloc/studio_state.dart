@@ -174,6 +174,9 @@ class StudioState {
     bool clearMergedClipPaths = false,
     bool clearActiveDraftId = false,
     bool clearVideoTrimEndSeconds = false,
+    bool clearVideoChallengeId = false,
+    bool clearVideoCategoryId = false,
+    bool clearStudioSetup = false,
   }) {
     return StudioState(
       recordedDuration: recordedDuration ?? this.recordedDuration,
@@ -181,9 +184,13 @@ class StudioState {
       selectedThumbnailPath: clearSelectedThumbnailPath ? null : (selectedThumbnailPath ?? this.selectedThumbnailPath),
       videoTitle: videoTitle ?? this.videoTitle,
       videoDescription: videoDescription ?? this.videoDescription,
-      videoCategoryId: videoCategoryId ?? this.videoCategoryId,
+      videoCategoryId: clearVideoCategoryId
+          ? null
+          : (videoCategoryId ?? this.videoCategoryId),
       videoHashtags: videoHashtags ?? this.videoHashtags,
-      videoChallengeId: videoChallengeId ?? this.videoChallengeId,
+      videoChallengeId: clearVideoChallengeId
+          ? null
+          : (videoChallengeId ?? this.videoChallengeId),
       activeVideoController: clearActiveVideoController ? null : (activeVideoController ?? this.activeVideoController),
       selectedMusic: clearSelectedMusic ? null : (selectedMusic ?? this.selectedMusic),
       selectedTrack: clearSelectedMusic ? null : (selectedTrack ?? this.selectedTrack),
@@ -207,7 +214,7 @@ class StudioState {
       musicVolume: musicVolume ?? this.musicVolume,
       filtersConfig: filtersConfig ?? this.filtersConfig,
       isLoadingFilters: isLoadingFilters ?? this.isLoadingFilters,
-      studioSetup: studioSetup ?? this.studioSetup,
+      studioSetup: clearStudioSetup ? null : (studioSetup ?? this.studioSetup),
       isSetupLoading: isSetupLoading ?? this.isSetupLoading,
       isSavingDraft: isSavingDraft ?? this.isSavingDraft,
       saveDraftError: clearSaveDraftError ? null : (saveDraftError ?? this.saveDraftError),

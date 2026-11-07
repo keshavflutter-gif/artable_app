@@ -9,6 +9,7 @@ import 'package:artable_app/app/theme/app_typography.dart';
 import 'package:artable_app/features/home/presentation/bloc/home_cubit.dart';
 import 'package:artable_app/features/trending/presentation/bloc/trending_videos_cubit.dart';
 import 'package:artable_app/features/trending/data/models/trending_videos_response.dart';
+import 'package:artable_app/features/reels/presentation/bloc/reels_cubit.dart';
 import 'package:artable_app/data/datasources/mock_data.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/features/shell/presentation/widgets/app_shell.dart';
@@ -90,15 +91,37 @@ class _HomeScreenState extends State<HomeScreen> {
     final homeCubitTrendingReels = context.select<HomeCubit, List<Map<String, dynamic>>>(
       (vm) => vm.trendingReels,
     );
+    // Rebuild when Full Reel likes/comments change so Home totals stay live.
+    final reelsCubit = context.watch<ReelsCubit>();
     final List<Map<String, dynamic>> trendingReels = [];
     final Set<String> seenIds = {};
+
+    Map<String, dynamic> withLive(Map<String, dynamic> item) {
+      final id = item['id']?.toString() ?? item['_id']?.toString() ?? '';
+      if (id.isEmpty) return item;
+      final live = reelsCubit.getVideo(id);
+      final out = ReelHelpers.withLiveEngagement(item, live);
+      // Always prefer ReelsCubit comment totals after Full Reel / Comments.
+      final known = live != null ||
+          reelsCubit.state.commentsMap.containsKey(id);
+      if (known) {
+        final base = TrendingVideoItem.parseCount(
+          out['commentsCount'] ?? out['commentCount'] ?? out['comments'],
+        );
+        final n = reelsCubit.getCommentsCount(id, base);
+        out['commentsCount'] = n;
+        out['commentCount'] = n;
+        out['comments'] = TrendingVideoItem.formatCount(n);
+      }
+      return out;
+    }
 
     for (final item in homeCubitTrendingReels) {
       if (!HomeUiMapper.isItemLive(item)) continue;
       final id = item['id']?.toString() ?? '';
       if (id.isNotEmpty && !seenIds.contains(id)) {
         seenIds.add(id);
-        trendingReels.add(item);
+        trendingReels.add(withLive(item));
       }
     }
 
@@ -109,7 +132,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final id = item['id']?.toString() ?? '';
       if (id.isNotEmpty && !seenIds.contains(id)) {
         seenIds.add(id);
-        trendingReels.add(item);
+        trendingReels.add(withLive(item));
       }
     }
     final isLoading = context.select<HomeCubit, bool>((vm) => vm.isLoading);
@@ -119,7 +142,7 @@ class _HomeScreenState extends State<HomeScreen> {
       {
         'label': 'View More',
         'icon': 'chevronRight',
-        'href': '#',
+        'href': AppRoutes.categories,
         'tint': 'viewmore',
       },
     ];
@@ -446,18 +469,18 @@ class _HeroSlider extends StatelessWidget {
           if (linkUrl != null && linkUrl.isNotEmpty) {
             if (linkUrl.startsWith('http://') ||
                 linkUrl.startsWith('https://')) {
-              context.go('/challenges?tab=active');
+              context.go('${AppRoutes.challenges}?tab=active');
             } else if (linkUrl.contains('challenges')) {
-              context.go('/challenges?tab=active');
+              context.go('${AppRoutes.challenges}?tab=active');
             } else if (linkUrl.contains('membership')) {
               context.push(AppRoutes.membershipPlan);
             } else if (linkUrl.contains('invite')) {
               context.push(AppRoutes.inviteFriends);
             } else {
-              context.go('/challenges?tab=active');
+              context.go('${AppRoutes.challenges}?tab=active');
             }
           } else {
-            context.go('/challenges?tab=active');
+            context.go('${AppRoutes.challenges}?tab=active');
           }
         }
 
@@ -480,7 +503,7 @@ class _HeroSlider extends StatelessWidget {
     } else {
       slides = <Widget>[
         _HeroMainSlide(
-          onJoin: () => context.go('/challenges?tab=active'),
+          onJoin: () => context.go('${AppRoutes.challenges}?tab=active'),
         ),
         _HeroSecondarySlide(
           imageUrl:
@@ -783,6 +806,63 @@ class _HeroSecondarySlide extends StatelessWidget {
   }
 }
 
+/// Home quick-strip destinations — keep labels + routes in one place.
+void _openHomeQuickAction(BuildContext context, Map<String, dynamic> action) {
+  final label = (action['label'] as String? ?? '').trim().toLowerCase();
+  final href = (action['href'] as String? ?? '').trim();
+
+  void push(String route) => context.push(route);
+  void go(String route) => context.go(route);
+
+  switch (label) {
+    case 'upload video':
+      push(AppRoutes.studioStart);
+      return;
+    case 'active challenges':
+      // Tab shell — use go so we don't stack another MainTabShell.
+      go('${AppRoutes.challenges}?tab=active');
+      return;
+    case 'winners':
+      push(AppRoutes.winners);
+      return;
+    case 'rewards':
+      push(AppRoutes.rewards);
+      return;
+    case 'invite friends':
+      push(AppRoutes.inviteFriends);
+      return;
+    case 'leaderboard':
+    case 'leader board':
+      push(AppRoutes.leaderboard);
+      return;
+    case 'music library':
+      push(AppRoutes.musicLibrary);
+      return;
+    case 'trending videos':
+      push(AppRoutes.trendingVideos);
+      return;
+    case 'daily bonus':
+      push(AppRoutes.dailyBonus);
+      return;
+    case 'my badges':
+      push(AppRoutes.achievements);
+      return;
+    case 'view more':
+      // Explore more via challenge categories.
+      push(AppRoutes.categories);
+      return;
+  }
+
+  // Href fallback for API-driven / future actions.
+  if (href.contains('submit-entry')) {
+    push(AppRoutes.submitEntry);
+  } else if (href.contains('challenges')) {
+    go('${AppRoutes.challenges}?tab=active');
+  } else if (href.startsWith('/') && href != '#') {
+    push(href);
+  }
+}
+
 class _QuickStripCard extends StatelessWidget {
   const _QuickStripCard({required this.actions});
 
@@ -810,38 +890,10 @@ class _QuickStripCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: actions.map((action) {
             final tint = action['tint'] as String;
-            final href = action['href'] as String;
             return Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4),
               child: GestureDetector(
-                onTap: () {
-                  final label = action['label'] as String;
-                  if (label == 'Upload Video') {
-                    context.push(AppRoutes.studioStart);
-                  } else if (href.contains('submit-entry')) {
-                    context.push(AppRoutes.submitEntry);
-                  } else if (label == 'Active Challenges' || href.contains('challenges')) {
-                    context.push('${AppRoutes.challenges}?tab=active');
-                  } else if (label == 'Winners') {
-                    context.push(AppRoutes.winners);
-                  } else if (label == 'Rewards') {
-                    context.push(AppRoutes.rewards);
-                  } else if (label == 'Invite Friends') {
-                    context.push(AppRoutes.inviteFriends);
-                  } else if (label == 'Leaderboard') {
-                    context.push(AppRoutes.leaderboard);
-                  } else if (label == 'Music Library') {
-                    context.push(AppRoutes.musicLibrary);
-                  } else if (label == 'Trending Videos') {
-                    context.push(AppRoutes.trendingVideos);
-                  } else if (label == 'Daily Bonus') {
-                    context.push(AppRoutes.dailyBonus);
-                  } else if (label == 'My Badges') {
-                    context.push(AppRoutes.achievements);
-                  } else if (label == 'View More') {
-                    context.push(AppRoutes.categories);
-                  }
-                },
+                onTap: () => _openHomeQuickAction(context, action),
                 child: SizedBox(
                   width: 60,
                   child: Column(
@@ -1011,7 +1063,8 @@ class _ActiveChallengesCard extends StatelessWidget {
                 ],
               ),
               GestureDetector(
-                onTap: () => context.go('/challenges?tab=active'),
+                onTap: () =>
+                    context.go('${AppRoutes.challenges}?tab=active'),
                 child: const Row(
                   children: [
                     Text(
@@ -1164,7 +1217,7 @@ class _MiniChallengeCard extends StatelessWidget {
                     if (id != null && id.toString().isNotEmpty) {
                       context.push('/challenge-detail?id=$id');
                     } else {
-                      context.push('/challenges?tab=active');
+                      context.go('${AppRoutes.challenges}?tab=active');
                     }
                   },
                   child: Container(
@@ -1209,23 +1262,22 @@ String _reelCountLabel(
   required List<String> labelKeys,
   required List<String> countKeys,
 }) {
-  for (final key in labelKeys) {
-    final raw = reel[key];
-    if (raw is String) {
-      final trimmed = raw.trim();
-      if (trimmed.isNotEmpty &&
-          trimmed.toLowerCase() != 'null' &&
-          TrendingVideoItem.parseCount(trimmed) > 0) {
-        return trimmed;
-      }
-    }
-  }
-  final count = TrendingVideoItem.extractCountFromMap(
+  // Prefer numeric count keys so live ReelsCubit bumps aren't masked by a
+  // stale formatted label (e.g. comments: "12" while commentsCount is 13).
+  final fromCounts = TrendingVideoItem.extractCountFromMap(
     reel,
     countKeys: countKeys,
-    labelKeys: labelKeys,
+    labelKeys: const [],
   );
-  return TrendingVideoItem.formatCount(count);
+  var fromLabels = 0;
+  for (final key in labelKeys) {
+    final raw = reel[key];
+    if (raw == null) continue;
+    final n = TrendingVideoItem.parseCount(raw);
+    if (n > fromLabels) fromLabels = n;
+  }
+  final best = fromCounts > fromLabels ? fromCounts : fromLabels;
+  return TrendingVideoItem.formatCount(best);
 }
 
 class _ReelGrid extends StatelessWidget {
@@ -1289,6 +1341,8 @@ class _ReelGrid extends StatelessWidget {
             final reelId =
                 (reel['id']?.toString() ?? reel['_id']?.toString() ?? '').trim();
             if (reelId.isEmpty) return;
+            // Seed ReelsCubit so like/comment totals can flow back to Home.
+            context.read<ReelsCubit>().syncVideos([reel]);
             context.push('${AppRoutes.reelsFeed}?id=$reelId', extra: reel);
           },
           child: Container(

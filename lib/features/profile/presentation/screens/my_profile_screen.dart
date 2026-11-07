@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/core/utils/media_url_utils.dart';
@@ -306,35 +307,69 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
 
                     // Social Link Pill Button
                     if (socialUrl != null && socialUrl.isNotEmpty) ...[
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 7.5),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(24),
-                          border: Border.all(color: const Color(0xFFECE8F5), width: 1.2),
-                          boxShadow: const [
-                            BoxShadow(
-                              color: Color(0x0815083C),
-                              blurRadius: 10,
-                              offset: Offset(0, 3),
-                            ),
-                          ],
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.link_rounded, size: 17, color: Color(0xFF8B3DFF)),
-                            const SizedBox(width: 6),
-                            Text(
-                              socialLabel,
-                              style: const TextStyle(
-                                fontFamily: 'Inter',
-                                fontSize: 13,
-                                fontWeight: FontWeight.w800,
-                                color: Color(0xFF1B132C),
+                      GestureDetector(
+                        onTap: () async {
+                          var url = socialUrl!.trim();
+                          if (!url.startsWith('http://') &&
+                              !url.startsWith('https://')) {
+                            url = 'https://$url';
+                          }
+                          final uri = Uri.tryParse(url);
+                          if (uri == null) return;
+                          try {
+                            await launchUrl(
+                              uri,
+                              mode: LaunchMode.externalApplication,
+                            );
+                          } catch (_) {
+                            if (!context.mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Could not open link.'),
                               ),
+                            );
+                          }
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 18,
+                            vertical: 7.5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(24),
+                            border: Border.all(
+                              color: const Color(0xFFECE8F5),
+                              width: 1.2,
                             ),
-                          ],
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Color(0x0815083C),
+                                blurRadius: 10,
+                                offset: Offset(0, 3),
+                              ),
+                            ],
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.link_rounded,
+                                size: 17,
+                                color: Color(0xFF8B3DFF),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                socialLabel,
+                                style: const TextStyle(
+                                  fontFamily: 'Inter',
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w800,
+                                  color: Color(0xFF1B132C),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ],

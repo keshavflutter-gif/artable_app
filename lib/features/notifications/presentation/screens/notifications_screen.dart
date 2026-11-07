@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
+import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_text_styles.dart';
 import 'package:artable_app/core/widgets/app_back_header.dart';
@@ -171,20 +173,66 @@ class _NotificationTile extends StatelessWidget {
   }
 }
 
-class ActivityCenterScreen extends StatelessWidget {
+class ActivityCenterScreen extends StatefulWidget {
   const ActivityCenterScreen({super.key, this.showBackButton = true});
 
   final bool showBackButton;
 
   @override
+  State<ActivityCenterScreen> createState() => _ActivityCenterScreenState();
+}
+
+class _ActivityCenterScreenState extends State<ActivityCenterScreen> {
+  static const _filters = [
+    'All',
+    'Likes',
+    'Comments',
+    'Ratings',
+    'Challenges',
+    'Rewards',
+  ];
+  var _filter = 'All';
+
+  List<Map<String, dynamic>> get _filtered {
+    final all = MockData.ACTIVITY_LOG;
+    if (_filter == 'All') return all;
+    final key = _filter.toLowerCase();
+    return all.where((a) {
+      final type = (a['type'] as String? ?? '').toLowerCase();
+      return type == key || type == '${key}s' || type.startsWith(key);
+    }).toList();
+  }
+
+  void _openActivity(Map<String, dynamic> item) {
+    final type = (item['type'] as String? ?? '').toLowerCase();
+    switch (type) {
+      case 'likes':
+      case 'comments':
+      case 'ratings':
+        context.push(AppRoutes.myVideos);
+        break;
+      case 'challenges':
+        context.go('${AppRoutes.challenges}?tab=active');
+        break;
+      case 'rewards':
+        context.push(AppRoutes.wallet);
+        break;
+      default:
+        context.push(AppRoutes.notifications);
+        break;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final s = MockData.ACTIVITY_SUMMARY;
+    final list = _filtered;
 
     return AppScreen(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (showBackButton)
+          if (widget.showBackButton)
             const AppBackHeader(title: 'Activity Center')
           else
             Padding(
@@ -201,45 +249,114 @@ class ActivityCenterScreen extends StatelessWidget {
               ),
             ),
           Expanded(
-            child: SingleChildScrollView(
-              padding: EdgeInsets.only(bottom: showBackButton ? 22 : 86),
-              child: AppContent(
-                noBottomPad: true,
-                child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+            child: RefreshIndicator(
+              onRefresh: () async {
+                setState(() {});
+              },
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding:
+                    EdgeInsets.only(bottom: widget.showBackButton ? 22 : 86),
+                child: AppContent(
+                  noBottomPad: true,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _ActivityStat(value: '${s['likes']}', label: 'Likes'),
-                      _ActivityStat(value: '${s['comments']}', label: 'Comments'),
-                      _ActivityStat(value: '${s['ratings']}', label: 'Ratings'),
+                      Row(
+                        children: [
+                          _ActivityStat(
+                            value: '${s['likes']}',
+                            label: 'Likes',
+                          ),
+                          _ActivityStat(
+                            value: '${s['comments']}',
+                            label: 'Comments',
+                          ),
+                          _ActivityStat(
+                            value: '${s['ratings']}',
+                            label: 'Ratings',
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          _ActivityStat(
+                            value: '${s['entries']}',
+                            label: 'Entries',
+                          ),
+                          _ActivityStat(
+                            value: s['rewardsEarned'] as String,
+                            label: 'Earned',
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 18),
+                      FilterPills(
+                        items: _filters,
+                        selected: _filter,
+                        onSelected: (v) => setState(() => _filter = v),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Recent Activity',
+                              style: AppTextStyles.sectionTitle,
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: () =>
+                                context.push(AppRoutes.notifications),
+                            child: const Text('Notifications'),
+                          ),
+                        ],
+                      ),
+                      if (list.isEmpty)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 28),
+                          child: Center(
+                            child: Text(
+                              'No $_filter activity yet.',
+                              style: AppTextStyles.bodySoft,
+                            ),
+                          ),
+                        )
+                      else
+                        ...list.map((a) {
+                          return ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            onTap: () => _openActivity(a),
+                            title: Text(
+                              a['text'] as String,
+                              style: AppTextStyles.body.copyWith(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13,
+                              ),
+                            ),
+                            subtitle: Text(
+                              '${a['related']} · ${a['time']}',
+                              style:
+                                  AppTextStyles.bodySoft.copyWith(fontSize: 11),
+                            ),
+                            trailing: const Icon(
+                              Icons.chevron_right_rounded,
+                              size: 18,
+                              color: Color(0xFFB7B1C6),
+                            ),
+                          );
+                        }),
                     ],
                   ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      _ActivityStat(value: '${s['entries']}', label: 'Entries'),
-                      _ActivityStat(value: s['rewardsEarned'] as String, label: 'Earned'),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-                  Text('Recent Activity', style: AppTextStyles.sectionTitle),
-                  ...MockData.ACTIVITY_LOG.map((a) {
-                    return ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(a['text'] as String, style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w700, fontSize: 13)),
-                      subtitle: Text('${a['related']} · ${a['time']}', style: AppTextStyles.bodySoft.copyWith(fontSize: 11)),
-                    );
-                  }),
-                ],
+                ),
               ),
             ),
           ),
-        ),
-      ],
-    ),
-  );
-}
+        ],
+      ),
+    );
+  }
 }
 
 class _ActivityStat extends StatelessWidget {

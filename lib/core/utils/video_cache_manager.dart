@@ -40,6 +40,27 @@ abstract final class VideoCacheManager {
     }
   }
 
+  /// Kill every in-flight full-file download except [keepUrl] so the active
+  /// reel's Range stream is not starved mid-play (common "stuck in between").
+  static void cancelAllPrecachesExcept(String? keepUrl) {
+    final keep = keepUrl == null || keepUrl.trim().isEmpty
+        ? null
+        : computeHash(MediaUrlUtils.resolve(keepUrl).trim());
+    final doomed = <String>[];
+    for (final entry in _inFlightClients.entries) {
+      if (keep != null && entry.key == keep) continue;
+      doomed.add(entry.key);
+    }
+    for (final hash in doomed) {
+      final client = _inFlightClients.remove(hash);
+      if (client == null) continue;
+      debugPrint('[VideoCacheManager] Cancelled competing precache ($hash)');
+      try {
+        client.close(force: true);
+      } catch (_) {}
+    }
+  }
+
   /// Computes a stable hash for any URL to identify its cache file.
   static String computeHash(String url) {
     return md5.convert(utf8.encode(url.trim())).toString();

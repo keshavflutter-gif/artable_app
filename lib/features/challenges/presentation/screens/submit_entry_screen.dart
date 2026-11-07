@@ -54,11 +54,31 @@ class _SubmitEntryScreenState extends State<SubmitEntryScreen> {
         'imageUrl': live.bannerUrl.isNotEmpty ? live.bannerUrl : (live.category?.imageUrl ?? ''),
       };
     }
+    final fromCubit = context
+        .read<ChallengesCubit>()
+        .getChallengeById(widget.challengeId ?? '');
+    if (fromCubit != null) return fromCubit;
+    final id = (widget.challengeId ?? '').trim();
+    if (id.isEmpty) {
+      return {
+        'id': '',
+        'title': 'Select a challenge',
+        'category': '',
+        'prize': '',
+        'imageUrl': '',
+      };
+    }
     return findChallengeById(
           MockData.CHALLENGES.cast<Map<String, dynamic>>(),
-          widget.challengeId,
+          id,
         ) ??
-        MockData.CHALLENGES.first;
+        {
+          'id': id,
+          'title': 'Challenge',
+          'category': 'Dance',
+          'prize': '',
+          'imageUrl': '',
+        };
   }
 
   void _goBack() {

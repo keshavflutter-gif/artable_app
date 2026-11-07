@@ -28,6 +28,11 @@ class TrendingVideosCubit extends Cubit<TrendingVideosState> {
   final VideosRepository _videosRepository;
   StreamSubscription<AuthState>? _authSubscription;
   String? _lastSessionToken;
+  /// When a forceRefresh arrives while a load is in flight, run it next.
+  bool _pendingForceRefresh = false;
+  String? _pendingTab;
+  String? _pendingCategory;
+  String? _pendingCategoryId;
 
   String get selectedTab => state.selectedTab;
   String? get selectedCategory => state.selectedCategory;
@@ -71,7 +76,16 @@ class TrendingVideosCubit extends Cubit<TrendingVideosState> {
     String? categoryId,
     bool forceRefresh = false,
   }) async {
-    if (state.isLoading) return;
+    if (state.isLoading) {
+      // Don't drop forceRefresh from Home/View All while another load runs.
+      if (forceRefresh) {
+        _pendingForceRefresh = true;
+        _pendingTab = tab;
+        _pendingCategory = category;
+        _pendingCategoryId = categoryId;
+      }
+      return;
+    }
     if (state.hasLoaded &&
         !forceRefresh &&
         tab == null &&
@@ -87,14 +101,13 @@ class TrendingVideosCubit extends Cubit<TrendingVideosState> {
     final apiCategory = !isStandardTab ? targetTab : category;
     final apiCategoryId = categoryId;
 
+    // Keep previous hero/videos visible while refreshing (avoids Home flicker).
     emit(state.copyWith(
       isLoading: true,
       selectedTab: targetTab,
       selectedCategory: apiCategory,
       selectedCategoryId: apiCategoryId,
       clearError: true,
-      videos: forceRefresh ? const [] : null,
-      clearHero: forceRefresh,
     ));
 
     final token = _authCubit?.sessionToken;
@@ -113,6 +126,7 @@ class TrendingVideosCubit extends Cubit<TrendingVideosState> {
         hasLoaded: false,
         clearError: true,
       ));
+      _drainPendingRefresh();
       return;
     }
 
@@ -153,12 +167,35 @@ class TrendingVideosCubit extends Cubit<TrendingVideosState> {
         VideoCacheManager.precacheBatch([heroUrl], maxCount: 1, parallelism: 1);
       }
     } catch (e) {
+      final message = e.toString().replaceAll('Exception:', '').trim();
       emit(state.copyWith(
         isLoading: false,
         hasLoaded: true,
-        errorMessage: e.toString(),
+        errorMessage: message.isNotEmpty
+            ? message
+            : 'Failed to load trending videos',
       ));
     }
+    _drainPendingRefresh();
+  }
+
+  void _drainPendingRefresh() {
+    if (!_pendingForceRefresh) return;
+    _pendingForceRefresh = false;
+    final tab = _pendingTab;
+    final category = _pendingCategory;
+    final categoryId = _pendingCategoryId;
+    _pendingTab = null;
+    _pendingCategory = null;
+    _pendingCategoryId = null;
+    unawaited(
+      loadTrendingVideos(
+        tab: tab,
+        category: category,
+        categoryId: categoryId,
+        forceRefresh: true,
+      ),
+    );
   }
 
   void selectTab(String tab) {

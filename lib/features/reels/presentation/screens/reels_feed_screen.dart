@@ -51,6 +51,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
   /// True while a pushed route / sheet covers the feed — keeps video muted+BGM off.
   bool _routeCovered = false;
   Timer? _precacheDelayTimer;
+  Timer? _viewRecordTimer;
   final ValueNotifier<_ReelSeekInfo?> _seekController =
       ValueNotifier<_ReelSeekInfo?>(null);
 
@@ -229,6 +230,26 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
     }
   }
 
+  /// Count a view after a short dwell so fast swipes don't inflate counts.
+  void _scheduleViewForPage(int page) {
+    _viewRecordTimer?.cancel();
+    _viewRecordTimer = Timer(const Duration(milliseconds: 900), () {
+      if (!mounted || _currentPage != page || _appInBackground || _routeCovered) {
+        return;
+      }
+      final items = _getItems(context, listen: false);
+      if (page < 0 || page >= items.length) return;
+      final item = items[page];
+      if (item.isAd || item.reel == null) return;
+      final reel = item.reel!;
+      final rId = reel['id']?.toString() ?? reel['_id']?.toString() ?? '';
+      if (rId.isEmpty) return;
+      unawaited(
+        context.read<ReelsCubit>().recordView(rId, fallbackVideo: reel),
+      );
+    });
+  }
+
   void _precacheUpcomingReels(int page, List<_FeedItem> items) {
     // Delay so the visible reel can stream without competing downloads.
     _precacheDelayTimer?.cancel();
@@ -257,6 +278,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
     if (targetId == null || targetId.isEmpty) {
       _hasScrolledToInitial = true;
       _fetchCommentsForPage(_currentPage);
+      _scheduleViewForPage(_currentPage);
       _precacheUpcomingReels(_currentPage, items);
       return;
     }
@@ -269,6 +291,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
     if (found != -1) {
       _hasScrolledToInitial = true;
       _fetchCommentsForPage(found);
+      _scheduleViewForPage(found);
       _precacheUpcomingReels(found, items);
       if (found != _currentPage) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -296,6 +319,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
           trendingCubit.loadTrendingVideos();
         }
         _fetchCommentsForPage(_currentPage);
+        _scheduleViewForPage(_currentPage);
         _precacheUpcomingReels(_currentPage, _getItems(context, listen: false));
       }
     });
@@ -322,6 +346,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _precacheDelayTimer?.cancel();
+    _viewRecordTimer?.cancel();
     _seekController.value = null;
     _seekController.dispose();
     _pageController.dispose();
@@ -454,7 +479,19 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
       if (mounted) setState(() => _appInBackground = true);
     } else if (state == AppLifecycleState.resumed) {
       unawaited(WakelockPlus.enable());
-      if (mounted) setState(() => _appInBackground = false);
+      // Background used halt()/killNow — unlock any stale nav lock and resume.
+      ReelBgmPlaybackService.unlockNavigation();
+      if (mounted) {
+        setState(() => _appInBackground = false);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || _routeCovered || _appInBackground) return;
+          if (_ratingReelId != null) return;
+          final items = _getItems(context, listen: false);
+          final reelId = _currentReelIdFrom(items);
+          if (reelId != null && _pausedReelIds.contains(reelId)) return;
+          unawaited(_resumeCurrentReelPlayback(items));
+        });
+      }
     }
   }
 
@@ -565,9 +602,20 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
   }
 
   void _closeRating() {
+    // _openRating calls silenceForNavigation() — must unlock or the video
+    // listener keeps pausing forever (isNavigationLocked stays true).
+    ReelBgmPlaybackService.unlockNavigation();
     setState(() {
       _ratingReelId = null;
       _ratingSuccess = false;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _routeCovered || _appInBackground) return;
+      if (_ratingReelId != null) return;
+      final items = _getItems(context, listen: false);
+      final reelId = _currentReelIdFrom(items);
+      if (reelId != null && _pausedReelIds.contains(reelId)) return;
+      unawaited(_resumeCurrentReelPlayback(items));
     });
   }
 
@@ -833,6 +881,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
                 _pausedReelIds.clear();
               });
               _fetchCommentsForPage(page);
+              _scheduleViewForPage(page);
               _precacheUpcomingReels(page, items);
             },
             scrollDirection: Axis.vertical,
@@ -850,8 +899,10 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
               // Cubit may hold a stub (likes/comments) without videoUrl — fill
               // blanks from the feed/raw map so Full Reel can actually play.
               final fromCubit = reelsProvider.getVideo(reelId);
+              // Max-merge so Home-opened counts (rawReel) are not wiped by a
+              // stub/zero cubit entry after comments fetch.
               final reel = fromCubit == null
-                  ? rawReel
+                  ? Map<String, dynamic>.from(rawReel)
                   : ReelHelpers.mergeReelMaps(fromCubit, rawReel);
               final challenge = ReelHelpers.challengeForReel(reel);
               final liked = reelsProvider.isLiked(reelId, fallbackVideo: reel);
@@ -886,13 +937,32 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
                   _ratingReelId != null ||
                   _pausedReelIds.contains(reelId);
 
-              final int rawLikes = TrendingVideoItem.parseCount(reel['likesCount'] ?? reel['likes']);
+              // Floor engagement to whatever Home/trending passed in (rawReel).
+              final int openedLikes = TrendingVideoItem.parseCount(
+                rawReel['likesCount'] ?? rawReel['likeCount'] ?? rawReel['likes'],
+              );
+              final int openedComments = TrendingVideoItem.parseCount(
+                rawReel['commentsCount'] ??
+                    rawReel['commentCount'] ??
+                    rawReel['comments'],
+              );
+              final int mergedLikes = TrendingVideoItem.parseCount(
+                reel['likesCount'] ?? reel['likeCount'] ?? reel['likes'],
+              );
+              final int mergedComments = TrendingVideoItem.parseCount(
+                reel['commentsCount'] ??
+                    reel['commentCount'] ??
+                    reel['comments'],
+              );
+              final int rawLikes =
+                  mergedLikes > openedLikes ? mergedLikes : openedLikes;
               final String likesText = TrendingVideoItem.formatCount(rawLikes);
 
-              final int rawComments = reel['commentsCount'] is int
-                  ? reel['commentsCount'] as int
-                  : (int.tryParse(reel['comments']?.toString() ?? '') ?? 0);
-              final int displayCommentsVal = reelsProvider.getCommentsCount(reelId, rawComments);
+              final int rawComments = mergedComments > openedComments
+                  ? mergedComments
+                  : openedComments;
+              final int displayCommentsVal =
+                  reelsProvider.getCommentsCount(reelId, rawComments);
               final String commentsText = _formatCount(displayCommentsVal);
 
               final int rawShares = reel['sharesCount'] is int
@@ -1234,9 +1304,25 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
                             children: [
                               if (challengeTitle != null && challengeTitle.isNotEmpty) ...[
                                 const SizedBox(height: 8),
-                                _MetaRow(
-                                  icon: Icons.emoji_events_outlined,
-                                  text: challengeTitle,
+                                GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: () {
+                                    final cid = (reel['challengeId'] ??
+                                            challenge?['id'] ??
+                                            '')
+                                        .toString()
+                                        .trim();
+                                    if (cid.isEmpty) return;
+                                    unawaited(
+                                      _pushWhileCovered(
+                                        '${AppRoutes.challengeDetail}?id=$cid',
+                                      ),
+                                    );
+                                  },
+                                  child: _MetaRow(
+                                    icon: Icons.emoji_events_outlined,
+                                    text: challengeTitle,
+                                  ),
                                 ),
                               ],
                               const SizedBox(height: 8),
@@ -1498,6 +1584,7 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
   bool _nextClipWarmStarted = false;
   Timer? _playbackTimer;
   Timer? _loadingHintTimer;
+  Timer? _stallWatchTimer;
   bool _showSlowLoading = false;
   bool _isSeekingToStart = false;
   /// Incremented whenever controllers are disposed; lets an in-flight
@@ -1509,6 +1596,10 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
   /// can restart with the slider.
   int _lastVideoPosMs = -1;
   DateTime? _lastBgmLoopSyncAt;
+  /// Mid-play freeze recovery (ExoPlayer often reports isPlaying while stuck).
+  int _stallWatchPosMs = -1;
+  DateTime? _stallFrozenSince;
+  DateTime? _lastStallNudgeAt;
 
   /// Whether this reel should hold an initialized player right now.
   bool get _shouldHoldPlayer =>
@@ -1917,13 +2008,18 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
   Future<void> _syncBgmAsync({bool play = true, bool forceSeek = false}) async {
     // Hard stop when leaving / pausing — deactivate alone can miss a key mismatch
     // and leave music running under Share & Report.
-    if (!play || widget.forcePaused || ReelBgmPlaybackService.isNavigationLocked) {
+    if (!play || widget.forcePaused) {
       ReelBgmPlaybackService.killNow();
       unawaited(ReelBgmPlaybackService.pause());
       final active = _activeController;
       if (active != null && active.value.isInitialized) {
         unawaited(active.pause());
       }
+      return;
+    }
+    // Lock only blocks BGM restart — never pause the video here (a leaked lock
+    // after Rating used to freeze playback permanently).
+    if (ReelBgmPlaybackService.isNavigationLocked) {
       return;
     }
     if (!widget.isActive) {
@@ -1966,15 +2062,104 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
 
   Future<void> _playVideoWithBgm(VideoPlayerController controller) async {
     if (!mounted || !widget.isActive || widget.forcePaused) return;
+    // Free bandwidth for the active stream — background downloads stall mid-play.
+    VideoCacheManager.cancelAllPrecachesExcept(widget.videoUrl);
     unawaited(controller.setVolume(_videoVolume));
+    // Never block picture on remote MP3 load (can take several seconds).
+    // Start video immediately; give BGM a short head-start then ensurePlaying.
     if (_hasBgm) {
-      // Wait for music to be seeked+ready, then start video in the same beat.
-      await _syncBgmAsync(play: true, forceSeek: true);
+      try {
+        await _syncBgmAsync(play: true, forceSeek: true)
+            .timeout(const Duration(milliseconds: 700));
+      } catch (_) {}
       if (!mounted || !widget.isActive || widget.forcePaused) return;
     }
     unawaited(controller.play());
+    _startStallWatch();
     if (_hasBgm) {
       ReelBgmPlaybackService.ensurePlaying(reelId: _bgmReelKey);
+      // Finish any remaining BGM seek/load without holding the video.
+      unawaited(_syncBgmAsync(play: true, forceSeek: false).then((_) {
+        if (!mounted || !widget.isActive || widget.forcePaused) return;
+        ReelBgmPlaybackService.ensurePlaying(reelId: _bgmReelKey);
+      }));
+    }
+  }
+
+  void _startStallWatch() {
+    _stallWatchTimer?.cancel();
+    _stallWatchPosMs = -1;
+    _stallFrozenSince = null;
+    _stallWatchTimer = Timer.periodic(const Duration(milliseconds: 450), (_) {
+      _checkAndRecoverStall();
+    });
+  }
+
+  void _stopStallWatch() {
+    _stallWatchTimer?.cancel();
+    _stallWatchTimer = null;
+    _stallWatchPosMs = -1;
+    _stallFrozenSince = null;
+  }
+
+  void _checkAndRecoverStall() {
+    if (!mounted || !widget.isActive || widget.forcePaused || widget.userPaused) {
+      _stallWatchPosMs = -1;
+      _stallFrozenSince = null;
+      return;
+    }
+    if (_isSwitchingClip || _isSeekingToStart) return;
+    final c = _activeController;
+    if (c == null || !c.value.isInitialized || c.value.hasError) return;
+
+    final pos = c.value.position.inMilliseconds;
+    final dur = c.value.duration.inMilliseconds;
+    // Near EOS — leave loop / clip-advance alone.
+    if (dur > 0 && pos >= dur - 250) {
+      _stallWatchPosMs = pos;
+      _stallFrozenSince = DateTime.now();
+      return;
+    }
+
+    final now = DateTime.now();
+    if (_stallWatchPosMs >= 0 && (pos - _stallWatchPosMs).abs() < 45) {
+      final since = _stallFrozenSince ?? now;
+      if (now.difference(since) < const Duration(milliseconds: 1300)) return;
+      if (_lastStallNudgeAt != null &&
+          now.difference(_lastStallNudgeAt!) <
+              const Duration(milliseconds: 2600)) {
+        return;
+      }
+      _lastStallNudgeAt = now;
+      _stallFrozenSince = now;
+      debugPrint(
+        '[ReelPlayback] Mid-play stall at ${pos}ms (playing=${c.value.isPlaying}, '
+        'buffering=${c.value.isBuffering}) — recovering',
+      );
+      unawaited(_recoverFromStall(c));
+    } else {
+      _stallWatchPosMs = pos;
+      _stallFrozenSince = now;
+    }
+  }
+
+  Future<void> _recoverFromStall(VideoPlayerController c) async {
+    try {
+      VideoCacheManager.cancelAllPrecachesExcept(widget.videoUrl);
+      if (!c.value.isPlaying) {
+        await c.play();
+        return;
+      }
+      // ExoPlayer sometimes needs a 1ms seek to unfreeze while "playing".
+      final bump = c.value.position + const Duration(milliseconds: 1);
+      await c.seekTo(bump);
+      if (!mounted || widget.forcePaused || widget.userPaused) return;
+      await c.play();
+    } catch (e) {
+      debugPrint('[ReelPlayback] Stall recovery failed: $e');
+      try {
+        await c.play();
+      } catch (_) {}
     }
   }
 
@@ -2111,6 +2296,7 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
           if (!_isInitializing) _initVideo();
         } else if (_isInitialized) {
           if (widget.forcePaused) {
+            _stopStallWatch();
             active.pause();
             _syncBgm(play: false);
           } else if (!oldWidget.isActive ||
@@ -2128,6 +2314,7 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
           }
         }
       } else if (widget.preloadNext || widget.preloadPrev) {
+        _stopStallWatch();
         _syncBgm(play: false);
         if (active != null && _isInitialized) {
           if (oldWidget.isActive) {
@@ -2291,7 +2478,10 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
           });
           _publishSeekController();
         }
-        await bgmWarm;
+        // Don't wait out full BGM preload — picture should start ASAP.
+        try {
+          await bgmWarm.timeout(const Duration(milliseconds: 400));
+        } catch (_) {}
         if (!mounted || generation != _initGeneration) return;
         if (widget.isActive && !widget.forcePaused) {
           final ready = _controller;
@@ -2354,7 +2544,9 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
                 });
                 _publishSeekController();
               }
-              await bgmWarm;
+              try {
+                await bgmWarm.timeout(const Duration(milliseconds: 400));
+              } catch (_) {}
               if (!mounted || generation != _initGeneration) return;
               if (widget.isActive && !widget.forcePaused) {
                 final ready = _controller;
@@ -2399,7 +2591,9 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
           unawaited(c0.setPlaybackSpeed(widget.playbackSpeed));
         }
         unawaited(c0.pause());
-        await bgmWarm;
+        try {
+          await bgmWarm.timeout(const Duration(milliseconds: 400));
+        } catch (_) {}
         if (!mounted || generation != _initGeneration) return;
         if (widget.isActive && !widget.forcePaused) {
           final ready = _clipControllers[0];
@@ -2483,16 +2677,12 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
     final next = _clipControllers[nextIndex];
     if (next == null || !next.value.isInitialized) return;
     _nextClipWarmStarted = true;
+    // Seek+pause only — never play() the next clip while current is live.
+    // Dual ExoPlayer decode was starving the active stream mid-play.
     try {
+      unawaited(next.pause());
       if (next.value.position.inMilliseconds > 40) {
-        unawaited(next.seekTo(Duration.zero).then((_) {
-          if (!mounted || _isSwitchingClip) return;
-          if (widget.isActive && !widget.forcePaused) {
-            unawaited(next.play());
-          }
-        }));
-      } else if (!next.value.isPlaying) {
-        unawaited(next.play());
+        unawaited(next.seekTo(Duration.zero));
       }
     } catch (_) {}
   }
@@ -2529,7 +2719,10 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
     if (controller == null || !mounted || _isSwitchingClip) return;
 
     // Covered by Share/Comments/etc. — keep video+music hard-stopped.
-    if (widget.forcePaused || ReelBgmPlaybackService.isNavigationLocked) {
+    // Only forcePaused owns the video pause. A leaked navigation lock must not
+    // freeze the player after Rating / overlays (see _closeRating unlock).
+    if (widget.forcePaused) {
+      _stopStallWatch();
       if (controller.value.isPlaying) {
         unawaited(controller.pause());
       }
@@ -2539,6 +2732,7 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
 
     if (widget.isActive) {
       _publishSeekController(force: false);
+      if (_stallWatchTimer == null) _startStallWatch();
     }
 
     final trimStart = widget.trimStart ?? 0.0;
@@ -2564,8 +2758,9 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
             Future.delayed(const Duration(milliseconds: 150), () {
               if (mounted) _isSeekingToStart = false;
             });
-            if (controller.value.isPlaying) {
-              controller.play();
+            // Seek often clears isPlaying — always resume if reel is live.
+            if (widget.isActive && !widget.forcePaused && !widget.userPaused) {
+              unawaited(controller.play());
             }
             // Trim loop: video went back to start — music must too.
             _lastVideoPosMs = startMs;
@@ -2728,6 +2923,7 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
     _showSlowLoading = false;
     _playbackTimer?.cancel();
     _playbackTimer = null;
+    _stopStallWatch();
 
     final oldController = _controller;
     final oldClips = Map<int, VideoPlayerController>.from(_clipControllers);
@@ -2767,6 +2963,7 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
   void dispose() {
     _playbackTimer?.cancel();
     _loadingHintTimer?.cancel();
+    _stopStallWatch();
     _initGeneration++;
     _syncBgm(play: false);
     // Detach first; dispose AFTER this frame so VideoPlayer is unmounted.

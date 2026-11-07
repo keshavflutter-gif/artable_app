@@ -67,8 +67,28 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
   bool _isFilterSheetOpen = false;
   VoidCallback? _cameraValueListener;
 
-  Map<String, dynamic> get _challenge =>
-      ReelHelpers.challengeById(widget.challengeId ?? 'c1')!;
+  Map<String, dynamic> get _challenge {
+    final cid = widget.challengeId?.trim() ?? '';
+    if (cid.isEmpty) {
+      return {
+        'id': '',
+        'title': 'Upload Video',
+        'category': 'Dance',
+        'status': 'active',
+        'prize': '',
+        'maxVideoDuration': 60,
+      };
+    }
+    return ReelHelpers.challengeById(cid) ??
+        {
+          'id': cid,
+          'title': 'Upload Video',
+          'category': 'Dance',
+          'status': 'active',
+          'prize': '',
+          'maxVideoDuration': 60,
+        };
+  }
 
   @override
   void initState() {
@@ -583,7 +603,12 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
         _seconds = 0;
         _secondsNotifier.value = 0;
       });
-      await context.push('${AppRoutes.studioEditVideo}?id=${_challenge['id']}');
+      final editId = _challenge['id']?.toString().trim() ?? '';
+      await context.push(
+        editId.isNotEmpty
+            ? '${AppRoutes.studioEditVideo}?id=$editId'
+            : AppRoutes.studioEditVideo,
+      );
       if (mounted) {
         _retake();
       }
@@ -1957,7 +1982,13 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
                             }
                             final videoPath = studio.recordedVideoPath;
                             if (context.mounted && videoPath != null && videoPath.isNotEmpty) {
-                              context.push('${AppRoutes.studioEditVideo}?id=${challenge['id']}');
+                              final editId =
+                                  challenge['id']?.toString().trim() ?? '';
+                              context.push(
+                                editId.isNotEmpty
+                                    ? '${AppRoutes.studioEditVideo}?id=$editId'
+                                    : AppRoutes.studioEditVideo,
+                              );
                             } else if (context.mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(content: Text('Recorded video not found. Please retake.')),

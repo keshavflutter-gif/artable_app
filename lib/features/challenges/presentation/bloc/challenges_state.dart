@@ -194,11 +194,23 @@ class ChallengesState {
   }
 
   Map<String, dynamic>? getChallengeById(String id) {
-    if (challengeDetails.containsKey(id)) {
-      return challengeDetails[id]!.toUiMap();
+    final cleanId = id.trim();
+    if (cleanId.isEmpty) return null;
+    if (challengeDetails.containsKey(cleanId)) {
+      return challengeDetails[cleanId]!.toUiMap();
+    }
+    for (final list in tabChallenges.values) {
+      for (final c in list) {
+        if (c.id == cleanId) return c.toUiMap();
+      }
+    }
+    for (final list in categoryChallenges.values) {
+      for (final c in list) {
+        if (c.id == cleanId) return c.toUiMap();
+      }
     }
     for (final c in challenges) {
-      if (c['id'] == id) return c;
+      if (c['id']?.toString() == cleanId) return c;
     }
     return null;
   }

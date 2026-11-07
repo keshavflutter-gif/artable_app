@@ -103,6 +103,7 @@ class ChallengeDetailData {
     this.daysLeftLabel = '',
     this.joinedCount = 0,
     this.joinedLabel = '',
+    this.joined = false,
     this.approvedVideosCount = 0,
     this.averageRating = 0,
     this.topParticipants = const [],
@@ -130,6 +131,8 @@ class ChallengeDetailData {
   final String daysLeftLabel;
   final int joinedCount;
   final String joinedLabel;
+  /// Whether the current user has already joined this challenge.
+  final bool joined;
   final int approvedVideosCount;
   final num averageRating;
 
@@ -163,10 +166,69 @@ class ChallengeDetailData {
       daysLeftLabel: json['daysLeftLabel']?.toString() ?? '',
       joinedCount: _parseInt(json['joinedCount'], 0),
       joinedLabel: json['joinedLabel']?.toString() ?? '',
+      joined: json['joined'] == true ||
+          json['hasJoined'] == true ||
+          json['isJoined'] == true,
       approvedVideosCount: _parseInt(json['approvedVideosCount'], 0),
       averageRating: json['averageRating'] is num
           ? (json['averageRating'] as num)
           : (num.tryParse(json['averageRating']?.toString() ?? '0') ?? 0),
+    );
+  }
+
+  ChallengeDetailData copyWith({
+    String? id,
+    String? title,
+    String? description,
+    List<String>? rules,
+    List<PrizeBreakdownItem>? prizeBreakdown,
+    List<ChallengeDetailParticipant>? topParticipants,
+    String? rewardPool,
+    String? prizePoolLabel,
+    String? participationFee,
+    String? bannerUrl,
+    CategoryDetailItem? category,
+    String? categoryName,
+    String? status,
+    bool? isFeatured,
+    int? maxVideoDuration,
+    String? startDate,
+    String? endDate,
+    String? endDateLabel,
+    int? daysLeft,
+    String? daysLeftLabel,
+    int? joinedCount,
+    String? joinedLabel,
+    bool? joined,
+    int? approvedVideosCount,
+    num? averageRating,
+  }) {
+    return ChallengeDetailData(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      description: description ?? this.description,
+      rules: rules ?? this.rules,
+      prizeBreakdown: prizeBreakdown ?? this.prizeBreakdown,
+      topParticipants: topParticipants ?? this.topParticipants,
+      rewardPool: rewardPool ?? this.rewardPool,
+      prizePoolLabel: prizePoolLabel ?? this.prizePoolLabel,
+      participationFee: participationFee ?? this.participationFee,
+      bannerUrl: bannerUrl ?? this.bannerUrl,
+      category: category ?? this.category,
+      categoryName: categoryName ?? this.categoryName,
+      status: status ?? this.status,
+      isFeatured: isFeatured ?? this.isFeatured,
+      maxVideoDuration: maxVideoDuration ?? this.maxVideoDuration,
+      startDate: startDate ?? this.startDate,
+      endDate: endDate ?? this.endDate,
+      endDateLabel: endDateLabel ?? this.endDateLabel,
+      daysLeft: daysLeft ?? this.daysLeft,
+      daysLeftLabel: daysLeftLabel ?? this.daysLeftLabel,
+      joinedCount: joinedCount ?? this.joinedCount,
+      joinedLabel: joinedLabel ?? this.joinedLabel,
+      joined: joined ?? this.joined,
+      approvedVideosCount: approvedVideosCount ?? this.approvedVideosCount,
+      averageRating: averageRating ?? this.averageRating,
     );
   }
 
@@ -235,6 +297,8 @@ class ChallengeDetailData {
       'participants': joinedCount,
       'joinedCount': joinedCount,
       'joinedLabel': joinedLabel.isNotEmpty ? joinedLabel : '$joinedCount joined',
+      'joined': joined,
+      'hasJoined': joined,
       'daysLeft': daysLeft,
       'daysLeftLabel': daysLeftLabel.isNotEmpty ? daysLeftLabel : '$daysLeft days left',
       'endDate': endDate,
@@ -242,6 +306,7 @@ class ChallengeDetailData {
       'imageUrl': bannerUrl,
       'bannerUrl': bannerUrl,
       'category': categoryName.isNotEmpty ? categoryName : 'Dance',
+      'categoryId': category?.id,
       'status': status.toLowerCase(),
       'isFeatured': isFeatured,
       'maxVideoDuration': maxVideoDuration,

@@ -1069,13 +1069,27 @@ class StudioCubit extends Cubit<StudioState> {
     String? challengeId,
     String? draftId,
   }) {
+    final cleanChallenge = challengeId?.trim() ?? '';
+    final cleanCategory = categoryId?.trim() ?? '';
     emit(state.copyWith(
       videoTitle: title,
       videoDescription: description,
-      videoCategoryId: categoryId,
       videoHashtags: hashtags,
-      videoChallengeId: challengeId,
       activeDraftId: draftId,
+      // Allow free upload to clear a sticky challenge from a prior session.
+      clearVideoChallengeId: cleanChallenge.isEmpty,
+      videoChallengeId: cleanChallenge.isNotEmpty ? cleanChallenge : null,
+      clearVideoCategoryId: cleanCategory.isEmpty,
+      videoCategoryId: cleanCategory.isNotEmpty ? cleanCategory : null,
+    ));
+  }
+
+  /// Home / FAB free upload — drop any leftover challenge linkage.
+  void clearSubmissionLinkage() {
+    emit(state.copyWith(
+      clearVideoChallengeId: true,
+      clearVideoCategoryId: true,
+      clearStudioSetup: true,
     ));
   }
   String? get selectedMusic => state.selectedMusic;
@@ -1866,7 +1880,7 @@ class StudioCubit extends Cubit<StudioState> {
   }
 
   /// Clears leftover draft music/filter/mute so a new in-app recording starts clean.
-  void prepareFreshRecording() {
+  void prepareFreshRecording({bool clearChallenge = false}) {
     state.activeVideoController?.dispose();
     StudioMusicPlaybackService.invalidateLoadedTrack();
     unawaited(StudioMusicPlaybackService.stop());
@@ -1896,6 +1910,9 @@ class StudioCubit extends Cubit<StudioState> {
       videoTitle: '',
       videoDescription: '',
       videoHashtags: '',
+      clearVideoChallengeId: clearChallenge,
+      clearVideoCategoryId: clearChallenge,
+      clearStudioSetup: clearChallenge,
     ));
   }
 

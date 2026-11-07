@@ -10,10 +10,55 @@ import 'package:artable_app/core/widgets/app_scaffold.dart';
 import 'package:artable_app/core/widgets/filter_pills.dart';
 import 'package:artable_app/features/home/presentation/bloc/home_cubit.dart';
 import 'package:artable_app/features/trending/presentation/bloc/trending_videos_cubit.dart';
+import 'package:artable_app/features/reels/presentation/bloc/reels_cubit.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/core/utils/video_cache_manager.dart';
 import 'package:artable_app/features/trending/data/models/trending_videos_response.dart';
 import 'package:artable_app/core/utils/app_filter_utils.dart';
+import 'package:artable_app/core/utils/reel_helpers.dart';
+
+/// Prefer ReelsCubit engagement after Full Reel like/comment.
+String _liveEngagementLabel(
+  BuildContext context,
+  TrendingVideoItem video, {
+  required String kind,
+}) {
+  final reels = context.watch<ReelsCubit>();
+  final live = reels.getVideo(video.id);
+  final map = ReelHelpers.withLiveEngagement(video.toUiMap(), live);
+  if (kind == 'comments') {
+    final known =
+        live != null || reels.state.commentsMap.containsKey(video.id);
+    if (known) {
+      final base = TrendingVideoItem.parseCount(
+        map['commentsCount'] ?? map['comments'],
+      );
+      return TrendingVideoItem.formatCount(
+        reels.getCommentsCount(video.id, base),
+      );
+    }
+  }
+  if (live != null) {
+    switch (kind) {
+      case 'views':
+        return map['views']?.toString() ?? video.displayViews;
+      case 'likes':
+        return map['likes']?.toString() ?? video.displayLikes;
+      case 'comments':
+        return map['comments']?.toString() ?? video.displayComments;
+    }
+  }
+  switch (kind) {
+    case 'views':
+      return video.displayViews;
+    case 'likes':
+      return video.displayLikes;
+    case 'comments':
+      return video.displayComments;
+    default:
+      return '0';
+  }
+}
 
 class TrendingVideosScreen extends StatefulWidget {
   const TrendingVideosScreen({super.key});
@@ -60,12 +105,12 @@ class _TrendingVideosScreenState extends State<TrendingVideosScreen> {
 
     final isLoading = trendingProvider.isLoading && (apiVideos.isEmpty && hero == null);
 
-    // Pre-cache top 2 trending videos locally in background without blocking network
-    final heroUrl = hero?.videoUrl;
+    // Pre-cache playable URLs (clips-aware) — raw videoUrl can be image/empty.
+    final heroUrl = hero?.playableVideoUrl;
     final precacheUrls = [
       if (heroUrl != null && heroUrl.isNotEmpty) heroUrl,
-      ...videos.map((v) => v.videoUrl),
-    ];
+      ...videos.map((v) => v.playableVideoUrl),
+    ].where((u) => u.trim().isNotEmpty).toList();
     if (precacheUrls.isNotEmpty && !_hasTriggeredPrecache) {
       _hasTriggeredPrecache = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -202,14 +247,15 @@ class _TrendingVideosScreenState extends State<TrendingVideosScreen> {
   }
 
   void _navigateToVideo(TrendingVideoItem item) {
-    if (item.id.isNotEmpty) {
-      context.push('/video-detail?id=${item.id}', extra: item.toUiMap()).then((_) {
-        if (mounted) {
-          context.read<TrendingVideosCubit>().loadTrendingVideos(forceRefresh: true);
-          context.read<HomeCubit>().loadHomeDashboard(forceRefresh: true);
-        }
-      });
-    }
+    if (item.id.isEmpty) return;
+    final ui = item.toUiMap();
+    context.read<ReelsCubit>().syncVideos([ui]);
+    // Same path as Home trending grid → Full Reel (count parity + live play).
+    context.push('${AppRoutes.reelsFeed}?id=${item.id}', extra: ui).then((_) {
+      if (!mounted) return;
+      context.read<TrendingVideosCubit>().loadTrendingVideos(forceRefresh: true);
+      context.read<HomeCubit>().loadHomeDashboard(forceRefresh: true);
+    });
   }
 }
 
@@ -250,7 +296,7 @@ class _FeaturedHeroCard extends StatelessWidget {
         ? hero.displayCategoryName
         : 'TALENT';
     final rating = hero.displayRating;
-    final views = hero.displayViews;
+    final views = _liveEngagementLabel(context, hero, kind: 'views');
     final handle = hero.displayHandle;
     final avatarUrl = hero.displayAvatar;
     final isVerified = hero.isVerifiedUser;
@@ -259,14 +305,18 @@ class _FeaturedHeroCard extends StatelessWidget {
 
     return GestureDetector(
       onTap: () {
-        if (id.isNotEmpty) {
-          context.push('/video-detail?id=$id', extra: hero.toUiMap()).then((_) {
-            if (context.mounted) {
-              context.read<TrendingVideosCubit>().loadTrendingVideos(forceRefresh: true);
-              context.read<HomeCubit>().loadHomeDashboard(forceRefresh: true);
-            }
-          });
-        }
+        if (id.isEmpty) return;
+        final ui = hero.toUiMap();
+        context.read<ReelsCubit>().syncVideos([ui]);
+        context
+            .push('${AppRoutes.reelsFeed}?id=$id', extra: ui)
+            .then((_) {
+          if (!context.mounted) return;
+          context
+              .read<TrendingVideosCubit>()
+              .loadTrendingVideos(forceRefresh: true);
+          context.read<HomeCubit>().loadHomeDashboard(forceRefresh: true);
+        });
       },
       child: ClipRRect(
         borderRadius: BorderRadius.circular(18),
@@ -292,7 +342,7 @@ class _FeaturedHeroCard extends StatelessWidget {
                 beautyIntensity: hero.beautyIntensity,
                 child: AppImage(
                   url: imageUrl,
-                  videoUrl: hero.videoUrl,
+                  videoUrl: hero.playableVideoUrl,
                   fit: BoxFit.cover,
                   isVideo: true,
                 ),
@@ -354,7 +404,19 @@ class _FeaturedHeroCard extends StatelessWidget {
                     // Direct Play Button (Launches Fullscreen Reels Feed instantly)
                     GestureDetector(
                       onTap: () {
-                        context.push('${AppRoutes.reelsFeed}?id=$id', extra: hero.toUiMap());
+                        final ui = hero.toUiMap();
+                        context.read<ReelsCubit>().syncVideos([ui]);
+                        context
+                            .push('${AppRoutes.reelsFeed}?id=$id', extra: ui)
+                            .then((_) {
+                          if (!context.mounted) return;
+                          context
+                              .read<TrendingVideosCubit>()
+                              .loadTrendingVideos(forceRefresh: true);
+                          context
+                              .read<HomeCubit>()
+                              .loadHomeDashboard(forceRefresh: true);
+                        });
                       },
                       child: Container(
                         width: 28,
@@ -438,7 +500,7 @@ class _FeaturedHeroCard extends StatelessWidget {
                         ),
                         const SizedBox(width: 3),
                         Text(
-                          hero.displayLikes,
+                          _liveEngagementLabel(context, hero, kind: 'likes'),
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 11,
@@ -453,7 +515,7 @@ class _FeaturedHeroCard extends StatelessWidget {
                         ),
                         const SizedBox(width: 3),
                         Text(
-                          hero.displayComments,
+                          _liveEngagementLabel(context, hero, kind: 'comments'),
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 11,
@@ -554,7 +616,7 @@ class _TrendingVideoItemCard extends StatelessWidget {
                 beautyIntensity: video.beautyIntensity,
                 child: AppImage(
                   url: video.displayThumbnail,
-                  videoUrl: video.videoUrl,
+                  videoUrl: video.playableVideoUrl,
                   fit: BoxFit.cover,
                   isVideo: true,
                 ),
@@ -616,7 +678,22 @@ class _TrendingVideoItemCard extends StatelessWidget {
                     // Direct Play Button (Launches Fullscreen Reels Feed instantly)
                     GestureDetector(
                       onTap: () {
-                        context.push('${AppRoutes.reelsFeed}?id=${video.id}', extra: video.toUiMap());
+                        final ui = video.toUiMap();
+                        context.read<ReelsCubit>().syncVideos([ui]);
+                        context
+                            .push(
+                          '${AppRoutes.reelsFeed}?id=${video.id}',
+                          extra: ui,
+                        )
+                            .then((_) {
+                          if (!context.mounted) return;
+                          context
+                              .read<TrendingVideosCubit>()
+                              .loadTrendingVideos(forceRefresh: true);
+                          context
+                              .read<HomeCubit>()
+                              .loadHomeDashboard(forceRefresh: true);
+                        });
                       },
                       child: Container(
                         width: 22,
@@ -685,7 +762,11 @@ class _TrendingVideoItemCard extends StatelessWidget {
                         const SizedBox(width: 2.5),
                         Flexible(
                           child: Text(
-                            video.displayViews,
+                            _liveEngagementLabel(
+                              context,
+                              video,
+                              kind: 'views',
+                            ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
@@ -704,7 +785,7 @@ class _TrendingVideoItemCard extends StatelessWidget {
                         const SizedBox(width: 2),
                         Flexible(
                           child: Text(
-                            video.displayLikes,
+                            _liveEngagementLabel(context, video, kind: 'likes'),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
@@ -723,7 +804,7 @@ class _TrendingVideoItemCard extends StatelessWidget {
                         const SizedBox(width: 2),
                         Flexible(
                           child: Text(
-                            video.displayComments,
+                            _liveEngagementLabel(context, video, kind: 'comments'),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(

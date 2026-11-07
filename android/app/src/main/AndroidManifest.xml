@@ -2,6 +2,8 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <application
         android:label="artable_app"
@@ -48,6 +50,46 @@
             <intent-filter>
                 <action android:name="FLUTTER_NOTIFICATION_CLICK" />
                 <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <!-- App Links: https://artable.app/video/... (WhatsApp / browser) -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="artable.app"
+                    android:pathPrefix="/video" />
+                <data
+                    android:scheme="https"
+                    android:host="artable.app"
+                    android:pathPrefix="/invite" />
+                <data
+                    android:scheme="https"
+                    android:host="artable.app"
+                    android:pathPrefix="/profile" />
+                <data
+                    android:scheme="https"
+                    android:host="www.artable.app"
+                    android:pathPrefix="/video" />
+                <data
+                    android:scheme="https"
+                    android:host="www.artable.app"
+                    android:pathPrefix="/invite" />
+                <data
+                    android:scheme="https"
+                    android:host="www.artable.app"
+                    android:pathPrefix="/profile" />
+            </intent-filter>
+            <!-- Custom scheme fallback: artable://video/ID -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="artable" android:host="video" />
+                <data android:scheme="artable" android:host="invite" />
+                <data android:scheme="artable" android:host="profile" />
+                <data android:scheme="artable" android:host="artable.app" />
             </intent-filter>
         </activity>
         <!-- Required by image_cropper: the crop screen (uCrop) must be declared here,

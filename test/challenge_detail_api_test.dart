@@ -104,6 +104,7 @@ void main() {
       expect(item.status, 'ACTIVE');
       expect(item.isFeatured, isTrue);
       expect(item.joinedCount, 0);
+      expect(item.joined, isFalse);
     });
 
     test('2. ChallengesRepository calls GET /app/challenges/cmssjscj2000sq1h8qdsicupj with auth headers', () async {

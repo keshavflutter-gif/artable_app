@@ -23,6 +23,9 @@ abstract final class AppRoutes {
   static const studioUpload = '/studio-upload';
   static const studioSuccess = '/studio-success';
   static const reelsFeed = '/reels-feed';
+  /// Public share URL path (`https://artable.app/video/:id`) — redirects into reels.
+  static const videoShareDeepLink = '/video/:id';
+  static const profileShareDeepLink = '/profile/:id';
   static const talentRating = '/talent-rating';
   static const videoDetail = '/video-detail';
   static const comments = '/comments';

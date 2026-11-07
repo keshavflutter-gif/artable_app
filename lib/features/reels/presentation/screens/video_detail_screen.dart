@@ -49,9 +49,14 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
   int _stageInitGeneration = 0;
   /// True while another route covers this screen — BGM/video must stay off.
   bool _routeCovered = false;
+  Timer? _stageStallWatchTimer;
+  int _stageStallPosMs = -1;
+  DateTime? _stageStallFrozenSince;
+  DateTime? _lastStageStallNudgeAt;
 
   void _coverDetailAudio() {
     _routeCovered = true;
+    _stopStageStallWatch();
     try {
       _stageController?.pause();
     } catch (_) {}
@@ -76,6 +81,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
         await _syncStageBgmAsync(play: true);
         if (!mounted || _routeCovered || _isStageUserPaused) return;
         unawaited(_stageController!.play());
+        _startStageStallWatch();
         ReelBgmPlaybackService.ensurePlaying();
       }());
     });
@@ -192,8 +198,22 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
       if (mounted) {
         final rId = reelMap['id']?.toString() ?? reelMap['_id']?.toString() ?? widget.reelId;
         if (rId != null && rId.isNotEmpty) {
+          // Seed engagement before comments fetch so totals aren't dropped
+          // when the video isn't in ReelsCubit yet.
+          if (reelMap.isNotEmpty) {
+            context.read<ReelsCubit>().syncVideos([
+              Map<String, dynamic>.from(reelMap),
+            ]);
+          }
           context.read<ReelsCubit>().fetchComments(rId);
           _fetchVideoDetail(rId);
+          // Detail open counts as a view after a short dwell.
+          Future<void>.delayed(const Duration(milliseconds: 900), () {
+            if (!mounted || _routeCovered) return;
+            unawaited(
+              context.read<ReelsCubit>().recordView(rId, fallbackVideo: reelMap),
+            );
+          });
         }
         unawaited(VideoInterstitialAd.instance.load());
       }
@@ -214,7 +234,8 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     final durMs = value.duration.inMilliseconds;
 
     // Covered by another screen — keep stage video + music stopped.
-    if (_routeCovered || ReelBgmPlaybackService.isNavigationLocked) {
+    // Do not gate on isNavigationLocked alone — a leaked lock freezes the stage.
+    if (_routeCovered) {
       if (value.isPlaying) {
         unawaited(_stageController?.pause());
       }
@@ -478,9 +499,12 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
         await controller.setLooping(true);
         final hasBgm = _resolveReelMusic(reelMap)?.url.isNotEmpty == true;
         await controller.setVolume(hasBgm ? 0.0 : 1.0);
-        // Warm BGM before play so video + music start together.
+        // Short BGM head-start only — never block picture on slow MP3 load.
         if (hasBgm && !_routeCovered) {
-          await _syncStageBgmAsync(play: true);
+          try {
+            await _syncStageBgmAsync(play: true)
+                .timeout(const Duration(milliseconds: 700));
+          } catch (_) {}
         }
         if (!mounted || gen != _stageInitGeneration) {
           try {
@@ -489,8 +513,16 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
           return;
         }
         if (!_isStageUserPaused && !_routeCovered) {
+          VideoCacheManager.cancelAllPrecachesExcept(usedUrl ?? preferred);
           await controller.play();
-          if (hasBgm) ReelBgmPlaybackService.ensurePlaying();
+          _startStageStallWatch();
+          if (hasBgm) {
+            ReelBgmPlaybackService.ensurePlaying();
+            unawaited(_syncStageBgmAsync(play: true).then((_) {
+              if (!mounted || _routeCovered || _isStageUserPaused) return;
+              ReelBgmPlaybackService.ensurePlaying();
+            }));
+          }
         }
 
         if (!mounted || gen != _stageInitGeneration) {
@@ -528,8 +560,81 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     }
   }
 
+  void _startStageStallWatch() {
+    _stageStallWatchTimer?.cancel();
+    _stageStallPosMs = -1;
+    _stageStallFrozenSince = null;
+    _stageStallWatchTimer =
+        Timer.periodic(const Duration(milliseconds: 450), (_) {
+      _checkAndRecoverStageStall();
+    });
+  }
+
+  void _stopStageStallWatch() {
+    _stageStallWatchTimer?.cancel();
+    _stageStallWatchTimer = null;
+    _stageStallPosMs = -1;
+    _stageStallFrozenSince = null;
+  }
+
+  void _checkAndRecoverStageStall() {
+    if (!mounted || _routeCovered || _isStageUserPaused) {
+      _stageStallPosMs = -1;
+      _stageStallFrozenSince = null;
+      return;
+    }
+    final c = _stageController;
+    if (c == null || !c.value.isInitialized || c.value.hasError) return;
+    final pos = c.value.position.inMilliseconds;
+    final dur = c.value.duration.inMilliseconds;
+    if (dur > 0 && pos >= dur - 250) {
+      _stageStallPosMs = pos;
+      _stageStallFrozenSince = DateTime.now();
+      return;
+    }
+    final now = DateTime.now();
+    if (_stageStallPosMs >= 0 && (pos - _stageStallPosMs).abs() < 45) {
+      final since = _stageStallFrozenSince ?? now;
+      if (now.difference(since) < const Duration(milliseconds: 1300)) return;
+      if (_lastStageStallNudgeAt != null &&
+          now.difference(_lastStageStallNudgeAt!) <
+              const Duration(milliseconds: 2600)) {
+        return;
+      }
+      _lastStageStallNudgeAt = now;
+      _stageStallFrozenSince = now;
+      debugPrint(
+        '[VideoDetail] Mid-play stall at ${pos}ms — recovering',
+      );
+      unawaited(_recoverStageStall(c));
+    } else {
+      _stageStallPosMs = pos;
+      _stageStallFrozenSince = now;
+    }
+  }
+
+  Future<void> _recoverStageStall(VideoPlayerController c) async {
+    try {
+      VideoCacheManager.cancelAllPrecachesExcept(_currentLoadedVideoUrl);
+      if (!c.value.isPlaying) {
+        await c.play();
+        return;
+      }
+      final bump = c.value.position + const Duration(milliseconds: 1);
+      await c.seekTo(bump);
+      if (!mounted || _routeCovered || _isStageUserPaused) return;
+      await c.play();
+    } catch (e) {
+      debugPrint('[VideoDetail] Stall recovery failed: $e');
+      try {
+        await c.play();
+      } catch (_) {}
+    }
+  }
+
   @override
   void dispose() {
+    _stopStageStallWatch();
     ReelBgmPlaybackService.killNow();
     unawaited(ReelBgmPlaybackService.stop());
     _stageInitGeneration++;
@@ -909,13 +1014,18 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
               if (_stageController!.value.isPlaying) {
                 _stageController!.pause();
                 _isStageUserPaused = true;
+                _stopStageStallWatch();
                 _syncStageBgm(play: false);
               } else {
                 _isStageUserPaused = false;
                 unawaited(() async {
-                  await _syncStageBgmAsync(play: true);
-                  if (!mounted || _routeCovered || _isStageUserPaused) return;
                   unawaited(_stageController?.play());
+                  _startStageStallWatch();
+                  try {
+                    await _syncStageBgmAsync(play: true)
+                        .timeout(const Duration(milliseconds: 700));
+                  } catch (_) {}
+                  if (!mounted || _routeCovered || _isStageUserPaused) return;
                   ReelBgmPlaybackService.ensurePlaying();
                 }());
               }

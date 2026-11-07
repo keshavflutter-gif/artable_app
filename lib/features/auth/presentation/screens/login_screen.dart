@@ -5,6 +5,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:artable_app/app/theme/app_gradients.dart';
 import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
+import 'package:artable_app/core/services/deep_link_service.dart';
 import 'package:artable_app/core/services/notification_service.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -34,6 +35,14 @@ class _LoginScreenState extends State<LoginScreen> {
     _emailController = TextEditingController(text: widget.initialEmail ?? '');
     _passwordController =
         TextEditingController(text: widget.initialPassword ?? '');
+  }
+
+  Future<void> _goAfterLogin() async {
+    final opened = await DeepLinkService.consumePendingIfAny();
+    if (!mounted) return;
+    if (!opened) {
+      context.go(AppRoutes.home);
+    }
   }
   
   Future<void> _submitLogin() async {
@@ -82,7 +91,7 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!mounted) return;
 
     if (success) {
-      context.go(AppRoutes.home);
+      await _goAfterLogin();
       return;
     }
 
@@ -385,7 +394,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             final success = await auth.loginWithGoogle();
                             if (!context.mounted) return;
                             if (success) {
-                              context.go(AppRoutes.home);
+                              await _goAfterLogin();
                             } else if (auth.errorMessage != null &&
                                 auth.errorMessage!.isNotEmpty) {
                               ScaffoldMessenger.of(context).showSnackBar(
@@ -408,7 +417,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             final success = await auth.loginWithApple();
                             if (!context.mounted) return;
                             if (success) {
-                              context.go(AppRoutes.home);
+                              await _goAfterLogin();
                             } else if (auth.errorMessage != null &&
                                 auth.errorMessage!.isNotEmpty) {
                               ScaffoldMessenger.of(context).showSnackBar(

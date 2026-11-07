@@ -31,8 +31,9 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && widget.challengeId.isNotEmpty) {
-        context.read<ChallengesCubit>().loadChallengeDetail(widget.challengeId);
+      final id = widget.challengeId.trim();
+      if (mounted && id.isNotEmpty) {
+        context.read<ChallengesCubit>().loadChallengeDetail(id);
       }
       unawaited(VideoInterstitialAd.instance.load());
     });
@@ -53,13 +54,21 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<ChallengesCubit>();
-    final ChallengeDetailData? liveDetail = provider.getChallengeDetail(widget.challengeId);
-    final isLoading = provider.isLoadingChallengeDetail(widget.challengeId) &&
+    final challengeId = widget.challengeId.trim();
+    final ChallengeDetailData? liveDetail =
+        provider.getChallengeDetail(challengeId);
+    final detailError = provider.getChallengeDetailError(challengeId);
+    final isLoading = provider.isLoadingChallengeDetail(challengeId) &&
         liveDetail == null;
+    final hasJoined = liveDetail?.joined == true;
+    final statusKey = (liveDetail?.status ?? 'ACTIVE').toLowerCase();
+    final canJoin = liveDetail != null &&
+        !hasJoined &&
+        (statusKey == 'active' || statusKey == 'live');
 
     final title = liveDetail?.title ?? '';
     final bannerUrl = liveDetail?.bannerUrl ?? '';
-    final status = (liveDetail?.status ?? 'ACTIVE').toLowerCase();
+    final status = statusKey;
     final prize = liveDetail?.formattedPrizePool ?? '₹0';
     final joinedCount = liveDetail?.joinedCount ?? 0;
     final joinedText = formatParticipants(joinedCount);
@@ -162,11 +171,62 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                   ],
                 ),
               ),
-              if (isLoading)
+              if (challengeId.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(22, 40, 22, 24),
+                  child: Column(
+                    children: [
+                      const Text(
+                        'Challenge not found',
+                        style: TextStyle(
+                          fontFamily: 'Poppins',
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      GradientButton(
+                        label: 'Browse Challenges',
+                        onPressed: () => context.go(AppRoutes.challenges),
+                      ),
+                    ],
+                  ),
+                )
+              else if (isLoading)
                 const Padding(
                   padding: EdgeInsets.symmetric(vertical: 40),
                   child: Center(
                     child: CircularProgressIndicator(),
+                  ),
+                )
+              else if (liveDetail == null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(22, 40, 22, 24),
+                  child: Column(
+                    children: [
+                      Text(
+                        detailError?.replaceAll('Exception:', '').trim().isNotEmpty ==
+                                true
+                            ? detailError!
+                                .replaceAll('Exception:', '')
+                                .trim()
+                            : 'Could not load this challenge.',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF716B8A),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      GradientButton(
+                        label: 'Retry',
+                        onPressed: () => context
+                            .read<ChallengesCubit>()
+                            .loadChallengeDetail(challengeId, forceRefresh: true),
+                      ),
+                    ],
                   ),
                 )
               else
@@ -522,12 +582,16 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                         children: [
                           Expanded(
                             child: GradientButton(
-                              label: provider
-                                      .isJoiningChallenge(widget.challengeId)
+                              label: provider.isJoiningChallenge(challengeId)
                                   ? 'Joining...'
-                                  : 'Join Challenge',
-                              icon: provider
-                                      .isJoiningChallenge(widget.challengeId)
+                                  : hasJoined
+                                      ? 'Submit Entry'
+                                      : (statusKey == 'upcoming'
+                                          ? 'View Details'
+                                          : statusKey == 'completed'
+                                              ? 'View Results'
+                                              : 'Join Challenge'),
+                              icon: provider.isJoiningChallenge(challengeId)
                                   ? const SizedBox(
                                       width: 16,
                                       height: 16,
@@ -538,20 +602,34 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                                                 Colors.white),
                                       ),
                                     )
-                                  : const Icon(Icons.arrow_forward,
-                                      size: 18, color: Colors.white),
+                                  : Icon(
+                                      hasJoined
+                                          ? Icons.videocam_rounded
+                                          : Icons.arrow_forward,
+                                      size: 18,
+                                      color: Colors.white,
+                                    ),
                               enabled: !provider
-                                  .isJoiningChallenge(widget.challengeId),
+                                      .isJoiningChallenge(challengeId) &&
+                                  (canJoin || hasJoined),
                               onPressed: () async {
                                 final targetId =
-                                    liveDetail?.id.isNotEmpty == true
-                                        ? liveDetail!.id
-                                        : widget.challengeId;
+                                    liveDetail.id.isNotEmpty
+                                        ? liveDetail.id
+                                        : challengeId;
+                                if (hasJoined) {
+                                  context.push(
+                                    '${AppRoutes.submitEntry}?id=$targetId',
+                                  );
+                                  return;
+                                }
+                                if (!canJoin) return;
                                 final response = await context
                                     .read<ChallengesCubit>()
                                     .joinChallenge(targetId);
                                 if (!context.mounted) return;
-                                ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                                ScaffoldMessenger.of(context)
+                                    .hideCurrentSnackBar();
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
                                     content: Text(
@@ -566,7 +644,8 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                                         color: Colors.white,
                                       ),
                                     ),
-                                    duration: const Duration(milliseconds: 1500),
+                                    duration:
+                                        const Duration(milliseconds: 1500),
                                     behavior: SnackBarBehavior.floating,
                                     margin: const EdgeInsets.symmetric(
                                         horizontal: 20, vertical: 16),
@@ -579,7 +658,9 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                                   ),
                                 );
                                 if (response.success) {
-                                  context.push('${AppRoutes.submitEntry}?id=$targetId');
+                                  context.push(
+                                    '${AppRoutes.submitEntry}?id=$targetId',
+                                  );
                                 }
                               },
                             ),

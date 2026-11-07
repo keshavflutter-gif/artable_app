@@ -64,8 +64,12 @@ String challengeDateLabel(Map<String, dynamic> challenge) {
   }
 }
 
-String challengeCtaLabel(String status) {
-  switch (status) {
+String challengeCtaLabel(String status, {bool joined = false}) {
+  final key = status.toLowerCase().trim();
+  if (joined && (key == 'active' || key == 'live' || key == 'featured')) {
+    return 'Submit Entry';
+  }
+  switch (key) {
     case 'completed':
       return 'View Results';
     case 'upcoming':

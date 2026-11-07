@@ -22,6 +22,8 @@ class ApiConstants {
   static const String challenges = '/app/challenges';
   static const String leaderboard = '/app/leaderboard';
   static const String trendingVideos = '/app/videos/trending';
+  /// POST `/app/videos/:id/view` — increment watch count (auth required).
+  static String videoView(String videoId) => '/app/videos/$videoId/view';
   static const String profileStats = '/app/profile/stats';
   static const String achievements = '/app/profile/achievements';
   static const String profile = '/app/profile';

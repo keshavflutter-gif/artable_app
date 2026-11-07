@@ -96,6 +96,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       }
     } catch (e) {
       debugPrint('Error picking cover image: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not pick cover photo. Please try again.'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
     }
   }
 
@@ -135,6 +142,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       }
     } catch (e) {
       debugPrint('Error picking avatar image: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not pick profile photo. Please try again.'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
     }
   }
 
@@ -234,14 +248,15 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       return;
     }
 
+    // Only send local picked paths for upload — remote URLs stay as-is on server.
     final success = await auth.saveProfile(
       fullName: fullName,
       username: username,
       bio: bio,
       category: category,
       socialLinkUrl: social,
-      profileImagePath: _localAvatarPath ?? _avatarUrl,
-      coverImagePath: _localCoverPath ?? _coverUrl,
+      profileImagePath: _localAvatarPath,
+      coverImagePath: _localCoverPath,
     );
     if (!mounted) return;
 

@@ -451,12 +451,47 @@ class ChallengesCubit extends Cubit<ChallengesState> {
         refreshToken: refresh,
       );
       if (response.success) {
-        final challenge = getChallengeById(challengeId);
-        if (challenge != null) {
-          final count = (challenge['participants'] as int? ?? 0) + 1;
-          challenge['participants'] = count;
-          challenge['joined'] = true;
+        ChallengeDetailData markJoined(ChallengeDetailData c) {
+          if (c.id != challengeId) return c;
+          final nextCount = c.joined ? c.joinedCount : c.joinedCount + 1;
+          return c.copyWith(
+            joined: true,
+            joinedCount: nextCount,
+            joinedLabel: '$nextCount joined',
+          );
         }
+
+        final updatedDetails =
+            Map<String, ChallengeDetailData>.from(state.challengeDetails);
+        final existing = updatedDetails[challengeId];
+        if (existing != null) {
+          updatedDetails[challengeId] = markJoined(existing);
+        }
+
+        // Keep tab/category cards in sync so CTA flips to Submit Entry.
+        final updatedTabs =
+            Map<String, List<ChallengeDetailData>>.from(state.tabChallenges);
+        for (final key in updatedTabs.keys.toList()) {
+          updatedTabs[key] =
+              updatedTabs[key]!.map(markJoined).toList(growable: false);
+        }
+        final updatedCats = Map<String, List<ChallengeDetailData>>.from(
+          state.categoryChallenges,
+        );
+        for (final key in updatedCats.keys.toList()) {
+          updatedCats[key] =
+              updatedCats[key]!.map(markJoined).toList(growable: false);
+        }
+
+        emit(state.copyWith(
+          challengeDetails: updatedDetails,
+          tabChallenges: updatedTabs,
+          categoryChallenges: updatedCats,
+        ));
+        // Refresh from API so rules/participants stay authoritative.
+        unawaited(
+          loadChallengeDetail(challengeId, forceRefresh: true),
+        );
       }
       return response;
     } catch (e) {
