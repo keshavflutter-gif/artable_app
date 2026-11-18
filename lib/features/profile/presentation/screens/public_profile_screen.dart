@@ -126,7 +126,9 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
         ScaffoldMessenger.of(context).clearSnackBars();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to update follow status: ${e.toString().replaceAll('Exception: ', '')}'),
+            content: Text(
+              'Failed to update follow status: ${e.toString().replaceAll('Exception: ', '')}',
+            ),
             backgroundColor: AppColors.pink,
             duration: const Duration(seconds: 2),
           ),
@@ -158,12 +160,19 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                     Align(
                       alignment: Alignment.centerLeft,
                       child: IconButton(
-                        icon: const Icon(Icons.arrow_back, color: AppColors.text),
+                        icon: const Icon(
+                          Icons.arrow_back,
+                          color: AppColors.text,
+                        ),
                         onPressed: () => context.pop(),
                       ),
                     ),
                   const Spacer(),
-                  const Icon(Icons.person_off_outlined, size: 64, color: AppColors.textSoft),
+                  const Icon(
+                    Icons.person_off_outlined,
+                    size: 64,
+                    color: AppColors.textSoft,
+                  ),
                   const SizedBox(height: 16),
                   Text(
                     _errorMessage ?? 'User profile not found',
@@ -180,9 +189,14 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                     onPressed: _loadUserProfile,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.purple,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
                     ),
-                    child: const Text('Try Again', style: TextStyle(color: Colors.white)),
+                    child: const Text(
+                      'Try Again',
+                      style: TextStyle(color: Colors.white),
+                    ),
                   ),
                   const Spacer(),
                 ],
@@ -194,12 +208,16 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
     }
 
     final u = _user!;
-    final name = u.displayName.isNotEmpty ? u.displayName : (u.fullName.isNotEmpty ? u.fullName : 'User');
+    final name = u.displayName.isNotEmpty
+        ? u.displayName
+        : (u.fullName.isNotEmpty ? u.fullName : 'User');
     final handle = u.username != null && u.username!.isNotEmpty
         ? (u.username!.startsWith('@') ? u.username! : '@${u.username}')
         : '';
     final bio = u.bio ?? '';
-    final category = (u.category != null && u.category!.isNotEmpty) ? u.category!.toUpperCase() : 'TALENT';
+    final category = (u.category != null && u.category!.isNotEmpty)
+        ? u.category!.toUpperCase()
+        : 'TALENT';
     final avatarUrl = u.profilePhotoUrl ?? '';
     final coverUrl = u.coverImageUrl ?? '';
     final isVerified = u.isVerified == true || u.isBlueTick == true;
@@ -211,19 +229,37 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
 
     final authCubit = context.watch<AuthCubit>();
     final authState = authCubit.state;
-    final currentUserId = (authState.userId ?? authCubit.userId ?? authState.currentUser['id']?.toString())?.trim();
+    final currentUserId =
+        (authState.userId ??
+                authCubit.userId ??
+                authState.currentUser['id']?.toString())
+            ?.trim();
     final currentUsername = authCubit.username.isNotEmpty
         ? authCubit.username.trim().replaceAll('@', '')
-        : (authState.currentUser['username']?.toString() ?? '').trim().replaceAll('@', '');
-    final currentEmail = (authState.currentUser['email']?.toString() ?? '').trim();
+        : (authState.currentUser['username']?.toString() ?? '')
+              .trim()
+              .replaceAll('@', '');
+    final currentEmail = (authState.currentUser['email']?.toString() ?? '')
+        .trim();
 
     final targetUserId = (u.id.isNotEmpty ? u.id : widget.userId)?.trim();
     final targetUsername = u.username?.trim().replaceAll('@', '');
     final targetEmail = u.email?.trim();
 
-    final bool isSelf = (currentUserId != null && currentUserId.isNotEmpty && targetUserId != null && targetUserId.isNotEmpty && currentUserId == targetUserId) ||
-        (currentUsername.isNotEmpty && targetUsername != null && targetUsername.isNotEmpty && currentUsername.toLowerCase() == targetUsername.toLowerCase()) ||
-        (currentEmail.isNotEmpty && targetEmail != null && targetEmail.isNotEmpty && currentEmail.toLowerCase() == targetEmail.toLowerCase());
+    final bool isSelf =
+        (currentUserId != null &&
+            currentUserId.isNotEmpty &&
+            targetUserId != null &&
+            targetUserId.isNotEmpty &&
+            currentUserId == targetUserId) ||
+        (currentUsername.isNotEmpty &&
+            targetUsername != null &&
+            targetUsername.isNotEmpty &&
+            currentUsername.toLowerCase() == targetUsername.toLowerCase()) ||
+        (currentEmail.isNotEmpty &&
+            targetEmail != null &&
+            targetEmail.isNotEmpty &&
+            currentEmail.toLowerCase() == targetEmail.toLowerCase());
 
     final displayReels = <Map<String, dynamic>>[];
     final seenIds = <String>{};
@@ -251,7 +287,8 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
             'likes': v['likes'] ?? 0,
             'likesCount': v['likes'] ?? 0,
             'averageRating': v['averageRating']?.toString() ?? '0',
-            'talentScore': double.tryParse(v['averageRating']?.toString() ?? '') ?? 0.0,
+            'talentScore':
+                double.tryParse(v['averageRating']?.toString() ?? '') ?? 0.0,
             'score': v['averageRating']?.toString(),
             'handle': handle,
             'creator': name,
@@ -266,15 +303,20 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
         for (final r in list) {
           final id = r['id']?.toString() ?? r['_id']?.toString() ?? '';
           if (id.isNotEmpty && !seenIds.contains(id)) {
-            final userMap = r['user'] is Map ? Map<String, dynamic>.from(r['user'] as Map) : null;
+            final userMap = r['user'] is Map
+                ? Map<String, dynamic>.from(r['user'] as Map)
+                : null;
 
-            final rUserId = (r['userId']?.toString() ??
-                r['user_id']?.toString() ??
-                r['creatorId']?.toString() ??
-                userMap?['id']?.toString() ??
-                userMap?['_id']?.toString())?.trim();
+            final rUserId =
+                (r['userId']?.toString() ??
+                        r['user_id']?.toString() ??
+                        r['creatorId']?.toString() ??
+                        userMap?['id']?.toString() ??
+                        userMap?['_id']?.toString())
+                    ?.trim();
 
-            final isUserIdMatch = targetUserId != null &&
+            final isUserIdMatch =
+                targetUserId != null &&
                 targetUserId.isNotEmpty &&
                 rUserId != null &&
                 rUserId.isNotEmpty &&
@@ -288,27 +330,38 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
         }
       }
 
-      if (homeCubit.trendingReels.isNotEmpty) collectMatchingReels(homeCubit.trendingReels);
-      if (trendingCubit.videos.isNotEmpty) collectMatchingReels(trendingCubit.videos.map((v) => v.toUiMap()).toList());
-      if (trendingCubit.hero != null) collectMatchingReels([trendingCubit.hero!.toUiMap()]);
+      if (homeCubit.trendingReels.isNotEmpty)
+        collectMatchingReels(homeCubit.trendingReels);
+      if (trendingCubit.videos.isNotEmpty)
+        collectMatchingReels(
+          trendingCubit.videos.map((v) => v.toUiMap()).toList(),
+        );
+      if (trendingCubit.hero != null)
+        collectMatchingReels([trendingCubit.hero!.toUiMap()]);
       if (reelsCubit.videos.isNotEmpty) collectMatchingReels(reelsCubit.videos);
       if (isCurrentLoggedInUser && myVideosCubit.videos.isNotEmpty) {
-        collectMatchingReels(myVideosCubit.videos.map((v) => {
-          'id': v.id,
-          'userId': targetUserId,
-          'user_id': targetUserId,
-          'title': v.title,
-          'description': v.description,
-          'imageUrl': v.thumbnailUrl,
-          'thumbnailUrl': v.thumbnailUrl,
-          'videoUrl': v.videoUrl,
-          'views': v.viewsLabel,
-          'likes': v.likesLabel,
-          'talentScore': double.tryParse(v.talentScoreLabel) ?? 0.0,
-          'score': v.talentScoreLabel,
-          'handle': handle,
-          'creator': name,
-        }).toList());
+        collectMatchingReels(
+          myVideosCubit.videos
+              .map(
+                (v) => {
+                  'id': v.id,
+                  'userId': targetUserId,
+                  'user_id': targetUserId,
+                  'title': v.title,
+                  'description': v.description,
+                  'imageUrl': v.thumbnailUrl,
+                  'thumbnailUrl': v.thumbnailUrl,
+                  'videoUrl': v.videoUrl,
+                  'views': v.viewsLabel,
+                  'likes': v.likesLabel,
+                  'talentScore': double.tryParse(v.talentScoreLabel) ?? 0.0,
+                  'score': v.talentScoreLabel,
+                  'handle': handle,
+                  'creator': name,
+                },
+              )
+              .toList(),
+        );
       }
     }
 
@@ -334,15 +387,22 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
         'score': tv['averageRating']?.toString(),
       };
     } else if (displayReels.isNotEmpty) {
-      final sorted = [...displayReels]..sort((a, b) {
-        final scoreA = (a['talentScore'] as num?)?.toDouble() ?? (double.tryParse(a['score']?.toString() ?? '') ?? 0.0);
-        final scoreB = (b['talentScore'] as num?)?.toDouble() ?? (double.tryParse(b['score']?.toString() ?? '') ?? 0.0);
-        return scoreB.compareTo(scoreA);
-      });
+      final sorted = [...displayReels]
+        ..sort((a, b) {
+          final scoreA =
+              (a['talentScore'] as num?)?.toDouble() ??
+              (double.tryParse(a['score']?.toString() ?? '') ?? 0.0);
+          final scoreB =
+              (b['talentScore'] as num?)?.toDouble() ??
+              (double.tryParse(b['score']?.toString() ?? '') ?? 0.0);
+          return scoreB.compareTo(scoreA);
+        });
       topReelItem = sorted.first;
     }
 
-    final topReel = topReelItem != null ? [topReelItem] : <Map<String, dynamic>>[];
+    final topReel = topReelItem != null
+        ? [topReelItem]
+        : <Map<String, dynamic>>[];
 
     final numVideos = u.totalVideos > 0 ? u.totalVideos : displayReels.length;
 
@@ -357,14 +417,16 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
     }
 
     String talentScore = u.talentScore ?? '0';
-    if ((talentScore == '0' || talentScore == '0.0') && displayReels.isNotEmpty) {
+    if ((talentScore == '0' || talentScore == '0.0') &&
+        displayReels.isNotEmpty) {
       double totalScore = 0.0;
       int scoreCount = 0;
       for (final r in displayReels) {
-        final scoreVal = (r['talentScore'] as num?)?.toDouble() ??
+        final scoreVal =
+            (r['talentScore'] as num?)?.toDouble() ??
             (double.tryParse(r['score']?.toString() ?? '') ??
-            double.tryParse(r['averageRating']?.toString() ?? '') ??
-            0.0);
+                double.tryParse(r['averageRating']?.toString() ?? '') ??
+                0.0);
         if (scoreVal > 0) {
           totalScore += scoreVal;
           scoreCount++;
@@ -378,9 +440,7 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
 
     return AppScreen(
       child: SingleChildScrollView(
-        padding: EdgeInsets.only(
-          bottom: widget.showBackButton ? 22 : 86,
-        ),
+        padding: EdgeInsets.only(bottom: widget.showBackButton ? 22 : 86),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -389,6 +449,20 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
               coverUrl: coverUrl,
               avatarUrl: avatarUrl,
               showBackButton: widget.showBackButton,
+              onShareTap: () {
+                final shareName =
+                    _user?.fullName ?? _user?.username ?? 'Creator';
+                final profileId = widget.userId ?? _user?.id ?? '';
+                context.push(
+                  AppRoutes.shareReport,
+                  extra: {
+                    'title': 'Check out $shareName on Artable!',
+                    'caption':
+                        'Follow $shareName on Artable to watch amazing videos!',
+                    'videoUrl': 'https://artable.app/profile/$profileId',
+                  },
+                );
+              },
             ),
             AppContent(
               noBottomPad: true,
@@ -460,7 +534,10 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
 
                   // Category Badge Pill
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: const Color(0xFFF5F0FE),
                       borderRadius: BorderRadius.circular(20),
@@ -487,150 +564,22 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                     challengesWon: challengesWon,
                   ),
 
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 8),
 
-                  // Follow & Share Action Buttons
-                  Row(
-                    children: [
-                      Expanded(
-                        child: isSelf
-                            ? SecondaryOutlineButton(
-                                label: 'Edit Profile',
-                                onPressed: () => context.push(AppRoutes.editProfile),
-                                icon: const Icon(Icons.edit_outlined, size: 16, color: AppColors.purple),
-                              )
-                            : _following
-                                ? SecondaryOutlineButton(
-                                    label: _isFollowLoading ? 'Updating...' : 'Following',
-                                    onPressed: _isFollowLoading
-                                        ? null
-                                        : () {
-                                            if (targetUserId != null && targetUserId.isNotEmpty) {
-                                              _handleFollowToggle(targetUserId);
-                                            }
-                                          },
-                                    icon: _isFollowLoading
-                                        ? const SizedBox(
-                                            width: 14,
-                                            height: 14,
-                                            child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.purple),
-                                          )
-                                        : const Icon(Icons.check, size: 16),
-                                  )
-                                : Container(
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(28),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: const Color(0xFF8B3DFF).withValues(alpha: 0.20),
-                                          blurRadius: 14,
-                                          offset: const Offset(0, 6),
-                                        ),
-                                      ],
-                                    ),
-                                    child: Material(
-                                      color: Colors.transparent,
-                                      child: InkWell(
-                                        onTap: _isFollowLoading
-                                            ? null
-                                            : () {
-                                                if (targetUserId != null && targetUserId.isNotEmpty) {
-                                                  _handleFollowToggle(targetUserId);
-                                                }
-                                              },
-                                        borderRadius: BorderRadius.circular(28),
-                                        child: Container(
-                                          height: 48,
-                                          decoration: BoxDecoration(
-                                            gradient: AppGradients.button,
-                                            borderRadius: BorderRadius.circular(28),
-                                          ),
-                                          child: Row(
-                                            mainAxisAlignment: MainAxisAlignment.center,
-                                            children: [
-                                              if (_isFollowLoading)
-                                                const SizedBox(
-                                                  width: 16,
-                                                  height: 16,
-                                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                                )
-                                              else ...[
-                                                const Icon(
-                                                  Icons.person_add_outlined,
-                                                  size: 16,
-                                                  color: Colors.white,
-                                                ),
-                                                const SizedBox(width: 8),
-                                                const Text(
-                                                  'Follow',
-                                                  style: TextStyle(
-                                                    fontFamily: 'Poppins',
-                                                    fontSize: 14.5,
-                                                    fontWeight: FontWeight.w800,
-                                                    color: Colors.white,
-                                                  ),
-                                                ),
-                                              ],
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
+                  // Edit Profile Button (self only)
+                  if (isSelf) ...[
+                    SecondaryOutlineButton(
+                      label: 'Edit Profile',
+                      onPressed: () => context.push(AppRoutes.editProfile),
+                      icon: const Icon(
+                        Icons.edit_outlined,
+                        size: 16,
+                        color: AppColors.purple,
                       ),
-                      const SizedBox(width: 10),
-
-                      // Share Button
-                      SizedBox(
-                        width: 48,
-                        height: 48,
-                        child: Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            onTap: () {
-                              final name = _user?.fullName ?? _user?.username ?? 'Creator';
-                              final profileId = widget.userId ?? _user?.id ?? '';
-                              context.push(
-                                AppRoutes.shareReport,
-                                extra: {
-                                  'title': 'Check out $name on Artable!',
-                                  'caption': 'Follow $name on Artable to watch amazing videos!',
-                                  'videoUrl': 'https://artable.app/profile/$profileId',
-                                },
-                              );
-                            },
-                            borderRadius: BorderRadius.circular(24),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: AppColors.inputBorder,
-                                  width: 1.5,
-                                ),
-                                color: Colors.white,
-                                boxShadow: const [
-                                  BoxShadow(
-                                    color: Color(0x0D15083C),
-                                    blurRadius: 10,
-                                    offset: Offset(0, 4),
-                                  ),
-                                ],
-                              ),
-                              child: const Center(
-                                child: Icon(
-                                  Icons.share_outlined,
-                                  size: 18,
-                                  color: AppColors.text,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 22),
+                    ),
+                    const SizedBox(height: 10),
+                  ] else
+                    const SizedBox(height: 10),
 
                   // Top Performing Video (if available)
                   if (topReel.isNotEmpty) ...[
@@ -659,22 +608,48 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                             fit: StackFit.expand,
                             children: [
                               AppFilterUtils.wrap(
-                                filterId: ReelHelpers.resolveFilter(
-                                  filterId: topReel.first['filterId']?.toString(),
-                                  beautyOn: topReel.first['beautyOn'] == true,
-                                  beautyIntensity: (topReel.first['beautyIntensity'] as num?)?.toDouble(),
-                                  description: (topReel.first['description'] ?? topReel.first['caption'])?.toString(),
-                                  videoId: topReel.first['id']?.toString(),
-                                  videoUrl: topReel.first['videoUrl']?.toString(),
-                                )?.filterId ?? topReel.first['filterId']?.toString(),
+                                filterId:
+                                    ReelHelpers.resolveFilter(
+                                      filterId: topReel.first['filterId']
+                                          ?.toString(),
+                                      beautyOn:
+                                          topReel.first['beautyOn'] == true,
+                                      beautyIntensity:
+                                          (topReel.first['beautyIntensity']
+                                                  as num?)
+                                              ?.toDouble(),
+                                      description:
+                                          (topReel.first['description'] ??
+                                                  topReel.first['caption'])
+                                              ?.toString(),
+                                      videoId: topReel.first['id']?.toString(),
+                                      videoUrl: topReel.first['videoUrl']
+                                          ?.toString(),
+                                    )?.filterId ??
+                                    topReel.first['filterId']?.toString(),
                                 beautyOn: topReel.first['beautyOn'] == true,
-                                beautyIntensity: (topReel.first['beautyIntensity'] as num?)?.toDouble() ?? 0,
+                                beautyIntensity:
+                                    (topReel.first['beautyIntensity'] as num?)
+                                        ?.toDouble() ??
+                                    0,
                                 child: AppImage(
-                                  url: ((topReel.first['imageUrl'] as String? ?? '').isNotEmpty &&
-                                          !MediaUrlUtils.isDummyThumbnail(topReel.first['imageUrl'] as String?))
-                                      ? (topReel.first['imageUrl'] as String? ?? '')
-                                      : (topReel.first['videoUrl'] as String? ?? topReel.first['video_url'] as String? ?? ''),
-                                  videoUrl: topReel.first['videoUrl'] as String? ?? topReel.first['video_url'] as String?,
+                                  url:
+                                      ((topReel.first['imageUrl'] as String? ??
+                                                  '')
+                                              .isNotEmpty &&
+                                          !MediaUrlUtils.isDummyThumbnail(
+                                            topReel.first['imageUrl']
+                                                as String?,
+                                          ))
+                                      ? (topReel.first['imageUrl'] as String? ??
+                                            '')
+                                      : (topReel.first['videoUrl'] as String? ??
+                                            topReel.first['video_url']
+                                                as String? ??
+                                            ''),
+                                  videoUrl:
+                                      topReel.first['videoUrl'] as String? ??
+                                      topReel.first['video_url'] as String?,
                                   fit: BoxFit.cover,
                                   isVideo: true,
                                 ),
@@ -697,10 +672,16 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                                 top: 10,
                                 left: 10,
                                 child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3.5),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 9,
+                                    vertical: 3.5,
+                                  ),
                                   decoration: BoxDecoration(
                                     gradient: const LinearGradient(
-                                      colors: [Color(0xFFFF3D77), Color(0xFFFF5487)],
+                                      colors: [
+                                        Color(0xFFFF3D77),
+                                        Color(0xFFFF5487),
+                                      ],
                                     ),
                                     borderRadius: BorderRadius.circular(16),
                                   ),
@@ -721,7 +702,10 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                                 top: 10,
                                 right: 10,
                                 child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3.5),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 3.5,
+                                  ),
                                   decoration: BoxDecoration(
                                     color: Colors.black.withValues(alpha: 0.5),
                                     borderRadius: BorderRadius.circular(16),
@@ -774,8 +758,16 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                                     const SizedBox(width: 8),
                                     CircleAvatar(
                                       radius: 9,
-                                      backgroundImage: avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
-                                      child: avatarUrl.isEmpty ? const Icon(Icons.person, size: 10, color: Colors.white) : null,
+                                      backgroundImage: avatarUrl.isNotEmpty
+                                          ? NetworkImage(avatarUrl)
+                                          : null,
+                                      child: avatarUrl.isEmpty
+                                          ? const Icon(
+                                              Icons.person,
+                                              size: 10,
+                                              color: Colors.white,
+                                            )
+                                          : null,
                                     ),
                                     const SizedBox(width: 4),
                                     Text(
@@ -825,22 +817,37 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                     GridView.builder(
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
-                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 3,
-                        crossAxisSpacing: 8,
-                        mainAxisSpacing: 8,
-                        childAspectRatio: 0.72,
-                      ),
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 3,
+                            crossAxisSpacing: 8,
+                            mainAxisSpacing: 8,
+                            childAspectRatio: 0.72,
+                          ),
                       itemCount: displayReels.length,
                       itemBuilder: (_, i) {
                         final r = displayReels[i];
-                        final rawThumb = (r['thumbnailUrl'] as String? ?? r['imageUrl'] as String? ?? '').trim();
-                        final rawVideo = (r['videoUrl'] as String? ?? r['video_url'] as String? ?? '').trim();
-                        final isThumbValid = rawThumb.isNotEmpty && !MediaUrlUtils.isDummyThumbnail(rawThumb);
-                        final effectiveThumb = isThumbValid ? rawThumb : rawVideo;
+                        final rawThumb =
+                            (r['thumbnailUrl'] as String? ??
+                                    r['imageUrl'] as String? ??
+                                    '')
+                                .trim();
+                        final rawVideo =
+                            (r['videoUrl'] as String? ??
+                                    r['video_url'] as String? ??
+                                    '')
+                                .trim();
+                        final isThumbValid =
+                            rawThumb.isNotEmpty &&
+                            !MediaUrlUtils.isDummyThumbnail(rawThumb);
+                        final effectiveThumb = isThumbValid
+                            ? rawThumb
+                            : rawVideo;
                         final effectiveVideo = rawVideo.isNotEmpty
                             ? rawVideo
-                            : (MediaUrlUtils.looksLikeVideoUrl(effectiveThumb) ? effectiveThumb : null);
+                            : (MediaUrlUtils.looksLikeVideoUrl(effectiveThumb)
+                                  ? effectiveThumb
+                                  : null);
                         return GestureDetector(
                           onTap: () => context.push(
                             '${AppRoutes.videoDetail}?id=${r['id']}',
@@ -851,16 +858,27 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                               fit: StackFit.expand,
                               children: [
                                 AppFilterUtils.wrap(
-                                  filterId: ReelHelpers.resolveFilter(
-                                    filterId: r['filterId']?.toString(),
-                                    beautyOn: r['beautyOn'] == true,
-                                    beautyIntensity: (r['beautyIntensity'] as num?)?.toDouble(),
-                                    description: (r['description'] ?? r['caption'])?.toString(),
-                                    videoId: r['id']?.toString(),
-                                    videoUrl: r['videoUrl']?.toString() ?? r['video_url']?.toString(),
-                                  )?.filterId ?? r['filterId']?.toString(),
+                                  filterId:
+                                      ReelHelpers.resolveFilter(
+                                        filterId: r['filterId']?.toString(),
+                                        beautyOn: r['beautyOn'] == true,
+                                        beautyIntensity:
+                                            (r['beautyIntensity'] as num?)
+                                                ?.toDouble(),
+                                        description:
+                                            (r['description'] ?? r['caption'])
+                                                ?.toString(),
+                                        videoId: r['id']?.toString(),
+                                        videoUrl:
+                                            r['videoUrl']?.toString() ??
+                                            r['video_url']?.toString(),
+                                      )?.filterId ??
+                                      r['filterId']?.toString(),
                                   beautyOn: r['beautyOn'] == true,
-                                  beautyIntensity: (r['beautyIntensity'] as num?)?.toDouble() ?? 0,
+                                  beautyIntensity:
+                                      (r['beautyIntensity'] as num?)
+                                          ?.toDouble() ??
+                                      0,
                                   child: AppImage(
                                     url: effectiveThumb,
                                     videoUrl: effectiveVideo,
@@ -886,10 +904,16 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                                   top: 6,
                                   left: 6,
                                   child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 7,
+                                      vertical: 3,
+                                    ),
                                     decoration: BoxDecoration(
                                       gradient: const LinearGradient(
-                                        colors: [Color(0xFFFF3D77), Color(0xFFFF5487)],
+                                        colors: [
+                                          Color(0xFFFF3D77),
+                                          Color(0xFFFF5487),
+                                        ],
                                       ),
                                       borderRadius: BorderRadius.circular(12),
                                     ),
@@ -911,7 +935,8 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                                   bottom: 6,
                                   right: 6,
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
                                       Row(
@@ -937,8 +962,17 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                                         children: [
                                           CircleAvatar(
                                             radius: 6.5,
-                                            backgroundImage: avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
-                                            child: avatarUrl.isEmpty ? const Icon(Icons.person, size: 7, color: Colors.white) : null,
+                                            backgroundImage:
+                                                avatarUrl.isNotEmpty
+                                                ? NetworkImage(avatarUrl)
+                                                : null,
+                                            child: avatarUrl.isEmpty
+                                                ? const Icon(
+                                                    Icons.person,
+                                                    size: 7,
+                                                    color: Colors.white,
+                                                  )
+                                                : null,
                                           ),
                                           const SizedBox(width: 3),
                                           Expanded(
@@ -982,7 +1016,10 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                     )
                   else
                     Container(
-                      padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 16),
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 36,
+                        horizontal: 16,
+                      ),
                       width: double.infinity,
                       decoration: BoxDecoration(
                         color: const Color(0xFFFBF9FE),
@@ -991,7 +1028,11 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                       ),
                       child: const Column(
                         children: [
-                          Icon(Icons.video_library_outlined, size: 36, color: AppColors.textSoft),
+                          Icon(
+                            Icons.video_library_outlined,
+                            size: 36,
+                            color: AppColors.textSoft,
+                          ),
                           SizedBox(height: 8),
                           Text(
                             'No videos posted yet',

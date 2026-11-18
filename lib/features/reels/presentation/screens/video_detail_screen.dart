@@ -22,7 +22,6 @@ import 'package:artable_app/features/trending/data/models/trending_videos_respon
 import 'package:video_player/video_player.dart';
 import 'package:artable_app/core/utils/video_cache_manager.dart';
 import 'package:artable_app/core/utils/media_url_utils.dart';
-import 'package:artable_app/core/services/video_interstitial_ad.dart';
 import 'package:artable_app/data/datasources/music_api_service.dart';
 import 'package:artable_app/features/reels/data/services/reel_bgm_playback_service.dart';
 import 'package:artable_app/features/trending/data/repositories/videos_repository.dart';
@@ -47,6 +46,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
   bool _hasStageError = false;
   String? _currentLoadedVideoUrl;
   int _stageInitGeneration = 0;
+
   /// True while another route covers this screen — BGM/video must stay off.
   bool _routeCovered = false;
 
@@ -168,9 +168,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     }
 
     if (available.isEmpty) {
-      return <String, dynamic>{
-        if (targetId.isNotEmpty) 'id': targetId,
-      };
+      return <String, dynamic>{if (targetId.isNotEmpty) 'id': targetId};
     }
 
     // Never fall back to an unrelated first feed item when we have a target id.
@@ -182,9 +180,16 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     final res = Map<String, dynamic>.from(baseMap);
     final id = res['id']?.toString() ?? res['_id']?.toString() ?? targetId;
     final vUrl = res['videoUrl']?.toString() ?? '';
-    if (res['mergedClipPaths'] == null || (res['mergedClipPaths'] is List && (res['mergedClipPaths'] as List).isEmpty)) {
-      final descClips = ReelHelpers.parseDescriptionClips(res['description']?.toString() ?? res['caption']?.toString()).clips;
-      final cached = descClips ?? ReelHelpers.getCachedMergedClips(id) ?? ReelHelpers.getCachedMergedClips(vUrl);
+    if (res['mergedClipPaths'] == null ||
+        (res['mergedClipPaths'] is List &&
+            (res['mergedClipPaths'] as List).isEmpty)) {
+      final descClips = ReelHelpers.parseDescriptionClips(
+        res['description']?.toString() ?? res['caption']?.toString(),
+      ).clips;
+      final cached =
+          descClips ??
+          ReelHelpers.getCachedMergedClips(id) ??
+          ReelHelpers.getCachedMergedClips(vUrl);
       if (cached != null && cached.isNotEmpty) {
         res['mergedClipPaths'] = cached;
       }
@@ -199,12 +204,14 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     _initStageVideo();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        final rId = reelMap['id']?.toString() ?? reelMap['_id']?.toString() ?? widget.reelId;
+        final rId =
+            reelMap['id']?.toString() ??
+            reelMap['_id']?.toString() ??
+            widget.reelId;
         if (rId != null && rId.isNotEmpty) {
           context.read<ReelsCubit>().fetchComments(rId);
           _fetchVideoDetail(rId);
         }
-        unawaited(VideoInterstitialAd.instance.load());
       }
     });
   }
@@ -268,7 +275,8 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
       musicName: reel['musicName']?.toString() ?? reel['music']?.toString(),
       startSeconds: (reel['musicStartSeconds'] as num?)?.toDouble(),
       durationSeconds: (reel['musicCropDuration'] as num?)?.toDouble(),
-      videoId: reel['id']?.toString() ?? reel['_id']?.toString() ?? widget.reelId,
+      videoId:
+          reel['id']?.toString() ?? reel['_id']?.toString() ?? widget.reelId,
       videoUrl: reel['videoUrl']?.toString(),
       resolveAudioUrl: (name) => MusicApiService.resolveByName(name)?.audioUrl,
     );
@@ -289,8 +297,11 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
   }
 
   String _stagePlayableUrl(Map<String, dynamic> reelMap) {
-    final direct = (reelMap['videoUrl'] ?? reelMap['videoPath'])?.toString().trim() ?? '';
-    if (direct.isNotEmpty && direct != 'null' && !MediaUrlUtils.looksLikeImageUrl(direct)) {
+    final direct =
+        (reelMap['videoUrl'] ?? reelMap['videoPath'])?.toString().trim() ?? '';
+    if (direct.isNotEmpty &&
+        direct != 'null' &&
+        !MediaUrlUtils.looksLikeImageUrl(direct)) {
       final resolved = MediaUrlUtils.resolve(direct).trim();
       if (_isUsableStageUrl(resolved)) return resolved;
     }
@@ -303,11 +314,15 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
         if (_isUsableStageUrl(resolved)) return resolved;
       }
     }
-    final id = reelMap['id']?.toString() ?? reelMap['_id']?.toString() ?? widget.reelId;
+    final id =
+        reelMap['id']?.toString() ??
+        reelMap['_id']?.toString() ??
+        widget.reelId;
     final cached = ReelHelpers.getCachedMergedClips(id);
     if (cached != null) {
       for (final clip in cached) {
-        if (clip.trim().isEmpty || MediaUrlUtils.looksLikeImageUrl(clip)) continue;
+        if (clip.trim().isEmpty || MediaUrlUtils.looksLikeImageUrl(clip))
+          continue;
         final resolved = MediaUrlUtils.resolve(clip).trim();
         if (_isUsableStageUrl(resolved)) return resolved;
       }
@@ -322,7 +337,8 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
   Future<void> _syncStageBgmAsync({required bool play}) async {
     final music = _resolveReelMusic();
     final url = music?.url.trim() ?? '';
-    final reelId = _reel['id']?.toString() ??
+    final reelId =
+        _reel['id']?.toString() ??
         _reel['_id']?.toString() ??
         widget.reelId ??
         'detail';
@@ -347,6 +363,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
 
   Future<void> _releaseStagePlayer() async {
     _stageInitGeneration++;
+    ReelBgmPlaybackService.silenceForNavigation();
     ReelBgmPlaybackService.killNow();
     unawaited(ReelBgmPlaybackService.halt());
     final old = _stageController;
@@ -354,6 +371,9 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     _isStageInitialized = false;
     _currentLoadedVideoUrl = null;
     old?.removeListener(_onStageControllerUpdate);
+    try {
+      old?.setVolume(0.0);
+    } catch (_) {}
     try {
       await old?.pause();
     } catch (_) {}
@@ -380,7 +400,10 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
         add(raw.toString());
       }
     }
-    final id = reelMap['id']?.toString() ?? reelMap['_id']?.toString() ?? widget.reelId;
+    final id =
+        reelMap['id']?.toString() ??
+        reelMap['_id']?.toString() ??
+        widget.reelId;
     final cached = ReelHelpers.getCachedMergedClips(id);
     if (cached != null) {
       for (final clip in cached) {
@@ -551,8 +574,12 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
       );
       final item = await repo.getVideoById(
         videoId,
-        sessionToken: authCubit.sessionToken != 'design_preview' ? authCubit.sessionToken : null,
-        refreshToken: authCubit.refreshToken != 'design_preview' ? authCubit.refreshToken : null,
+        sessionToken: authCubit.sessionToken != 'design_preview'
+            ? authCubit.sessionToken
+            : null,
+        refreshToken: authCubit.refreshToken != 'design_preview'
+            ? authCubit.refreshToken
+            : null,
       );
       if (item != null && mounted) {
         // Prefer the map we already opened with (profile/list) so a partial
@@ -563,13 +590,24 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
         );
         // Re-apply API fields that are authoritative when present.
         final apiMap = item.toUiMap();
-        for (final key in ['title', 'description', 'caption', 'likes', 'likesCount', 'views', 'viewsCount', 'comments', 'commentsCount']) {
+        for (final key in [
+          'title',
+          'description',
+          'caption',
+          'likes',
+          'likesCount',
+          'views',
+          'viewsCount',
+          'comments',
+          'commentsCount',
+        ]) {
           final v = apiMap[key]?.toString().trim() ?? '';
           if (v.isNotEmpty && v != 'null') uiMap[key] = apiMap[key];
         }
         final existingVideo = uiMap['videoUrl']?.toString().trim() ?? '';
         final apiVideo = apiMap['videoUrl']?.toString().trim() ?? '';
-        final existingPlayable = existingVideo.isNotEmpty &&
+        final existingPlayable =
+            existingVideo.isNotEmpty &&
             existingVideo != 'null' &&
             !MediaUrlUtils.looksLikeImageUrl(existingVideo);
         if (!existingPlayable &&
@@ -586,7 +624,8 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
           durationSeconds: (uiMap['musicCropDuration'] as num?)?.toDouble(),
           videoId: uiMap['id']?.toString(),
           videoUrl: uiMap['videoUrl']?.toString(),
-          resolveAudioUrl: (name) => MusicApiService.resolveByName(name)?.audioUrl,
+          resolveAudioUrl: (name) =>
+              MusicApiService.resolveByName(name)?.audioUrl,
         );
         if (music != null && music.url.isNotEmpty) {
           uiMap['musicUrl'] = music.url;
@@ -598,11 +637,13 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
           _apiReel = uiMap;
         });
         final playable = _stagePlayableUrl(uiMap);
-        final alreadyPlaying = _isStageInitialized &&
+        final alreadyPlaying =
+            _isStageInitialized &&
             _stageController != null &&
             _stageController!.value.isInitialized &&
             !_hasStageError;
-        final sameUrlLoading = _isStageLoading &&
+        final sameUrlLoading =
+            _isStageLoading &&
             playable.isNotEmpty &&
             playable == _currentLoadedVideoUrl;
         if (alreadyPlaying) {
@@ -656,10 +697,13 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
   Future<void> _onBackRefresh() async {
     if (_exitingWithAd) return;
     _exitingWithAd = true;
-    // Kill BGM immediately — interstitial / dispose must not leave music running.
+    try {
+      _stageController?.setVolume(0.0);
+      _stageController?.pause();
+    } catch (_) {}
+    ReelBgmPlaybackService.silenceForNavigation();
     ReelBgmPlaybackService.killNow();
     await _releaseStagePlayer();
-    await VideoInterstitialAd.instance.show();
     if (!mounted) return;
     context.read<TrendingVideosCubit>().loadTrendingVideos(forceRefresh: true);
     context.read<HomeCubit>().loadHomeDashboard(forceRefresh: true);
@@ -673,16 +717,17 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     final reel = _reel;
     final challenge = ReelHelpers.challengeForReel(reel);
     final reelId = reel['id']?.toString() ?? reel['_id']?.toString() ?? '';
-    final relatedReels = [
-      if (context.read<TrendingVideosCubit>().hero != null)
-        context.read<TrendingVideosCubit>().hero!.toUiMap(),
-      ...context.read<TrendingVideosCubit>().videos.map((v) => v.toUiMap()),
-      ...context.read<HomeCubit>().trendingReels,
-      ...context.read<ReelsCubit>().videos,
-    ].where((r) {
-      final id = r['id']?.toString() ?? r['_id']?.toString() ?? '';
-      return id.isNotEmpty && id != reelId;
-    }).toList();
+    final relatedReels =
+        [
+          if (context.read<TrendingVideosCubit>().hero != null)
+            context.read<TrendingVideosCubit>().hero!.toUiMap(),
+          ...context.read<TrendingVideosCubit>().videos.map((v) => v.toUiMap()),
+          ...context.read<HomeCubit>().trendingReels,
+          ...context.read<ReelsCubit>().videos,
+        ].where((r) {
+          final id = r['id']?.toString() ?? r['_id']?.toString() ?? '';
+          return id.isNotEmpty && id != reelId;
+        }).toList();
     final seenRelated = <String>{};
     relatedReels.retainWhere((r) {
       final id = r['id']?.toString() ?? r['_id']?.toString() ?? '';
@@ -691,7 +736,10 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
       return true;
     });
     final creator = <String, dynamic>{
-      'id': reel['userId'] ?? reel['user_id'] ?? (reel['user'] is Map ? (reel['user'] as Map)['id'] : null),
+      'id':
+          reel['userId'] ??
+          reel['user_id'] ??
+          (reel['user'] is Map ? (reel['user'] as Map)['id'] : null),
       'name': reel['creator'],
       'handle': reel['handle'],
     };
@@ -706,104 +754,108 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            AppBackHeader(
-              title: 'Reel',
-              onBack: _onBackRefresh,
-            ),
-          Expanded(
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const SizedBox(height: 10),
+            AppBackHeader(title: 'Reel', onBack: _onBackRefresh),
+            Expanded(
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const SizedBox(height: 10),
 
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                  // 1. Main Video Stage Player Card
-                  _buildVideoStage(reel),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          // 1. Main Video Stage Player Card
+                          _buildVideoStage(reel),
 
-                  const SizedBox(height: 14),
+                          const SizedBox(height: 14),
 
-                  // 2. Creator Pill Card (Deep Purple Gradient)
-                  _buildCreatorCard(reel, creator),
+                          // 2. Creator Pill Card (Deep Purple Gradient)
+                          _buildCreatorCard(reel, creator),
 
-                  const SizedBox(height: 12),
+                          const SizedBox(height: 12),
 
-                  // 3. Caption & Hashtags (strip embedded music/filter/clips tags)
-                  Builder(builder: (_) {
-                    final captionText = ReelHelpers.cleanDescription(
-                      (reel['caption']?.toString().trim().isNotEmpty == true
-                              ? reel['caption']
-                              : reel['description'])
-                          ?.toString(),
-                    ).replaceAll(RegExp(r'#+'), '#').trim();
-                    if (captionText.isEmpty) return const SizedBox.shrink();
-                    return Text(
-                      captionText,
-                      style: const TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 13,
-                        fontWeight: FontWeight.w400,
-                        color: AppColors.text,
-                        height: 1.5,
+                          // 3. Caption & Hashtags (strip embedded music/filter/clips tags)
+                          Builder(
+                            builder: (_) {
+                              final captionText = ReelHelpers.cleanDescription(
+                                (reel['caption']
+                                                ?.toString()
+                                                .trim()
+                                                .isNotEmpty ==
+                                            true
+                                        ? reel['caption']
+                                        : reel['description'])
+                                    ?.toString(),
+                              ).replaceAll(RegExp(r'#+'), '#').trim();
+                              if (captionText.isEmpty)
+                                return const SizedBox.shrink();
+                              return Text(
+                                captionText,
+                                style: const TextStyle(
+                                  fontFamily: 'Inter',
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w400,
+                                  color: AppColors.text,
+                                  height: 1.5,
+                                ),
+                              );
+                            },
+                          ),
+
+                          const SizedBox(height: 14),
+
+                          // 4. 4-Column Engagement Stats Row (Views, Likes, Comments, Shares)
+                          _buildEngagementStats(reel),
+
+                          const SizedBox(height: 14),
+
+                          // 5. Avg. Talent Score Banner
+                          _buildTalentScoreBanner(reel),
+
+                          const SizedBox(height: 16),
+
+                          // 6. Rate This Talent Button (Vivid Gradient)
+                          _buildRateButton(reel),
+
+                          const SizedBox(height: 10),
+
+                          // 7. Challenge Button (White Pill with Trophy)
+                          if (challenge != null)
+                            _buildChallengeButton(challenge),
+
+                          const SizedBox(height: 24),
+
+                          // 8. "More Reels" Section Header
+                          Text(
+                            'More Reels',
+                            style: AppTextStyles.displayBold.copyWith(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.text,
+                            ),
+                          ),
+
+                          const SizedBox(height: 12),
+
+                          // 9. 2-Column Grid of More Reels
+                          _buildMoreReelsGrid(relatedReels),
+
+                          const SizedBox(height: 36),
+                        ],
                       ),
-                    );
-                  }),
-
-                  const SizedBox(height: 14),
-
-                  // 4. 4-Column Engagement Stats Row (Views, Likes, Comments, Shares)
-                  _buildEngagementStats(reel),
-
-                  const SizedBox(height: 14),
-
-                  // 5. Avg. Talent Score Banner
-                  _buildTalentScoreBanner(reel),
-
-                  const SizedBox(height: 16),
-
-                  // 6. Rate This Talent Button (Vivid Gradient)
-                  _buildRateButton(reel),
-
-                  const SizedBox(height: 10),
-
-                  // 7. Challenge Button (White Pill with Trophy)
-                  if (challenge != null)
-                    _buildChallengeButton(challenge),
-
-                  const SizedBox(height: 24),
-
-                  // 8. "More Reels" Section Header
-                  Text(
-                    'More Reels',
-                    style: AppTextStyles.displayBold.copyWith(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.text,
                     ),
-                  ),
-
-                  const SizedBox(height: 12),
-
-                  // 9. 2-Column Grid of More Reels
-                  _buildMoreReelsGrid(relatedReels),
-
-                  const SizedBox(height: 36),
-                ],
+                  ],
+                ),
               ),
             ),
           ],
         ),
       ),
-    ),
-  ],
-),
-),
-);
-}
+    );
+  }
 
   // --- Main Video Stage Player ---
   Widget _buildVideoStage(Map<String, dynamic> reel) {
@@ -812,8 +864,15 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
         ? rawCat.toUpperCase()
         : 'TALENT';
     final badgeColor = _categoryBadgeColor(rawCat ?? 'TALENT');
-    final reelId = reel['id']?.toString() ?? reel['_id']?.toString() ?? widget.reelId ?? '';
-    final imageUrl = (reel['imageUrl'] as String?) ?? (reel['thumbnailUrl'] as String?) ?? '';
+    final reelId =
+        reel['id']?.toString() ??
+        reel['_id']?.toString() ??
+        widget.reelId ??
+        '';
+    final imageUrl =
+        (reel['imageUrl'] as String?) ??
+        (reel['thumbnailUrl'] as String?) ??
+        '';
     final isSaved = context.watch<ReelsCubit>().isBookmarked(reelId);
 
     Future<void> openReelsFeed() async {
@@ -896,19 +955,28 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
               children: [
                 // 1. Base Video Thumbnail Preview
                 AppFilterUtils.wrap(
-                  filterId: ReelHelpers.resolveFilter(
-                    filterId: reel['filterId']?.toString(),
-                    beautyOn: reel['beautyOn'] == true,
-                    beautyIntensity: (reel['beautyIntensity'] as num?)?.toDouble(),
-                    description: (reel['description'] ?? reel['caption'])?.toString(),
-                    videoId: reelId,
-                    videoUrl: (reel['videoUrl'] as String?) ?? (reel['videoPath'] as String?),
-                  )?.filterId ?? reel['filterId']?.toString(),
+                  filterId:
+                      ReelHelpers.resolveFilter(
+                        filterId: reel['filterId']?.toString(),
+                        beautyOn: reel['beautyOn'] == true,
+                        beautyIntensity: (reel['beautyIntensity'] as num?)
+                            ?.toDouble(),
+                        description: (reel['description'] ?? reel['caption'])
+                            ?.toString(),
+                        videoId: reelId,
+                        videoUrl:
+                            (reel['videoUrl'] as String?) ??
+                            (reel['videoPath'] as String?),
+                      )?.filterId ??
+                      reel['filterId']?.toString(),
                   beautyOn: reel['beautyOn'] == true,
-                  beautyIntensity: (reel['beautyIntensity'] as num?)?.toDouble() ?? 0,
+                  beautyIntensity:
+                      (reel['beautyIntensity'] as num?)?.toDouble() ?? 0,
                   child: AppImage(
                     url: imageUrl,
-                    videoUrl: (reel['videoUrl'] as String?) ?? (reel['videoPath'] as String?),
+                    videoUrl:
+                        (reel['videoUrl'] as String?) ??
+                        (reel['videoPath'] as String?),
                     fit: BoxFit.cover,
                     isVideo: true,
                   ),
@@ -919,31 +987,38 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                     _stageController != null &&
                     _stageController!.value.isInitialized)
                   AppFilterUtils.wrap(
-                    filterId: ReelHelpers.resolveFilter(
-                      filterId: reel['filterId']?.toString(),
-                      beautyOn: reel['beautyOn'] == true,
-                      beautyIntensity: (reel['beautyIntensity'] as num?)?.toDouble(),
-                      description: (reel['description'] ?? reel['caption'])?.toString(),
-                      videoId: reelId,
-                      videoUrl: (reel['videoUrl'] as String?) ?? (reel['videoPath'] as String?),
-                    )?.filterId ?? reel['filterId']?.toString(),
+                    filterId:
+                        ReelHelpers.resolveFilter(
+                          filterId: reel['filterId']?.toString(),
+                          beautyOn: reel['beautyOn'] == true,
+                          beautyIntensity: (reel['beautyIntensity'] as num?)
+                              ?.toDouble(),
+                          description: (reel['description'] ?? reel['caption'])
+                              ?.toString(),
+                          videoId: reelId,
+                          videoUrl:
+                              (reel['videoUrl'] as String?) ??
+                              (reel['videoPath'] as String?),
+                        )?.filterId ??
+                        reel['filterId']?.toString(),
                     beautyOn: reel['beautyOn'] == true,
-                    beautyIntensity: (reel['beautyIntensity'] as num?)?.toDouble() ?? 0,
+                    beautyIntensity:
+                        (reel['beautyIntensity'] as num?)?.toDouble() ?? 0,
                     child: FittedBox(
-                    fit: BoxFit.cover,
-                    clipBehavior: Clip.hardEdge,
-                    child: SizedBox(
-                      width: _stageController!.value.size.width > 0
-                          ? _stageController!.value.size.width
-                          : 360,
-                      height: _stageController!.value.size.height > 0
-                          ? _stageController!.value.size.height
-                          : 640,
-                      child: RepaintBoundary(
-                        child: VideoPlayer(_stageController!),
+                      fit: BoxFit.cover,
+                      clipBehavior: Clip.hardEdge,
+                      child: SizedBox(
+                        width: _stageController!.value.size.width > 0
+                            ? _stageController!.value.size.width
+                            : 360,
+                        height: _stageController!.value.size.height > 0
+                            ? _stageController!.value.size.height
+                            : 640,
+                        child: RepaintBoundary(
+                          child: VideoPlayer(_stageController!),
+                        ),
                       ),
                     ),
-                  ),
                   ),
 
                 // 3. Subtle Gradient Overlay
@@ -986,7 +1061,9 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                       height: 28,
                       child: CircularProgressIndicator(
                         strokeWidth: 2.5,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white70),
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          Colors.white70,
+                        ),
                       ),
                     ),
                   ),
@@ -997,7 +1074,10 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                     child: GestureDetector(
                       onTap: () => unawaited(_initStageVideo(force: true)),
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 8,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.black.withValues(alpha: 0.7),
                           borderRadius: BorderRadius.circular(16),
@@ -1006,7 +1086,11 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                         child: const Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.refresh_rounded, color: Colors.white, size: 18),
+                            Icon(
+                              Icons.refresh_rounded,
+                              color: Colors.white,
+                              size: 18,
+                            ),
                             SizedBox(width: 6),
                             Text(
                               'Retry Video',
@@ -1028,7 +1112,10 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                   top: 12,
                   left: 12,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 11,
+                      vertical: 5,
+                    ),
                     decoration: BoxDecoration(
                       color: badgeColor,
                       borderRadius: BorderRadius.circular(999),
@@ -1060,7 +1147,8 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                   child: Material(
                     color: Colors.transparent,
                     child: InkWell(
-                      onTap: () => context.read<ReelsCubit>().toggleBookmark(reelId),
+                      onTap: () =>
+                          context.read<ReelsCubit>().toggleBookmark(reelId),
                       borderRadius: BorderRadius.circular(999),
                       child: Container(
                         padding: const EdgeInsets.all(8),
@@ -1121,7 +1209,10 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                   child: GestureDetector(
                     onTap: () => unawaited(openReelsFeed()),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.black.withValues(alpha: 0.6),
                         borderRadius: BorderRadius.circular(20),
@@ -1130,7 +1221,11 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                       child: const Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.fullscreen_rounded, color: Colors.white, size: 16),
+                          Icon(
+                            Icons.fullscreen_rounded,
+                            color: Colors.white,
+                            size: 16,
+                          ),
                           SizedBox(width: 4),
                           Text(
                             'Full Reel',
@@ -1155,29 +1250,42 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
   }
 
   // --- Creator Card (Deep Purple Card) ---
-  Widget _buildCreatorCard(Map<String, dynamic> reel, Map<String, dynamic> creator) {
+  Widget _buildCreatorCard(
+    Map<String, dynamic> reel,
+    Map<String, dynamic> creator,
+  ) {
     final authCubit = context.read<AuthCubit>();
     final profileUser = context.read<ProfileCubit>().user;
     final currentUsername = authCubit.username.isNotEmpty
         ? authCubit.username.trim().replaceAll('@', '')
         : (profileUser?.username?.isNotEmpty == true
-            ? profileUser!.username!.trim().replaceAll('@', '')
-            : '');
-    final currentFullName = (authCubit.fullName.isNotEmpty
-            ? authCubit.fullName
-            : (profileUser?.fullName ?? ''))
-        .trim();
+              ? profileUser!.username!.trim().replaceAll('@', '')
+              : '');
+    final currentFullName =
+        (authCubit.fullName.isNotEmpty
+                ? authCubit.fullName
+                : (profileUser?.fullName ?? ''))
+            .trim();
 
     final userMap = reel['user'] is Map
         ? Map<String, dynamic>.from(reel['user'] as Map)
-        : (reel['creator'] is Map ? Map<String, dynamic>.from(reel['creator'] as Map) : null);
+        : (reel['creator'] is Map
+              ? Map<String, dynamic>.from(reel['creator'] as Map)
+              : null);
 
-    String rawUsername = (reel['username']?.toString() ??
-        userMap?['username']?.toString() ??
-        userMap?['handle']?.toString() ??
-        (reel['handle']?.toString() != '@user' ? reel['handle']?.toString() : null) ??
-        (creator['handle']?.toString() != '@user' ? creator['handle']?.toString() : null) ??
-        '').trim().replaceAll('@', '');
+    String rawUsername =
+        (reel['username']?.toString() ??
+                userMap?['username']?.toString() ??
+                userMap?['handle']?.toString() ??
+                (reel['handle']?.toString() != '@user'
+                    ? reel['handle']?.toString()
+                    : null) ??
+                (creator['handle']?.toString() != '@user'
+                    ? creator['handle']?.toString()
+                    : null) ??
+                '')
+            .trim()
+            .replaceAll('@', '');
 
     if (rawUsername.isEmpty || rawUsername == 'user' || rawUsername == 'You') {
       if (currentUsername.isNotEmpty) {
@@ -1194,10 +1302,13 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     );
     final isVerified = reel['verified'] == true || reel['isBlueTick'] == true;
 
-    final targetUserId = reel['userId']?.toString() ??
+    final targetUserId =
+        reel['userId']?.toString() ??
         reel['user_id']?.toString() ??
         reel['creatorId']?.toString() ??
-        (reel['user'] is Map ? (reel['user'] as Map)['id']?.toString() : null) ??
+        (reel['user'] is Map
+            ? (reel['user'] as Map)['id']?.toString()
+            : null) ??
         creator['id']?.toString();
 
     return Material(
@@ -1205,9 +1316,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
       child: InkWell(
         onTap: () {
           if (targetUserId != null && targetUserId.isNotEmpty) {
-            unawaited(
-              _pushWhileCovered('/public-profile?id=$targetUserId'),
-            );
+            unawaited(_pushWhileCovered('/public-profile?id=$targetUserId'));
           }
         },
         borderRadius: BorderRadius.circular(16),
@@ -1218,10 +1327,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
             gradient: const LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [
-                Color(0xFF180B38),
-                Color(0xFF2B1362),
-              ],
+              colors: [Color(0xFF180B38), Color(0xFF2B1362)],
             ),
             boxShadow: [
               BoxShadow(
@@ -1311,30 +1417,42 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     final currentVideo = reelsProvider.getVideo(reelId) ?? reel;
 
     final views = _getFormattedCount(
-      currentVideo['viewsCount'] ?? currentVideo['viewCount'] ?? currentVideo['views'],
+      currentVideo['viewsCount'] ??
+          currentVideo['viewCount'] ??
+          currentVideo['views'],
       currentVideo['viewsLabel'],
     );
 
     final likes = _getFormattedCount(
-      currentVideo['likesCount'] ?? currentVideo['likeCount'] ?? currentVideo['likes'],
+      currentVideo['likesCount'] ??
+          currentVideo['likeCount'] ??
+          currentVideo['likes'],
       currentVideo['likesLabel'],
     );
 
     final int rawComments = TrendingVideoItem.parseCount(
-      currentVideo['commentsCount'] ?? currentVideo['commentCount'] ?? currentVideo['comments'],
+      currentVideo['commentsCount'] ??
+          currentVideo['commentCount'] ??
+          currentVideo['comments'],
     );
     final int commentsVal = reelsProvider.getCommentsCount(reelId, rawComments);
-    final comments = (currentVideo['commentsLabel'] is String && (currentVideo['commentsLabel'] as String).isNotEmpty)
+    final comments =
+        (currentVideo['commentsLabel'] is String &&
+            (currentVideo['commentsLabel'] as String).isNotEmpty)
         ? currentVideo['commentsLabel'] as String
         : TrendingVideoItem.formatCount(commentsVal);
 
     final shares = _getFormattedCount(
-      currentVideo['sharesCount'] ?? currentVideo['shareCount'] ?? currentVideo['shares'],
+      currentVideo['sharesCount'] ??
+          currentVideo['shareCount'] ??
+          currentVideo['shares'],
       currentVideo['sharesLabel'],
     );
 
     final saves = _getFormattedCount(
-      currentVideo['savesCount'] ?? currentVideo['saveCount'] ?? currentVideo['saves'],
+      currentVideo['savesCount'] ??
+          currentVideo['saveCount'] ??
+          currentVideo['saves'],
       currentVideo['savesLabel'],
     );
 
@@ -1348,24 +1466,30 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
         const SizedBox(width: 5),
         _buildStatItem(
           icon: isLiked ? Icons.favorite : Icons.favorite_border,
-          iconColor: isLiked ? const Color(0xFFFF3D77) : const Color(0xFF8B3DFF),
+          iconColor: isLiked
+              ? const Color(0xFFFF3D77)
+              : const Color(0xFF8B3DFF),
           value: likes,
           label: 'Likes',
-          onTap: () => context.read<ReelsCubit>().toggleLike(reelId, fallbackVideo: reel),
+          onTap: () => context.read<ReelsCubit>().toggleLike(
+            reelId,
+            fallbackVideo: reel,
+          ),
         ),
         const SizedBox(width: 5),
         _buildStatItem(
           icon: Icons.chat_bubble_outline,
           value: comments,
           label: 'Comments',
-          onTap: () => unawaited(
-                _pushWhileCovered('${AppRoutes.comments}?id=$reelId'),
-              ),
+          onTap: () =>
+              unawaited(_pushWhileCovered('${AppRoutes.comments}?id=$reelId')),
         ),
         const SizedBox(width: 5),
         _buildStatItem(
           icon: isSaved ? Icons.bookmark : Icons.bookmark_border,
-          iconColor: isSaved ? const Color(0xFFFF3D77) : const Color(0xFF8B3DFF),
+          iconColor: isSaved
+              ? const Color(0xFFFF3D77)
+              : const Color(0xFF8B3DFF),
           value: saves,
           label: 'Saves',
           onTap: () => context.read<ReelsCubit>().toggleBookmark(reelId),
@@ -1376,26 +1500,31 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
           value: shares,
           label: 'Shares',
           onTap: () {
-            final vUrl = _reel['videoUrl']?.toString() ?? _reel['video_url']?.toString() ?? '';
+            final vUrl =
+                _reel['videoUrl']?.toString() ??
+                _reel['video_url']?.toString() ??
+                '';
             unawaited(VideoShareHelper.precacheVideo(vUrl, videoId: reelId));
             final shareMusic = _resolveReelMusic(_reel);
-            unawaited(_pushWhileCovered(
-              '${AppRoutes.shareReport}?id=$reelId',
-              extra: {
-                'reelId': reelId,
-                'videoUrl': vUrl,
-                'title': _reel['title']?.toString(),
-                'caption': ReelHelpers.cleanDescription(
-                  (_reel['caption'] ?? _reel['description'])?.toString(),
-                ),
-                'description':
-                    (_reel['description'] ?? _reel['caption'])?.toString(),
-                'musicUrl': shareMusic?.url,
-                'musicName': shareMusic?.name,
-                'musicStartSeconds': shareMusic?.startSeconds,
-                'musicCropDuration': shareMusic?.durationSeconds,
-              },
-            ));
+            unawaited(
+              _pushWhileCovered(
+                '${AppRoutes.shareReport}?id=$reelId',
+                extra: {
+                  'reelId': reelId,
+                  'videoUrl': vUrl,
+                  'title': _reel['title']?.toString(),
+                  'caption': ReelHelpers.cleanDescription(
+                    (_reel['caption'] ?? _reel['description'])?.toString(),
+                  ),
+                  'description': (_reel['description'] ?? _reel['caption'])
+                      ?.toString(),
+                  'musicUrl': shareMusic?.url,
+                  'musicName': shareMusic?.name,
+                  'musicStartSeconds': shareMusic?.startSeconds,
+                  'musicCropDuration': shareMusic?.durationSeconds,
+                },
+              ),
+            );
           },
         ),
       ],
@@ -1420,10 +1549,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
             decoration: BoxDecoration(
               color: const Color(0xFFFAF8FE),
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: const Color(0xFFECE8F5),
-                width: 1,
-              ),
+              border: Border.all(color: const Color(0xFFECE8F5), width: 1),
             ),
             child: Column(
               children: [
@@ -1468,17 +1594,23 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
 
     double score = userRating ?? 0.0;
     if (score == 0.0) {
-      if (reel['userRating'] != null && (double.tryParse(reel['userRating'].toString()) ?? 0.0) > 0) {
+      if (reel['userRating'] != null &&
+          (double.tryParse(reel['userRating'].toString()) ?? 0.0) > 0) {
         score = double.tryParse(reel['userRating'].toString()) ?? 0.0;
-      } else if (reel['talentScore'] is num && (reel['talentScore'] as num) > 0) {
+      } else if (reel['talentScore'] is num &&
+          (reel['talentScore'] as num) > 0) {
         score = (reel['talentScore'] as num).toDouble();
-      } else if (reel['averageRating'] != null && (double.tryParse(reel['averageRating'].toString()) ?? 0.0) > 0) {
+      } else if (reel['averageRating'] != null &&
+          (double.tryParse(reel['averageRating'].toString()) ?? 0.0) > 0) {
         score = double.tryParse(reel['averageRating'].toString()) ?? 0.0;
-      } else if (reel['score'] != null && (double.tryParse(reel['score'].toString()) ?? 0.0) > 0) {
+      } else if (reel['score'] != null &&
+          (double.tryParse(reel['score'].toString()) ?? 0.0) > 0) {
         score = double.tryParse(reel['score'].toString()) ?? 0.0;
-      } else if (reel['rating'] != null && (double.tryParse(reel['rating'].toString()) ?? 0.0) > 0) {
+      } else if (reel['rating'] != null &&
+          (double.tryParse(reel['rating'].toString()) ?? 0.0) > 0) {
         score = double.tryParse(reel['rating'].toString()) ?? 0.0;
-      } else if (reel['ratings'] is List && (reel['ratings'] as List).isNotEmpty) {
+      } else if (reel['ratings'] is List &&
+          (reel['ratings'] as List).isNotEmpty) {
         for (final item in (reel['ratings'] as List)) {
           if (item is Map && item['score'] != null) {
             final s = double.tryParse(item['score'].toString()) ?? 0.0;
@@ -1493,7 +1625,10 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
 
     final displayScore = score > 0
         ? score.toStringAsFixed(1)
-        : (reel['score']?.toString() ?? reel['rating']?.toString() ?? reel['averageRating']?.toString() ?? '0.0');
+        : (reel['score']?.toString() ??
+              reel['rating']?.toString() ??
+              reel['averageRating']?.toString() ??
+              '0.0');
 
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
@@ -1502,10 +1637,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
         gradient: const LinearGradient(
           begin: Alignment.centerLeft,
           end: Alignment.centerRight,
-          colors: [
-            Color(0xFFFFF8EA),
-            Color(0xFFFFEFD8),
-          ],
+          colors: [Color(0xFFFFF8EA), Color(0xFFFFEFD8)],
         ),
         border: Border.all(
           color: const Color(0xFFFFD566).withValues(alpha: 0.5),
@@ -1515,11 +1647,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(
-            Icons.star,
-            size: 18,
-            color: Color(0xFFFFB800),
-          ),
+          const Icon(Icons.star, size: 18, color: Color(0xFFFFB800)),
           const SizedBox(width: 6),
           Text(
             displayScore,
@@ -1551,10 +1679,8 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
       color: Colors.transparent,
       child: InkWell(
         onTap: () => unawaited(
-              _pushWhileCovered(
-                '${AppRoutes.talentRating}?id=${reel['id']}',
-              ),
-            ),
+          _pushWhileCovered('${AppRoutes.talentRating}?id=${reel['id']}'),
+        ),
         borderRadius: BorderRadius.circular(22),
         child: Container(
           height: 52,
@@ -1563,11 +1689,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
             gradient: const LinearGradient(
               begin: Alignment.centerLeft,
               end: Alignment.centerRight,
-              colors: [
-                Color(0xFFFF7A45),
-                Color(0xFFFF3D77),
-                Color(0xFF8B3DFF),
-              ],
+              colors: [Color(0xFFFF7A45), Color(0xFFFF3D77), Color(0xFF8B3DFF)],
             ),
             boxShadow: [
               BoxShadow(
@@ -1600,20 +1722,17 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
       color: Colors.transparent,
       child: InkWell(
         onTap: () => unawaited(
-              _pushWhileCovered(
-                '${AppRoutes.challengeDetail}?id=${challenge['id']}',
-              ),
-            ),
+          _pushWhileCovered(
+            '${AppRoutes.challengeDetail}?id=${challenge['id']}',
+          ),
+        ),
         borderRadius: BorderRadius.circular(22),
         child: Container(
           height: 48,
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(22),
-            border: Border.all(
-              color: const Color(0xFFECE8F5),
-              width: 1.2,
-            ),
+            border: Border.all(color: const Color(0xFFECE8F5), width: 1.2),
             boxShadow: [
               BoxShadow(
                 color: const Color(0xFF15083C).withValues(alpha: 0.04),
@@ -1666,15 +1785,15 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
       itemBuilder: (context, index) {
         final item = reels[index];
         final category = (item['category'] as String? ?? '').toUpperCase();
-        final badgeColor = _categoryBadgeColor(item['category'] as String? ?? '');
+        final badgeColor = _categoryBadgeColor(
+          item['category'] as String? ?? '',
+        );
         final isVerified = item['verified'] == true;
 
         return GestureDetector(
           onTap: () => unawaited(
-                _pushWhileCovered(
-                  '${AppRoutes.videoDetail}?id=${item['id']}',
-                ),
-              ),
+            _pushWhileCovered('${AppRoutes.videoDetail}?id=${item['id']}'),
+          ),
           child: Container(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(16),
@@ -1693,8 +1812,13 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                 children: [
                   // Reel Thumbnail Cover
                   AppImage(
-                    url: (item['imageUrl'] as String?) ?? (item['thumbnailUrl'] as String?) ?? '',
-                    videoUrl: (item['videoUrl'] as String?) ?? (item['videoPath'] as String?),
+                    url:
+                        (item['imageUrl'] as String?) ??
+                        (item['thumbnailUrl'] as String?) ??
+                        '',
+                    videoUrl:
+                        (item['videoUrl'] as String?) ??
+                        (item['videoPath'] as String?),
                     fit: BoxFit.cover,
                     isVideo: true,
                   ),
@@ -1720,7 +1844,10 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                     top: 10,
                     left: 10,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3.5),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3.5,
+                      ),
                       decoration: BoxDecoration(
                         color: badgeColor,
                         borderRadius: BorderRadius.circular(999),
@@ -1782,7 +1909,10 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                             Container(
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
-                                border: Border.all(color: Colors.white, width: 1),
+                                border: Border.all(
+                                  color: Colors.white,
+                                  width: 1,
+                                ),
                               ),
                               child: AppImage(
                                 url: item['avatarUrl'] as String,

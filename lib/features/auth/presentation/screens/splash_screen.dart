@@ -7,7 +7,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:artable_app/app/theme/app_gradients.dart';
 import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
-import 'package:artable_app/core/services/app_open_ad_service.dart';
 import 'package:artable_app/core/storage/onboarding_storage_service.dart';
 
 /// Splash screen — matches Figma splash design 100%.
@@ -28,8 +27,6 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
-    // Start loading the App Open ad while the splash is visible.
-    unawaited(AppOpenAdService.instance.load());
     _timer = Timer(SplashScreen._splashDelay, _navigateFromSplash);
   }
 
@@ -50,14 +47,6 @@ class _SplashScreenState extends State<SplashScreen> {
     if (!mounted) return;
 
     if (auth.isLoggedIn) {
-      // Splash → Home: finish loading here, show from Home after the
-      // route settles (showing during go() is dropped by Android).
-      await AppOpenAdService.instance.load().timeout(
-        const Duration(seconds: 8),
-        onTimeout: () {},
-      );
-      if (!mounted) return;
-      AppOpenAdService.instance.markPendingHomeShow();
       context.go(AppRoutes.home);
     } else if (!onboardingCompleted) {
       context.go(AppRoutes.onboarding);
@@ -91,11 +80,11 @@ class _SplashScreenState extends State<SplashScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   const SizedBox(height: 20),
-                  // Logo 3D A Icon
+                  // Logo
                   Image.asset(
-                    'assets/screen_logo.png',
-                    width: 210,
-                    height: 210,
+                    'assets/logo1.png',
+                    width: 170,
+                    height: 170,
                     fit: BoxFit.contain,
                   ),
                   const SizedBox(height: 22),

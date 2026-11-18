@@ -66,9 +66,9 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
   }
 
   void _showSnack(String message, Color color) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: color),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message), backgroundColor: color));
   }
 
   Future<void> _verify() async {
@@ -82,10 +82,14 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     final auth = context.read<AuthCubit>();
     if (auth.isVerifyingOtp) return;
 
-    final effectiveVerifyId =
-        _currentVerifyId.isNotEmpty ? _currentVerifyId : (auth.pendingVerifyId ?? '');
+    final effectiveVerifyId = _currentVerifyId.isNotEmpty
+        ? _currentVerifyId
+        : (auth.pendingVerifyId ?? '');
     if (effectiveVerifyId.isEmpty) {
-      _showSnack('Verification session expired. Tap "Resend Code".', Colors.redAccent);
+      _showSnack(
+        'Verification session expired. Tap "Resend Code".',
+        Colors.redAccent,
+      );
       return;
     }
 
@@ -131,8 +135,9 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
       return;
     }
 
-    final emailParam =
-        widget.email != null ? Uri.encodeComponent(widget.email!) : '';
+    final emailParam = widget.email != null
+        ? Uri.encodeComponent(widget.email!)
+        : '';
     final loginUrl = emailParam.isNotEmpty
         ? '${AppRoutes.login}?email=$emailParam'
         : AppRoutes.login;
@@ -143,7 +148,8 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     final auth = context.read<AuthCubit>();
     if (auth.isResendingOtp) return;
 
-    final targetEmail = widget.email ??
+    final targetEmail =
+        widget.email ??
         (widget.destination.contains('@') ? widget.destination : null);
 
     final response = await auth.resendOtp(
@@ -177,10 +183,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
       final errorMsg =
           auth.errorMessage ?? response?.message ?? 'Failed to resend OTP';
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(errorMsg),
-          backgroundColor: Colors.redAccent,
-        ),
+        SnackBar(content: Text(errorMsg), backgroundColor: Colors.redAccent),
       );
     }
   }
@@ -264,7 +267,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                     height: 135,
                     child: Center(
                       child: Image.asset(
-                        'assets/screen_logo.png',
+                        'assets/logo1.png',
                         width: 135,
                         height: 135,
                         fit: BoxFit.contain,
@@ -329,12 +332,16 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
 
                   // Resend Code Link
                   GestureDetector(
-                    onTap: context.select<AuthCubit, bool>(
-                            (auth) => auth.isResendingOtp)
+                    onTap:
+                        context.select<AuthCubit, bool>(
+                          (auth) => auth.isResendingOtp,
+                        )
                         ? null
                         : _resendOtp,
-                    child: context.select<AuthCubit, bool>(
-                            (auth) => auth.isResendingOtp)
+                    child:
+                        context.select<AuthCubit, bool>(
+                          (auth) => auth.isResendingOtp,
+                        )
                         ? const SizedBox(
                             width: 18,
                             height: 18,
@@ -358,8 +365,10 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
 
                   // VERIFY Button
                   GestureDetector(
-                    onTap: context.select<AuthCubit, bool>(
-                            (auth) => auth.isVerifyingOtp)
+                    onTap:
+                        context.select<AuthCubit, bool>(
+                          (auth) => auth.isVerifyingOtp,
+                        )
                         ? null
                         : _verify,
                     child: Container(
@@ -376,8 +385,10 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                         ],
                       ),
                       alignment: Alignment.center,
-                      child: context.select<AuthCubit, bool>(
-                              (auth) => auth.isVerifyingOtp)
+                      child:
+                          context.select<AuthCubit, bool>(
+                            (auth) => auth.isVerifyingOtp,
+                          )
                           ? const SizedBox(
                               width: 22,
                               height: 22,

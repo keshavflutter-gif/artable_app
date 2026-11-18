@@ -232,7 +232,7 @@ class LeaderboardRankItem {
     if (talentScore != null && talentScore! > 0) {
       return talentScore!.toStringAsFixed(1);
     }
-    return '8.5';
+    return '0.0';
   }
 
   String get displayVotes {
@@ -252,7 +252,7 @@ class LeaderboardRankItem {
       'name': displayName,
       'handle': displayHandle,
       'category': displayCategory,
-      'talentScore': talentScore ?? 8.5,
+      'talentScore': talentScore ?? 0.0,
       'score': displayScore,
       'votes': votes ?? 0,
       'votesLabel': displayVotes,

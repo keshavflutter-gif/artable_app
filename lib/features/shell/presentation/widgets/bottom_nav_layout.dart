@@ -34,28 +34,70 @@ class AppBottomNav extends StatelessWidget {
       decoration: const BoxDecoration(
         color: Colors.white,
         border: Border(top: BorderSide(color: AppColors.inputBorder)),
-        boxShadow: [BoxShadow(color: Color(0x145E2EAA), blurRadius: 24, offset: Offset(0, -8))],
+        boxShadow: [
+          BoxShadow(
+            color: Color(0x145E2EAA),
+            blurRadius: 24,
+            offset: Offset(0, -8),
+          ),
+        ],
       ),
       child: Row(
-        children: items.map((item) => _NavItem(item: item, active: current == item.route)).toList(),
+        children: items
+            .map((item) => _NavItem(item: item, active: current == item.route))
+            .toList(),
       ),
     );
   }
 
   static final _homeItems = [
     _NavItemData('Home', AppRoutes.home, (c) => AppIcons.home(color: c)),
-    _NavItemData('Challenges', AppRoutes.challenges, (c) => AppIcons.trophy(color: c)),
-    _NavItemData('Upload', AppRoutes.studioStart, (_) => AppIcons.plus(), upload: true),
-    _NavItemData('Activity', AppRoutes.activityCenter, (c) => AppIcons.activity(color: c)),
-    _NavItemData('Profile', AppRoutes.myProfile, (c) => AppIcons.profile(color: c)),
+    _NavItemData(
+      'Challenges',
+      AppRoutes.challenges,
+      (c) => AppIcons.trophy(color: c),
+    ),
+    _NavItemData(
+      'Upload',
+      AppRoutes.studioStart,
+      (_) => AppIcons.plus(),
+      upload: true,
+    ),
+    _NavItemData(
+      'Activity',
+      AppRoutes.activityCenter,
+      (c) => AppIcons.activity(color: c),
+    ),
+    _NavItemData(
+      'Profile',
+      AppRoutes.myProfile,
+      (c) => AppIcons.profile(color: c),
+    ),
   ];
 
   static final _categoriesItems = [
     _NavItemData('Home', AppRoutes.home, (c) => AppIcons.home(color: c)),
-    _NavItemData('Categories', AppRoutes.categories, (c) => AppIcons.grid(color: c)),
-    _NavItemData('Upload', AppRoutes.studioStart, (_) => AppIcons.plus(), upload: true),
-    _NavItemData('Challenges', AppRoutes.challenges, (c) => AppIcons.trophy(color: c)),
-    _NavItemData('Profile', AppRoutes.myProfile, (c) => AppIcons.profile(color: c)),
+    _NavItemData(
+      'Categories',
+      AppRoutes.categories,
+      (c) => AppIcons.grid(color: c),
+    ),
+    _NavItemData(
+      'Upload',
+      AppRoutes.studioStart,
+      (_) => AppIcons.plus(),
+      upload: true,
+    ),
+    _NavItemData(
+      'Challenges',
+      AppRoutes.challenges,
+      (c) => AppIcons.trophy(color: c),
+    ),
+    _NavItemData(
+      'Profile',
+      AppRoutes.myProfile,
+      (c) => AppIcons.profile(color: c),
+    ),
   ];
 }
 
@@ -91,7 +133,11 @@ class _NavItem extends StatelessWidget {
                     shape: BoxShape.circle,
                     gradient: AppGradients.button,
                     boxShadow: const [
-                      BoxShadow(color: Color(0x73FF3D77), blurRadius: 26, offset: Offset(0, 12)),
+                      BoxShadow(
+                        color: Color(0x73FF3D77),
+                        blurRadius: 26,
+                        offset: Offset(0, 12),
+                      ),
                     ],
                     border: Border.all(color: Colors.white, width: 5),
                   ),
@@ -102,7 +148,11 @@ class _NavItem extends StatelessWidget {
                 offset: const Offset(0, -14),
                 child: const Text(
                   'Upload',
-                  style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: AppColors.purple),
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.purple,
+                  ),
                 ),
               ),
             ],
@@ -138,15 +188,11 @@ class StudioHeader extends StatelessWidget {
         children: [
           AppIcons.menu(),
           const SizedBox(width: 11),
-          Container(
+          Image.asset(
+            'assets/logo1.png',
             width: 38,
             height: 38,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(11),
-              gradient: AppGradients.button,
-              boxShadow: const [BoxShadow(color: Color(0x66FF3D77), blurRadius: 14, offset: Offset(0, 6))],
-            ),
-            child: Center(child: SvgPicture.asset('assets/logo.svg', width: 21, height: 21)),
+            fit: BoxFit.contain,
           ),
           const SizedBox(width: 9),
           Column(
@@ -154,16 +200,24 @@ class StudioHeader extends StatelessWidget {
             children: [
               RichText(
                 text: TextSpan(
-                  style: AppTextStyles.display(size: 15).copyWith(color: Colors.white, letterSpacing: 0.1),
+                  style: AppTextStyles.display(
+                    size: 15,
+                  ).copyWith(color: Colors.white, letterSpacing: 0.1),
                   children: const [
                     TextSpan(text: 'ARTABLE '),
-                    TextSpan(text: 'STUDIO', style: TextStyle(color: Color(0xFFFFC24D))),
+                    TextSpan(
+                      text: 'STUDIO',
+                      style: TextStyle(color: Color(0xFFFFC24D)),
+                    ),
                   ],
                 ),
               ),
               Text(
                 'By Artable Studio Pvt. Ltd.',
-                style: AppTextStyles.bodyStyle(size: 9, color: const Color(0x99FFFFFF)),
+                style: AppTextStyles.bodyStyle(
+                  size: 9,
+                  color: const Color(0x99FFFFFF),
+                ),
               ),
             ],
           ),
@@ -177,14 +231,27 @@ class StudioHeader extends StatelessWidget {
                 right: -8,
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 3),
-                  constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                  constraints: const BoxConstraints(
+                    minWidth: 16,
+                    minHeight: 16,
+                  ),
                   decoration: BoxDecoration(
                     gradient: AppGradients.button,
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: const Color(0xFF170A30), width: 1.5),
+                    border: Border.all(
+                      color: const Color(0xFF170A30),
+                      width: 1.5,
+                    ),
                   ),
                   child: const Center(
-                    child: Text('3', style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w800)),
+                    child: Text(
+                      '3',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -199,11 +266,21 @@ class StudioHeader extends StatelessWidget {
                   height: 34,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    border: Border.all(color: const Color(0x47FFFFFF), width: 2),
+                    border: Border.all(
+                      color: const Color(0x47FFFFFF),
+                      width: 2,
+                    ),
                     gradient: AppGradients.button,
                   ),
                   child: const Center(
-                    child: Text('RW', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w800)),
+                    child: Text(
+                      'RW',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 7),
@@ -211,7 +288,11 @@ class StudioHeader extends StatelessWidget {
                   child: Text(
                     'Ritesh Walia',
                     overflow: TextOverflow.ellipsis,
-                    style: AppTextStyles.bodyStyle(size: 12.5, color: Colors.white, weight: FontWeight.w700),
+                    style: AppTextStyles.bodyStyle(
+                      size: 12.5,
+                      color: Colors.white,
+                      weight: FontWeight.w700,
+                    ),
                   ),
                 ),
                 AppIcons.chevronDown(),

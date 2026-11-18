@@ -20,6 +20,7 @@ class CreatorInfoRow extends StatelessWidget {
     this.showFollow = false,
     this.lightText = false,
     this.onTapProfile,
+    this.onNavigate,
   });
 
   final Map<String, dynamic> reel;
@@ -27,6 +28,7 @@ class CreatorInfoRow extends StatelessWidget {
   final bool showFollow;
   final bool lightText;
   final VoidCallback? onTapProfile;
+  final void Function(String route)? onNavigate;
 
   @override
   Widget build(BuildContext context) {
@@ -35,56 +37,90 @@ class CreatorInfoRow extends StatelessWidget {
     final profileCubit = context.watch<ProfileCubit>();
     final profileUser = profileCubit.state.data?.user;
 
-    final currentUserId = (authState.userId ?? authCubit.userId ?? authState.currentUser['id']?.toString() ?? profileUser?.id)?.trim();
+    final currentUserId =
+        (authState.userId ??
+                authCubit.userId ??
+                authState.currentUser['id']?.toString() ??
+                profileUser?.id)
+            ?.trim();
     final currentUsername = authCubit.username.isNotEmpty
         ? authCubit.username.trim().replaceAll('@', '')
         : (profileUser?.username?.isNotEmpty == true
-            ? profileUser!.username!.trim().replaceAll('@', '')
-            : (authState.currentUser['username']?.toString() ?? '').trim().replaceAll('@', ''));
-    final currentFullName = (authCubit.fullName.isNotEmpty
-            ? authCubit.fullName
-            : (profileUser?.fullName ?? authState.currentUser['fullName']?.toString() ?? authState.currentUser['name']?.toString() ?? ''))
-        .trim();
-    final currentAvatar = (authCubit.avatarUrl.isNotEmpty
-            ? authCubit.avatarUrl
-            : (profileUser?.profilePhotoUrl ?? authState.currentUser['profilePhotoUrl']?.toString() ?? authState.currentUser['avatarUrl']?.toString() ?? ''))
-        .trim();
+              ? profileUser!.username!.trim().replaceAll('@', '')
+              : (authState.currentUser['username']?.toString() ?? '')
+                    .trim()
+                    .replaceAll('@', ''));
+    final currentFullName =
+        (authCubit.fullName.isNotEmpty
+                ? authCubit.fullName
+                : (profileUser?.fullName ??
+                      authState.currentUser['fullName']?.toString() ??
+                      authState.currentUser['name']?.toString() ??
+                      ''))
+            .trim();
+    final currentAvatar =
+        (authCubit.avatarUrl.isNotEmpty
+                ? authCubit.avatarUrl
+                : (profileUser?.profilePhotoUrl ??
+                      authState.currentUser['profilePhotoUrl']?.toString() ??
+                      authState.currentUser['avatarUrl']?.toString() ??
+                      ''))
+            .trim();
 
     final userMap = reel['user'] is Map
         ? Map<String, dynamic>.from(reel['user'] as Map)
         : (reel['creator'] is Map
-            ? Map<String, dynamic>.from(reel['creator'] as Map)
-            : (reel['author'] is Map ? Map<String, dynamic>.from(reel['author'] as Map) : null));
+              ? Map<String, dynamic>.from(reel['creator'] as Map)
+              : (reel['author'] is Map
+                    ? Map<String, dynamic>.from(reel['author'] as Map)
+                    : null));
 
-    final reelUserId = (reel['userId']?.toString() ??
-        reel['user_id']?.toString() ??
-        reel['creatorId']?.toString() ??
-        userMap?['id']?.toString() ??
-        userMap?['_id']?.toString())?.trim();
+    final reelUserId =
+        (reel['userId']?.toString() ??
+                reel['user_id']?.toString() ??
+                reel['creatorId']?.toString() ??
+                userMap?['id']?.toString() ??
+                userMap?['_id']?.toString())
+            ?.trim();
 
-    final bool isSelf = (currentUserId != null && currentUserId.isNotEmpty && reelUserId != null && reelUserId.isNotEmpty && currentUserId == reelUserId) ||
+    final bool isSelf =
+        (currentUserId != null &&
+            currentUserId.isNotEmpty &&
+            reelUserId != null &&
+            reelUserId.isNotEmpty &&
+            currentUserId == reelUserId) ||
         reel['isMyVideo'] == true ||
         reel['status'] != null ||
         reel['canContinueDraft'] != null ||
         (reel['creator'] == 'You') ||
-        (currentUsername.isNotEmpty && (reel['username'] == currentUsername || reel['handle'] == '@$currentUsername' || reel['handle'] == currentUsername));
+        (currentUsername.isNotEmpty &&
+            (reel['username'] == currentUsername ||
+                reel['handle'] == '@$currentUsername' ||
+                reel['handle'] == currentUsername));
 
     // Resolve username from reel fields / API response
-    String rawUsername = (reel['handle']?.toString() ??
-        reel['username']?.toString() ??
-        reel['user_name']?.toString() ??
-        userMap?['username']?.toString() ??
-        userMap?['handle']?.toString() ??
-        userMap?['name']?.toString() ??
-        userMap?['fullName']?.toString() ??
-        (reel['creator'] is String && reel['creator'] != 'You' ? reel['creator'] : null) ??
-        reel['fullName']?.toString() ??
-        reel['name']?.toString() ??
-        '').trim();
+    String rawUsername =
+        (reel['handle']?.toString() ??
+                reel['username']?.toString() ??
+                reel['user_name']?.toString() ??
+                userMap?['username']?.toString() ??
+                userMap?['handle']?.toString() ??
+                userMap?['name']?.toString() ??
+                userMap?['fullName']?.toString() ??
+                (reel['creator'] is String && reel['creator'] != 'You'
+                    ? reel['creator']
+                    : null) ??
+                reel['fullName']?.toString() ??
+                reel['name']?.toString() ??
+                '')
+            .trim();
 
     bool isDummyHandle(String s) {
       final clean = s.trim().toLowerCase().replaceAll('@', '');
-      return clean.isEmpty || clean == 'user' || clean == 'you' || clean == 'null';
+      return clean.isEmpty ||
+          clean == 'user' ||
+          clean == 'you' ||
+          clean == 'null';
     }
 
     if (isDummyHandle(rawUsername)) {
@@ -98,10 +134,13 @@ class CreatorInfoRow extends StatelessWidget {
     final displayHandle = !isDummyHandle(rawUsername)
         ? (rawUsername.startsWith('@') ? rawUsername : '@$rawUsername')
         : (currentUsername.isNotEmpty
-            ? '@$currentUsername'
-            : (currentFullName.isNotEmpty ? '@$currentFullName' : '@creator'));
+              ? '@$currentUsername'
+              : (currentFullName.isNotEmpty
+                    ? '@$currentFullName'
+                    : '@creator'));
 
-    var avatarUrl = (reel['avatarUrl'] as String?)?.trim() ??
+    var avatarUrl =
+        (reel['avatarUrl'] as String?)?.trim() ??
         (reel['profilePhotoUrl'] as String?)?.trim() ??
         (reel['profile_photo_url'] as String?)?.trim() ??
         userMap?['profilePhotoUrl']?.toString().trim() ??
@@ -109,13 +148,17 @@ class CreatorInfoRow extends StatelessWidget {
         userMap?['avatar']?.toString().trim() ??
         '';
 
-    if ((avatarUrl.isEmpty || avatarUrl.contains('pravatar.cc') || avatarUrl == 'null') && isSelf) {
+    if ((avatarUrl.isEmpty ||
+            avatarUrl.contains('pravatar.cc') ||
+            avatarUrl == 'null') &&
+        isSelf) {
       if (currentAvatar.isNotEmpty && !currentAvatar.contains('pravatar.cc')) {
         avatarUrl = currentAvatar;
       }
     }
 
-    final isVerified = reel['verified'] == true ||
+    final isVerified =
+        reel['verified'] == true ||
         reel['isBlueTick'] == true ||
         reel['is_blue_tick'] == true ||
         reel['isVerified'] == true ||
@@ -124,12 +167,14 @@ class CreatorInfoRow extends StatelessWidget {
         reel['isVerified']?.toString() == 'true' ||
         (userMap != null &&
             (userMap['isBlueTick'] == true ||
-             userMap['is_blue_tick'] == true ||
-             userMap['isVerified'] == true ||
-             userMap['is_verified'] == true ||
-             userMap['isBlueTick']?.toString() == 'true' ||
-             userMap['isVerified']?.toString() == 'true')) ||
-        (isSelf && (profileUser?.isBlueTick == true || profileUser?.isVerified == true));
+                userMap['is_blue_tick'] == true ||
+                userMap['isVerified'] == true ||
+                userMap['is_verified'] == true ||
+                userMap['isBlueTick']?.toString() == 'true' ||
+                userMap['isVerified']?.toString() == 'true')) ||
+        (isSelf &&
+            (profileUser?.isBlueTick == true ||
+                profileUser?.isVerified == true));
 
     void navigateToProfile() {
       if (onTapProfile != null) {
@@ -138,7 +183,8 @@ class CreatorInfoRow extends StatelessWidget {
       }
       String? targetUserId = reelUserId ?? (isSelf ? currentUserId : null);
 
-      if ((targetUserId == null || targetUserId.isEmpty) && displayHandle.isNotEmpty) {
+      if ((targetUserId == null || targetUserId.isEmpty) &&
+          displayHandle.isNotEmpty) {
         final mockCreator = MockHelpers.creatorByHandle(displayHandle);
         if (mockCreator != null) {
           targetUserId = mockCreator['id']?.toString();
@@ -146,7 +192,12 @@ class CreatorInfoRow extends StatelessWidget {
       }
 
       if (targetUserId != null && targetUserId.isNotEmpty) {
-        context.push('${AppRoutes.publicProfile}?id=$targetUserId');
+        final route = '${AppRoutes.publicProfile}?id=$targetUserId';
+        if (onNavigate != null) {
+          onNavigate!(route);
+        } else {
+          context.push(route);
+        }
       }
     }
 
@@ -175,7 +226,11 @@ class CreatorInfoRow extends StatelessWidget {
                         ? NetworkImage(avatarUrl)
                         : null,
                     child: avatarUrl.isEmpty
-                        ? const Icon(Icons.person, size: 18, color: Colors.white)
+                        ? const Icon(
+                            Icons.person,
+                            size: 18,
+                            color: Colors.white,
+                          )
                         : null,
                   ),
                 ),
@@ -192,14 +247,20 @@ class CreatorInfoRow extends StatelessWidget {
                               style: AppTextStyles.displaySemiBold135.copyWith(
                                 fontWeight: FontWeight.w800,
                                 fontSize: 13.5,
-                                color: lightText ? Colors.white : AppColors.text,
+                                color: lightText
+                                    ? Colors.white
+                                    : AppColors.text,
                               ),
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
                           if (isVerified) ...[
                             const SizedBox(width: 4),
-                            const Icon(Icons.verified, size: 14, color: Color(0xFF3B9DFF)),
+                            const Icon(
+                              Icons.verified,
+                              size: 14,
+                              color: Color(0xFF3B9DFF),
+                            ),
                           ],
                         ],
                       ),
@@ -224,7 +285,8 @@ class CreatorInfoRow extends StatelessWidget {
           _FollowButton(
             light: lightText,
             profileId: reelUserId,
-            initialFollowing: reel['isFollowing'] == true ||
+            initialFollowing:
+                reel['isFollowing'] == true ||
                 reel['is_following'] == true ||
                 reel['following'] == true ||
                 (reel['user'] is Map &&
@@ -301,7 +363,9 @@ class _FollowButtonState extends State<_FollowButton> {
         ScaffoldMessenger.of(context).clearSnackBars();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed: ${e.toString().replaceAll('Exception: ', '')}'),
+            content: Text(
+              'Failed: ${e.toString().replaceAll('Exception: ', '')}',
+            ),
             duration: const Duration(seconds: 2),
           ),
         );
@@ -385,7 +449,10 @@ class ReelThumb extends StatelessWidget {
                   left: 10,
                   bottom: 10,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: ReelHelpers.categoryTint(category),
                       borderRadius: BorderRadius.circular(999),
@@ -421,7 +488,11 @@ class ReelThumb extends StatelessWidget {
                   ),
                 ),
                 if (reel['verified'] == true)
-                  const Icon(Icons.verified, size: 13, color: Color(0xFF3B9DFF)),
+                  const Icon(
+                    Icons.verified,
+                    size: 13,
+                    color: Color(0xFF3B9DFF),
+                  ),
               ],
             ),
           ],

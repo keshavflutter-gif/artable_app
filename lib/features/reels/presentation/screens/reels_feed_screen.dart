@@ -47,6 +47,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
   double _playbackSpeed = 1.0;
   final Set<String> _pausedReelIds = {};
   bool _appInBackground = false;
+
   /// True while a pushed route / sheet covers the feed — keeps video muted+BGM off.
   bool _routeCovered = false;
   Timer? _precacheDelayTimer;
@@ -85,11 +86,17 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
         return false;
       }
       final statusLabel = r['statusLabel']?.toString().trim().toLowerCase();
-      if (statusLabel != null && (statusLabel == 'draft' || statusLabel.contains('draft'))) {
+      if (statusLabel != null &&
+          (statusLabel == 'draft' || statusLabel.contains('draft'))) {
         return false;
       }
-      final badgeLabel = (r['statusBadge'] is Map ? r['statusBadge']['label'] : null)?.toString().trim().toLowerCase();
-      if (badgeLabel != null && (badgeLabel == 'draft' || badgeLabel.contains('draft'))) {
+      final badgeLabel =
+          (r['statusBadge'] is Map ? r['statusBadge']['label'] : null)
+              ?.toString()
+              .trim()
+              .toLowerCase();
+      if (badgeLabel != null &&
+          (badgeLabel == 'draft' || badgeLabel.contains('draft'))) {
         return false;
       }
 
@@ -105,12 +112,17 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
       if (r['isLive'] == true || r['is_live'] == true) {
         return true;
       }
-      if (status == 'live' || status == 'approved' || status == 'published' || status == 'active') {
+      if (status == 'live' ||
+          status == 'approved' ||
+          status == 'published' ||
+          status == 'active') {
         return true;
       }
 
       final vUrl = r['videoUrl']?.toString() ?? '';
-      final hasClips = r['mergedClipPaths'] is List && (r['mergedClipPaths'] as List).isNotEmpty;
+      final hasClips =
+          r['mergedClipPaths'] is List &&
+          (r['mergedClipPaths'] as List).isNotEmpty;
       if (vUrl.isEmpty && !hasClips) {
         return false;
       }
@@ -123,9 +135,16 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
         if (!isReelLive(r)) continue;
         final id = r['id']?.toString() ?? r['_id']?.toString() ?? '';
         final vUrl = r['videoUrl']?.toString() ?? '';
-        if (r['mergedClipPaths'] == null || (r['mergedClipPaths'] is List && (r['mergedClipPaths'] as List).isEmpty)) {
-          final descClips = ReelHelpers.parseDescriptionClips(r['description']?.toString() ?? r['caption']?.toString()).clips;
-          final cached = descClips ?? ReelHelpers.getCachedMergedClips(id) ?? ReelHelpers.getCachedMergedClips(vUrl);
+        if (r['mergedClipPaths'] == null ||
+            (r['mergedClipPaths'] is List &&
+                (r['mergedClipPaths'] as List).isEmpty)) {
+          final descClips = ReelHelpers.parseDescriptionClips(
+            r['description']?.toString() ?? r['caption']?.toString(),
+          ).clips;
+          final cached =
+              descClips ??
+              ReelHelpers.getCachedMergedClips(id) ??
+              ReelHelpers.getCachedMergedClips(vUrl);
           if (cached != null && cached.isNotEmpty) {
             r['mergedClipPaths'] = cached;
           }
@@ -156,18 +175,24 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
     final targetId = widget.initialReelId?.trim();
     if (targetId != null && targetId.isNotEmpty) {
       final existingIndex = rawList.indexWhere(
-        (r) => r['id']?.toString() == targetId || r['_id']?.toString() == targetId,
+        (r) =>
+            r['id']?.toString() == targetId || r['_id']?.toString() == targetId,
       );
       if (existingIndex > 0) {
         final targetItem = rawList.removeAt(existingIndex);
         rawList.insert(0, targetItem);
       } else if (existingIndex == -1) {
         final singleItem = trendingCubit.getVideoById(targetId);
-        if (singleItem != null && singleItem.isVideoLive && !singleItem.isDraft) {
+        if (singleItem != null &&
+            singleItem.isVideoLive &&
+            !singleItem.isDraft) {
           rawList.insert(0, singleItem.toUiMap());
           seenIds.add(targetId);
         } else {
-          final helperMatch = ReelHelpers.reelById(targetId, availableReels: rawList);
+          final helperMatch = ReelHelpers.reelById(
+            targetId,
+            availableReels: rawList,
+          );
           if (helperMatch != null && isReelLive(helperMatch)) {
             rawList.insert(0, helperMatch);
             seenIds.add(targetId);
@@ -198,7 +223,8 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
     if (page >= 0 && page < items.length) {
       final item = items[page];
       if (!item.isAd && item.reel != null) {
-        final rId = item.reel!['id']?.toString() ?? item.reel!['_id']?.toString() ?? '';
+        final rId =
+            item.reel!['id']?.toString() ?? item.reel!['_id']?.toString() ?? '';
         if (rId.isNotEmpty) {
           context.read<ReelsCubit>().fetchComments(rId);
         }
@@ -241,7 +267,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
       (item) =>
           !item.isAd &&
           (item.reel?['id']?.toString() == targetId ||
-           item.reel?['_id']?.toString() == targetId),
+              item.reel?['_id']?.toString() == targetId),
     );
     if (found != -1) {
       _hasScrolledToInitial = true;
@@ -278,14 +304,15 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
     });
 
     int initialIndex = 0;
-    if (widget.initialReelId != null && widget.initialReelId!.trim().isNotEmpty) {
+    if (widget.initialReelId != null &&
+        widget.initialReelId!.trim().isNotEmpty) {
       final targetId = widget.initialReelId!.trim();
       final items = _getItems(context, listen: false);
       final found = items.indexWhere(
         (item) =>
             !item.isAd &&
             (item.reel?['id']?.toString() == targetId ||
-             item.reel?['_id']?.toString() == targetId),
+                item.reel?['_id']?.toString() == targetId),
       );
       if (found != -1) {
         initialIndex = found;
@@ -310,8 +337,15 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
   }
 
   void _exitFeed() {
+    _routeCovered = true;
+    try {
+      _seekController.value?.controller.setVolume(0.0);
+      _seekController.value?.pause();
+    } catch (_) {}
+    ReelBgmPlaybackService.silenceForNavigation();
     ReelBgmPlaybackService.killNow();
     unawaited(ReelBgmPlaybackService.stop());
+    if (mounted) setState(() {});
     if (context.canPop()) {
       context.pop();
     }
@@ -321,6 +355,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
     _routeCovered = true;
     // Pause the live controller NOW — don't wait for forcePaused rebuild.
     try {
+      _seekController.value?.controller.setVolume(0.0);
       _seekController.value?.pause();
     } catch (_) {}
     ReelBgmPlaybackService.silenceForNavigation();
@@ -418,8 +453,8 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    final background = state == AppLifecycleState.paused ||
-        state == AppLifecycleState.hidden;
+    final background =
+        state == AppLifecycleState.paused || state == AppLifecycleState.hidden;
     if (background) {
       unawaited(WakelockPlus.disable());
       ReelBgmPlaybackService.killNow();
@@ -471,16 +506,18 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
       unawaited(ReelBgmPlaybackService.silenceForReel(reelId ?? 'seek'));
       return;
     }
-    unawaited(ReelBgmPlaybackService.sync(
-      reelId: reelId ?? url,
-      url: url,
-      startMs: ((music?.startSeconds ?? 0) * 1000).round(),
-      videoPositionMs: seek.positionMs,
-      shouldPlay: true,
-      speed: _playbackSpeed,
-      forceSeek: true,
-      cropDurationMs: ((music?.durationSeconds ?? 0) * 1000).round(),
-    ));
+    unawaited(
+      ReelBgmPlaybackService.sync(
+        reelId: reelId ?? url,
+        url: url,
+        startMs: ((music?.startSeconds ?? 0) * 1000).round(),
+        videoPositionMs: seek.positionMs,
+        shouldPlay: true,
+        speed: _playbackSpeed,
+        forceSeek: true,
+        cropDurationMs: ((music?.durationSeconds ?? 0) * 1000).round(),
+      ),
+    );
   }
 
   void _toggleReelPause(String reelId) {
@@ -516,7 +553,8 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
         initialRating = double.tryParse(video['rating'].toString()) ?? 5.0;
       } else if (video['talentScore'] is num) {
         initialRating = (video['talentScore'] as num).toDouble();
-      } else if (video['ratings'] is List && (video['ratings'] as List).isNotEmpty) {
+      } else if (video['ratings'] is List &&
+          (video['ratings'] as List).isNotEmpty) {
         for (final item in (video['ratings'] as List)) {
           if (item is Map && item['score'] != null) {
             final parsed = double.tryParse(item['score'].toString());
@@ -548,175 +586,210 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
     double modalSpeed = _playbackSpeed;
     _coverFeedAudio();
     try {
-    await showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            final speedOptions = [0.4, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0];
-            return Container(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
-              decoration: BoxDecoration(
-                color: const Color(0xFF140A28),
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-                border: Border.all(color: const Color(0xFF332059)),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.6),
-                    blurRadius: 24,
-                    offset: const Offset(0, -4),
+      await showModalBottomSheet<void>(
+        context: context,
+        backgroundColor: Colors.transparent,
+        isScrollControlled: true,
+        builder: (ctx) {
+          return StatefulBuilder(
+            builder: (context, setModalState) {
+              final speedOptions = [
+                0.4,
+                0.5,
+                0.75,
+                1.0,
+                1.25,
+                1.5,
+                2.0,
+                3.0,
+                4.0,
+              ];
+              return Container(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF140A28),
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(28),
                   ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.25),
-                        borderRadius: BorderRadius.circular(2),
+                  border: Border.all(color: const Color(0xFF332059)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.6),
+                      blurRadius: 24,
+                      offset: const Offset(0, -4),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.25),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Row(
-                        children: [
-                          Icon(
-                            Icons.speed,
-                            color: Color(0xFFFF5487),
-                            size: 22,
+                    const SizedBox(height: 16),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(
+                              Icons.speed,
+                              color: Color(0xFFFF5487),
+                              size: 22,
+                            ),
+                            SizedBox(width: 10),
+                            Text(
+                              'Playback Speed',
+                              style: TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ],
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 4,
                           ),
-                          SizedBox(width: 10),
-                          Text(
-                            'Playback Speed',
-                            style: TextStyle(
-                              fontSize: 17,
+                          decoration: BoxDecoration(
+                            gradient: AppGradients.button,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            '${modalSpeed.toStringAsFixed(1)}x',
+                            style: const TextStyle(
+                              fontSize: 13,
                               fontWeight: FontWeight.w800,
                               color: Colors.white,
                             ),
                           ),
-                        ],
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          gradient: AppGradients.button,
-                          borderRadius: BorderRadius.circular(12),
                         ),
-                        child: Text(
-                          '${modalSpeed.toStringAsFixed(1)}x',
-                          style: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w800,
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: speedOptions.map((speed) {
+                        final isSelected = (modalSpeed - speed).abs() < 0.01;
+                        final label = speed == 1.0
+                            ? '1.0x Normal'
+                            : '${speed}x';
+                        return ChoiceChip(
+                          label: Text(label),
+                          selected: isSelected,
+                          selectedColor: const Color(0xFFFF5487),
+                          backgroundColor: const Color(0xFF231442),
+                          labelStyle: TextStyle(
                             color: Colors.white,
+                            fontWeight: isSelected
+                                ? FontWeight.w800
+                                : FontWeight.w600,
+                            fontSize: 12.5,
+                          ),
+                          side: BorderSide(
+                            color: isSelected
+                                ? const Color(0xFFFF5487)
+                                : Colors.white.withValues(alpha: 0.15),
+                          ),
+                          onSelected: (bool selected) {
+                            if (selected) {
+                              modalSpeed = speed;
+                              setState(() {
+                                _playbackSpeed = speed;
+                              });
+                              setModalState(() {});
+                            }
+                          },
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 24),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: const [
+                        Text(
+                          '0.4x',
+                          style: TextStyle(
+                            color: Colors.white54,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    children: speedOptions.map((speed) {
-                      final isSelected = (modalSpeed - speed).abs() < 0.01;
-                      final label = speed == 1.0 ? '1.0x Normal' : '${speed}x';
-                      return ChoiceChip(
-                        label: Text(label),
-                        selected: isSelected,
-                        selectedColor: const Color(0xFFFF5487),
-                        backgroundColor: const Color(0xFF231442),
-                        labelStyle: TextStyle(
+                        Text(
+                          'Adjust Playback Speed (0.4x - 4.0x)',
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Text(
+                          '4.0x',
+                          style: TextStyle(
+                            color: Colors.white54,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                    SliderTheme(
+                      data: SliderThemeData(
+                        activeTrackColor: const Color(0xFFFF5487),
+                        inactiveTrackColor: Colors.white.withValues(
+                          alpha: 0.15,
+                        ),
+                        thumbColor: Colors.white,
+                        overlayColor: const Color(
+                          0xFFFF5487,
+                        ).withValues(alpha: 0.2),
+                        valueIndicatorColor: const Color(0xFFFF5487),
+                        valueIndicatorTextStyle: const TextStyle(
                           color: Colors.white,
-                          fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
-                          fontSize: 12.5,
+                          fontWeight: FontWeight.bold,
                         ),
-                        side: BorderSide(
-                          color: isSelected
-                              ? const Color(0xFFFF5487)
-                              : Colors.white.withValues(alpha: 0.15),
-                        ),
-                        onSelected: (bool selected) {
-                          if (selected) {
-                            modalSpeed = speed;
-                            setState(() {
-                              _playbackSpeed = speed;
-                            });
-                            setModalState(() {});
-                          }
+                      ),
+                      child: Slider(
+                        value: modalSpeed.clamp(0.4, 4.0),
+                        min: 0.4,
+                        max: 4.0,
+                        divisions: 36,
+                        label: '${modalSpeed.toStringAsFixed(1)}x',
+                        onChanged: (val) {
+                          final rounded = double.parse(val.toStringAsFixed(1));
+                          setModalState(() {
+                            modalSpeed = rounded;
+                          });
                         },
-                      );
-                    }).toList(),
-                  ),
-                  const SizedBox(height: 24),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: const [
-                      Text(
-                        '0.4x',
-                        style: TextStyle(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.w600),
-                      ),
-                      Text(
-                        'Adjust Playback Speed (0.4x - 4.0x)',
-                        style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600),
-                      ),
-                      Text(
-                        '4.0x',
-                        style: TextStyle(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.w600),
-                      ),
-                    ],
-                  ),
-                  SliderTheme(
-                    data: SliderThemeData(
-                      activeTrackColor: const Color(0xFFFF5487),
-                      inactiveTrackColor: Colors.white.withValues(alpha: 0.15),
-                      thumbColor: Colors.white,
-                      overlayColor: const Color(0xFFFF5487).withValues(alpha: 0.2),
-                      valueIndicatorColor: const Color(0xFFFF5487),
-                      valueIndicatorTextStyle: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    child: Slider(
-                      value: modalSpeed.clamp(0.4, 4.0),
-                      min: 0.4,
-                      max: 4.0,
-                      divisions: 36,
-                      label: '${modalSpeed.toStringAsFixed(1)}x',
-                      onChanged: (val) {
-                        final rounded = double.parse(val.toStringAsFixed(1));
-                        setModalState(() {
+                        onChangeEnd: (val) {
+                          final rounded = double.parse(val.toStringAsFixed(1));
                           modalSpeed = rounded;
-                        });
-                      },
-                      onChangeEnd: (val) {
-                        final rounded = double.parse(val.toStringAsFixed(1));
-                        modalSpeed = rounded;
-                        setState(() {
-                          _playbackSpeed = rounded;
-                        });
-                        setModalState(() {});
-                      },
+                          setState(() {
+                            _playbackSpeed = rounded;
+                          });
+                          setModalState(() {});
+                        },
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
+                    const SizedBox(height: 12),
+                  ],
+                ),
+              );
+            },
+          );
+        },
+      );
     } finally {
       _uncoverFeedAudio();
     }
@@ -791,468 +864,546 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
               ),
             )
           else
-          PageView.builder(
-            controller: _pageController,
-            // Keep the adjacent pages built so the next reel can pre-initialize
-            // its player while the current one is being watched.
-            allowImplicitScrolling: true,
-            onPageChanged: (page) {
-              // Always kill BGM on swipe. Ads stay silent; the newly active reel
-              // syncs only its own track after rebuild.
-              ReelBgmPlaybackService.killNow();
-              unawaited(ReelBgmPlaybackService.halt());
-              setState(() {
-                _currentPage = page;
-                _pausedReelIds.clear();
-              });
-              _fetchCommentsForPage(page);
-              _precacheUpcomingReels(page, items);
-            },
-            scrollDirection: Axis.vertical,
-            itemCount: items.length,
-            itemBuilder: (context, index) {
-              final item = items[index];
-              if (item.isNativeAd) {
-                return const FeedNativeAd(fallback: _AdReelCard());
-              }
-              if (item.isBannerAd) {
-                return const FeedBannerAd(fallback: _AdReelCard());
-              }
-              final rawReel = item.reel!;
-              final reelId = rawReel['id']?.toString() ?? rawReel['_id']?.toString() ?? '';
-              // Cubit may hold a stub (likes/comments) without videoUrl — fill
-              // blanks from the feed/raw map so Full Reel can actually play.
-              final fromCubit = reelsProvider.getVideo(reelId);
-              final reel = fromCubit == null
-                  ? rawReel
-                  : ReelHelpers.mergeReelMaps(fromCubit, rawReel);
-              final challenge = ReelHelpers.challengeForReel(reel);
-              final liked = reelsProvider.isLiked(reelId, fallbackVideo: reel);
-              final saved = reelsProvider.isBookmarked(reelId);
-              String videoUrl = (reel['videoUrl'] as String?)?.isNotEmpty == true &&
-                      reel['videoUrl'] != 'null' &&
-                      !MediaUrlUtils.looksLikeImageUrl(reel['videoUrl'].toString())
-                  ? reel['videoUrl'] as String
-                  : '';
-              if (videoUrl.isEmpty && reel['mergedClipPaths'] is List) {
-                for (final raw in (reel['mergedClipPaths'] as List)) {
-                  final clip = raw.toString().trim();
-                  if (clip.isEmpty || clip == 'null') continue;
-                  if (MediaUrlUtils.looksLikeImageUrl(clip)) continue;
-                  videoUrl = clip;
-                  break;
+            PageView.builder(
+              controller: _pageController,
+              // Keep the adjacent pages built so the next reel can pre-initialize
+              // its player while the current one is being watched.
+              allowImplicitScrolling: true,
+              onPageChanged: (page) {
+                // Always kill BGM on swipe. Ads stay silent; the newly active reel
+                // syncs only its own track after rebuild.
+                ReelBgmPlaybackService.killNow();
+                unawaited(ReelBgmPlaybackService.halt());
+                setState(() {
+                  _currentPage = page;
+                  _pausedReelIds.clear();
+                });
+                _fetchCommentsForPage(page);
+                _precacheUpcomingReels(page, items);
+              },
+              scrollDirection: Axis.vertical,
+              itemCount: items.length,
+              itemBuilder: (context, index) {
+                final item = items[index];
+                if (item.isNativeAd) {
+                  return const FeedNativeAd(fallback: _AdReelCard());
                 }
-              }
-              if (videoUrl.isEmpty) {
-                final cachedClips = ReelHelpers.getCachedMergedClips(reelId);
-                if (cachedClips != null && cachedClips.isNotEmpty) {
-                  videoUrl = cachedClips.first;
+                if (item.isBannerAd) {
+                  return const FeedBannerAd(fallback: _AdReelCard());
                 }
-              }
-              final imageUrl = reel['imageUrl'] as String? ?? reel['thumbnailUrl'] as String? ?? '';
-              final isActive = index == _currentPage;
-              final preloadNext = index == _currentPage + 1;
-              final preloadPrev = index == _currentPage - 1;
-              final forcePaused = _appInBackground ||
-                  _routeCovered ||
-                  _ratingReelId != null ||
-                  _pausedReelIds.contains(reelId);
+                final rawReel = item.reel!;
+                final reelId =
+                    rawReel['id']?.toString() ??
+                    rawReel['_id']?.toString() ??
+                    '';
+                // Cubit may hold a stub (likes/comments) without videoUrl — fill
+                // blanks from the feed/raw map so Full Reel can actually play.
+                final fromCubit = reelsProvider.getVideo(reelId);
+                final reel = fromCubit == null
+                    ? rawReel
+                    : ReelHelpers.mergeReelMaps(fromCubit, rawReel);
+                final challenge = ReelHelpers.challengeForReel(reel);
+                final liked = reelsProvider.isLiked(
+                  reelId,
+                  fallbackVideo: reel,
+                );
+                final saved = reelsProvider.isBookmarked(reelId);
+                String videoUrl =
+                    (reel['videoUrl'] as String?)?.isNotEmpty == true &&
+                        reel['videoUrl'] != 'null' &&
+                        !MediaUrlUtils.looksLikeImageUrl(
+                          reel['videoUrl'].toString(),
+                        )
+                    ? reel['videoUrl'] as String
+                    : '';
+                if (videoUrl.isEmpty && reel['mergedClipPaths'] is List) {
+                  for (final raw in (reel['mergedClipPaths'] as List)) {
+                    final clip = raw.toString().trim();
+                    if (clip.isEmpty || clip == 'null') continue;
+                    if (MediaUrlUtils.looksLikeImageUrl(clip)) continue;
+                    videoUrl = clip;
+                    break;
+                  }
+                }
+                if (videoUrl.isEmpty) {
+                  final cachedClips = ReelHelpers.getCachedMergedClips(reelId);
+                  if (cachedClips != null && cachedClips.isNotEmpty) {
+                    videoUrl = cachedClips.first;
+                  }
+                }
+                final imageUrl =
+                    reel['imageUrl'] as String? ??
+                    reel['thumbnailUrl'] as String? ??
+                    '';
+                final isActive = index == _currentPage;
+                final preloadNext = index == _currentPage + 1;
+                final preloadPrev = index == _currentPage - 1;
+                final forcePaused =
+                    _appInBackground ||
+                    _routeCovered ||
+                    _ratingReelId != null ||
+                    _pausedReelIds.contains(reelId);
 
-              final int rawLikes = TrendingVideoItem.parseCount(reel['likesCount'] ?? reel['likes']);
-              final String likesText = TrendingVideoItem.formatCount(rawLikes);
+                final int rawLikes = TrendingVideoItem.parseCount(
+                  reel['likesCount'] ?? reel['likes'],
+                );
+                final String likesText = TrendingVideoItem.formatCount(
+                  rawLikes,
+                );
 
-              final int rawComments = reel['commentsCount'] is int
-                  ? reel['commentsCount'] as int
-                  : (int.tryParse(reel['comments']?.toString() ?? '') ?? 0);
-              final int displayCommentsVal = reelsProvider.getCommentsCount(reelId, rawComments);
-              final String commentsText = _formatCount(displayCommentsVal);
+                final int rawComments = reel['commentsCount'] is int
+                    ? reel['commentsCount'] as int
+                    : (int.tryParse(reel['comments']?.toString() ?? '') ?? 0);
+                final int displayCommentsVal = reelsProvider.getCommentsCount(
+                  reelId,
+                  rawComments,
+                );
+                final String commentsText = _formatCount(displayCommentsVal);
 
-              final int rawShares = reel['sharesCount'] is int
-                  ? reel['sharesCount'] as int
-                  : (int.tryParse(reel['shares']?.toString() ?? '') ?? 0);
-              final sharesRaw = reel['shares']?.toString().trim() ?? '';
-              final String sharesText = sharesRaw.isNotEmpty &&
-                      int.tryParse(sharesRaw) == null
-                  ? sharesRaw
-                  : _formatCount(rawShares);
+                final int rawShares = reel['sharesCount'] is int
+                    ? reel['sharesCount'] as int
+                    : (int.tryParse(reel['shares']?.toString() ?? '') ?? 0);
+                final sharesRaw = reel['shares']?.toString().trim() ?? '';
+                final String sharesText =
+                    sharesRaw.isNotEmpty && int.tryParse(sharesRaw) == null
+                    ? sharesRaw
+                    : _formatCount(rawShares);
 
-              final int rawViews = reel['viewsCount'] is int
-                  ? reel['viewsCount'] as int
-                  : (int.tryParse(reel['views']?.toString() ?? '') ?? 0);
-              final viewsRaw = reel['views']?.toString().trim() ?? '';
-              final String viewsText = viewsRaw.isNotEmpty &&
-                      int.tryParse(viewsRaw) == null
-                  ? viewsRaw
-                  : _formatCount(rawViews);
+                final int rawViews = reel['viewsCount'] is int
+                    ? reel['viewsCount'] as int
+                    : (int.tryParse(reel['views']?.toString() ?? '') ?? 0);
+                final viewsRaw = reel['views']?.toString().trim() ?? '';
+                final String viewsText =
+                    viewsRaw.isNotEmpty && int.tryParse(viewsRaw) == null
+                    ? viewsRaw
+                    : _formatCount(rawViews);
 
-              final String? categoryName = reel['category']?.toString().trim();
-              final String? challengeTitle =
-                  reel['challengeTitle']?.toString().trim() ??
-                      challenge?['title']?.toString().trim();
-              final String creatorName =
-                  reel['creator']?.toString().trim() ??
-                      reel['handle']?.toString().trim() ??
-                      '';
-              final resolvedMusic = ReelHelpers.resolveMusic(
-                description: (reel['description'] ?? reel['caption'])?.toString(),
-                musicUrl: reel['musicUrl']?.toString(),
-                musicName: reel['musicName']?.toString(),
-                startSeconds: (reel['musicStartSeconds'] as num?)?.toDouble(),
-                durationSeconds: (reel['musicCropDuration'] as num?)?.toDouble(),
-                videoId: reel['id']?.toString() ?? reel['_id']?.toString(),
-                videoUrl: videoUrl,
-                resolveAudioUrl: (name) =>
-                    MusicApiService.resolveByName(name)?.audioUrl,
-              );
-              final String? musicName = resolvedMusic?.name.trim().isNotEmpty == true
-                  ? resolvedMusic!.name.trim()
-                  : reel['musicName']?.toString().trim();
-              final String soundText = (musicName != null &&
-                      musicName.isNotEmpty &&
-                      !musicName.startsWith('Original Sound'))
-                  ? musicName
-                  : ((musicName != null && musicName.isNotEmpty)
-                      ? musicName
-                      : (creatorName.isNotEmpty ? 'Original Sound — $creatorName' : 'Original Sound'));
+                final String? categoryName = reel['category']
+                    ?.toString()
+                    .trim();
+                final String? challengeTitle =
+                    reel['challengeTitle']?.toString().trim() ??
+                    challenge?['title']?.toString().trim();
+                final String creatorName =
+                    reel['creator']?.toString().trim() ??
+                    reel['handle']?.toString().trim() ??
+                    '';
+                final resolvedMusic = ReelHelpers.resolveMusic(
+                  description: (reel['description'] ?? reel['caption'])
+                      ?.toString(),
+                  musicUrl: reel['musicUrl']?.toString(),
+                  musicName: reel['musicName']?.toString(),
+                  startSeconds: (reel['musicStartSeconds'] as num?)?.toDouble(),
+                  durationSeconds: (reel['musicCropDuration'] as num?)
+                      ?.toDouble(),
+                  videoId: reel['id']?.toString() ?? reel['_id']?.toString(),
+                  videoUrl: videoUrl,
+                  resolveAudioUrl: (name) =>
+                      MusicApiService.resolveByName(name)?.audioUrl,
+                );
+                final String? musicName =
+                    resolvedMusic?.name.trim().isNotEmpty == true
+                    ? resolvedMusic!.name.trim()
+                    : reel['musicName']?.toString().trim();
+                final String soundText =
+                    (musicName != null &&
+                        musicName.isNotEmpty &&
+                        !musicName.startsWith('Original Sound'))
+                    ? musicName
+                    : ((musicName != null && musicName.isNotEmpty)
+                          ? musicName
+                          : (creatorName.isNotEmpty
+                                ? 'Original Sound — $creatorName'
+                                : 'Original Sound'));
 
-              return Stack(
-                fit: StackFit.expand,
-                children: [
-                  _ReelVideoPlayer(
-                    key: ValueKey(reel['id']),
-                    videoUrl: videoUrl,
-                    thumbnailUrl: imageUrl,
-                    isActive: isActive,
-                    preloadNext: preloadNext,
-                    preloadPrev: preloadPrev,
-                    forcePaused: forcePaused,
-                    userPaused: _pausedReelIds.contains(reelId),
-                    playbackSpeed: _playbackSpeed,
-                    reelId: reel['id']?.toString() ?? reel['_id']?.toString(),
-                    caption: (reel['description'] ?? reel['caption'])?.toString(),
-                    filterId: reel['filterId']?.toString(),
-                    beautyOn: reel['beautyOn'] == true,
-                    beautyIntensity: (reel['beautyIntensity'] as num?)?.toDouble() ?? 0,
-                    trimStart: (reel['videoTrimStartSeconds'] as num?)?.toDouble(),
-                    trimEnd: (reel['videoTrimEndSeconds'] as num?)?.toDouble(),
-                    mergedClipPaths: (reel['mergedClipPaths'] is List)
-                        ? List<String>.from(reel['mergedClipPaths'] as List)
-                        : null,
-                    musicUrl: resolvedMusic?.url,
-                    musicStartSeconds: resolvedMusic?.startSeconds ??
-                        (reel['musicStartSeconds'] as num?)?.toDouble(),
-                    musicCropDuration: resolvedMusic?.durationSeconds ??
-                        (reel['musicCropDuration'] as num?)?.toDouble(),
-                    seekController: _seekController,
-                  ),
-                  const IgnorePointer(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            Color(0x590A0514),
-                            Color(0x0D0A0514),
-                            Color(0x330A0514),
-                            Color(0xEB06030E),
-                          ],
-                          stops: [0, 0.22, 0.55, 1],
+                return Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    _ReelVideoPlayer(
+                      key: ValueKey(reel['id']),
+                      videoUrl: videoUrl,
+                      thumbnailUrl: imageUrl,
+                      isActive: isActive,
+                      preloadNext: preloadNext,
+                      preloadPrev: preloadPrev,
+                      forcePaused: forcePaused,
+                      userPaused: _pausedReelIds.contains(reelId),
+                      playbackSpeed: _playbackSpeed,
+                      reelId: reel['id']?.toString() ?? reel['_id']?.toString(),
+                      caption: (reel['description'] ?? reel['caption'])
+                          ?.toString(),
+                      filterId: reel['filterId']?.toString(),
+                      beautyOn: reel['beautyOn'] == true,
+                      beautyIntensity:
+                          (reel['beautyIntensity'] as num?)?.toDouble() ?? 0,
+                      trimStart: (reel['videoTrimStartSeconds'] as num?)
+                          ?.toDouble(),
+                      trimEnd: (reel['videoTrimEndSeconds'] as num?)
+                          ?.toDouble(),
+                      mergedClipPaths: (reel['mergedClipPaths'] is List)
+                          ? List<String>.from(reel['mergedClipPaths'] as List)
+                          : null,
+                      musicUrl: resolvedMusic?.url,
+                      musicStartSeconds:
+                          resolvedMusic?.startSeconds ??
+                          (reel['musicStartSeconds'] as num?)?.toDouble(),
+                      musicCropDuration:
+                          resolvedMusic?.durationSeconds ??
+                          (reel['musicCropDuration'] as num?)?.toDouble(),
+                      seekController: _seekController,
+                    ),
+                    const IgnorePointer(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Color(0x590A0514),
+                              Color(0x0D0A0514),
+                              Color(0x330A0514),
+                              Color(0xEB06030E),
+                            ],
+                            stops: [0, 0.22, 0.55, 1],
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  Positioned(
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    bottom: 24,
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.translucent,
-                      onTap: () => _toggleReelPause(reelId),
+                    Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      bottom: 24,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.translucent,
+                        onTap: () => _toggleReelPause(reelId),
+                      ),
                     ),
-                  ),
-                  Positioned(
-                    top: 50,
-                    left: 16,
-                    right: 16,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
-                          children: [
-                            if (context.canPop()) ...[
+                    Positioned(
+                      top: 50,
+                      left: 16,
+                      right: 16,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              if (context.canPop()) ...[
+                                GestureDetector(
+                                  onTap: _exitFeed,
+                                  child: Container(
+                                    width: 32,
+                                    height: 32,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: Colors.black.withValues(
+                                        alpha: 0.35,
+                                      ),
+                                      border: Border.all(
+                                        color: Colors.white.withValues(
+                                          alpha: 0.2,
+                                        ),
+                                      ),
+                                    ),
+                                    child: const Icon(
+                                      Icons.arrow_back_ios_new_rounded,
+                                      size: 14,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                              ],
+                              const Text(
+                                '🏆 Challenge Arena',
+                                style: TextStyle(
+                                  fontSize: 16.5,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.white,
+                                  letterSpacing: -0.2,
+                                  shadows: [
+                                    Shadow(
+                                      color: Colors.black45,
+                                      blurRadius: 6,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          Row(
+                            children: [
                               GestureDetector(
-                                onTap: _exitFeed,
+                                onTap: () => unawaited(
+                                  _pushWhileCovered(AppRoutes.search),
+                                ),
                                 child: Container(
-                                  width: 32,
-                                  height: 32,
+                                  width: 36,
+                                  height: 36,
                                   decoration: BoxDecoration(
                                     shape: BoxShape.circle,
-                                    color: Colors.black.withValues(alpha: 0.35),
+                                    color: Colors.white.withValues(alpha: 0.18),
                                     border: Border.all(
-                                      color: Colors.white.withValues(alpha: 0.2),
+                                      color: Colors.white.withValues(
+                                        alpha: 0.25,
+                                      ),
                                     ),
                                   ),
                                   child: const Icon(
-                                    Icons.arrow_back_ios_new_rounded,
-                                    size: 14,
+                                    Icons.search,
+                                    size: 18,
                                     color: Colors.white,
                                   ),
                                 ),
                               ),
-                              const SizedBox(width: 8),
+                              const SizedBox(width: 10),
+                              GestureDetector(
+                                onTap: () => unawaited(
+                                  _pushWhileCovered(AppRoutes.notifications),
+                                ),
+                                child: Container(
+                                  width: 36,
+                                  height: 36,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: Colors.white.withValues(alpha: 0.18),
+                                    border: Border.all(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.25,
+                                      ),
+                                    ),
+                                  ),
+                                  child: const Icon(
+                                    Icons.notifications_none_rounded,
+                                    size: 18,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
                             ],
-                            const Text(
-                              '🏆 Challenge Arena',
-                              style: TextStyle(
-                                fontSize: 16.5,
-                                fontWeight: FontWeight.w800,
-                                color: Colors.white,
-                                letterSpacing: -0.2,
-                                shadows: [
-                                  Shadow(
-                                    color: Colors.black45,
-                                    blurRadius: 6,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                        Row(
-                          children: [
-                            GestureDetector(
-                              onTap: () => unawaited(
-                                    _pushWhileCovered(AppRoutes.search),
-                                  ),
-                              child: Container(
-                                width: 36,
-                                height: 36,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: Colors.white.withValues(alpha: 0.18),
-                                  border: Border.all(
-                                    color: Colors.white.withValues(alpha: 0.25),
-                                  ),
-                                ),
-                                child: const Icon(
-                                  Icons.search,
-                                  size: 18,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            GestureDetector(
-                              onTap: () => unawaited(
-                                    _pushWhileCovered(AppRoutes.notifications),
-                                  ),
-                              child: Container(
-                                width: 36,
-                                height: 36,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: Colors.white.withValues(alpha: 0.18),
-                                  border: Border.all(
-                                    color: Colors.white.withValues(alpha: 0.25),
-                                  ),
-                                ),
-                                child: const Icon(
-                                  Icons.notifications_none_rounded,
-                                  size: 18,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  if (categoryName != null && categoryName.isNotEmpty)
-                    Positioned(
-                      top: 92,
-                      left: 18,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 11, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: ReelHelpers.categoryTint(categoryName),
-                          borderRadius: BorderRadius.circular(999),
-                          boxShadow: [
-                            BoxShadow(
-                              color: ReelHelpers.categoryTint(categoryName)
-                                  .withValues(alpha: 0.4),
-                              blurRadius: 8,
-                              offset: const Offset(0, 3),
+                    if (categoryName != null && categoryName.isNotEmpty)
+                      Positioned(
+                        top: 92,
+                        left: 18,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 11,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: ReelHelpers.categoryTint(categoryName),
+                            borderRadius: BorderRadius.circular(999),
+                            boxShadow: [
+                              BoxShadow(
+                                color: ReelHelpers.categoryTint(
+                                  categoryName,
+                                ).withValues(alpha: 0.4),
+                                blurRadius: 8,
+                                offset: const Offset(0, 3),
+                              ),
+                            ],
+                          ),
+                          child: Text(
+                            categoryName.toUpperCase(),
+                            style: const TextStyle(
+                              fontSize: 9.5,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                              letterSpacing: 0.3,
                             ),
-                          ],
-                        ),
-                        child: Text(
-                          categoryName.toUpperCase(),
-                          style: const TextStyle(
-                            fontSize: 9.5,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.white,
-                            letterSpacing: 0.3,
                           ),
                         ),
                       ),
-                    ),
-                  Positioned(
-                    right: 14,
-                    bottom: actionsBottom,
-                    child: Column(
-                      children: [
-                        _ActionBtn(
-                          icon: liked ? Icons.favorite : Icons.favorite_border,
-                          count: likesText,
-                          active: liked,
-                          onTap: () => context
-                              .read<ReelsCubit>()
-                              .toggleLike(reelId, fallbackVideo: reel),
-                        ),
-                        const SizedBox(height: 14),
-                        _ActionBtn(
-                          icon: Icons.chat_bubble_outline,
-                          count: commentsText,
-                          onTap: () => unawaited(
-                                _pushWhileCovered(
-                                  '${AppRoutes.comments}?id=$reelId',
-                                ),
-                              ),
-                        ),
-                        const SizedBox(height: 14),
-                        _ActionBtn(
-                          icon: Icons.star,
-                          count: 'Rate',
-                          rateStyle: true,
-                          onTap: () => _openRating(reelId, reel),
-                        ),
-                        const SizedBox(height: 14),
-                        _ActionBtn(
-                          icon: Icons.speed,
-                          count: _playbackSpeed == 1.0 ? 'Speed' : '${_playbackSpeed.toStringAsFixed(1)}x',
-                          active: _playbackSpeed != 1.0,
-                          onTap: _openSpeedBottomSheet,
-                        ),
-                        const SizedBox(height: 14),
-                        _ActionBtn(
-                          icon: Icons.share_outlined,
-                          count: sharesText,
-                          onTap: () {
-                            final rawUrl = reel['videoUrl'] ??
-                                reel['video_url'] ??
-                                reel['video'] ??
-                                reel['mediaUrl'];
-                            final vUrl = (rawUrl is String && rawUrl.isNotEmpty && rawUrl != 'null')
-                                ? rawUrl
-                                : '';
-                            unawaited(VideoShareHelper.precacheVideo(vUrl, videoId: reelId));
-                            unawaited(_pushWhileCovered(
-                              '${AppRoutes.shareReport}?id=$reelId',
-                              extra: {
-                                'reelId': reelId,
-                                'videoUrl': vUrl,
-                                'title': reel['title']?.toString(),
-                                'caption': ReelHelpers.cleanDescription(
-                                  (reel['caption'] ?? reel['description'])
-                                      ?.toString(),
-                                ),
-                                'musicUrl': resolvedMusic?.url,
-                                'musicName': resolvedMusic?.name,
-                                'musicStartSeconds':
-                                    resolvedMusic?.startSeconds,
-                                'musicCropDuration':
-                                    resolvedMusic?.durationSeconds,
-                                'description':
-                                    (reel['description'] ?? reel['caption'])
-                                        ?.toString(),
-                              },
-                            ));
-                          },
-                        ),
-                        const SizedBox(height: 14),
-                        _ActionBtn(
-                          icon: saved ? Icons.bookmark : Icons.bookmark_border,
-                          count: saved ? 'Saved' : 'Save',
-                          active: saved,
-                          onTap: () => context
-                              .read<ReelsCubit>()
-                              .toggleBookmark(reelId),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Positioned(
-                    left: 16,
-                    right: 78,
-                    bottom: captionBottom,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        CreatorInfoRow(reel: reel, lightText: true),
-                        GestureDetector(
-                          onTap: () => unawaited(
-                            _pushWhileCovered(
-                              '${AppRoutes.videoDetail}?id=$reelId',
+                    Positioned(
+                      right: 14,
+                      bottom: actionsBottom,
+                      child: Column(
+                        children: [
+                          _ActionBtn(
+                            icon: liked
+                                ? Icons.favorite
+                                : Icons.favorite_border,
+                            count: likesText,
+                            active: liked,
+                            onTap: () => context.read<ReelsCubit>().toggleLike(
+                              reelId,
+                              fallbackVideo: reel,
                             ),
                           ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (challengeTitle != null && challengeTitle.isNotEmpty) ...[
+                          const SizedBox(height: 14),
+                          _ActionBtn(
+                            icon: Icons.chat_bubble_outline,
+                            count: commentsText,
+                            onTap: () => unawaited(
+                              _pushWhileCovered(
+                                '${AppRoutes.comments}?id=$reelId',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          _ActionBtn(
+                            icon: Icons.star,
+                            count: 'Rate',
+                            rateStyle: true,
+                            onTap: () => _openRating(reelId, reel),
+                          ),
+                          const SizedBox(height: 14),
+                          _ActionBtn(
+                            icon: Icons.speed,
+                            count: _playbackSpeed == 1.0
+                                ? 'Speed'
+                                : '${_playbackSpeed.toStringAsFixed(1)}x',
+                            active: _playbackSpeed != 1.0,
+                            onTap: _openSpeedBottomSheet,
+                          ),
+                          const SizedBox(height: 14),
+                          _ActionBtn(
+                            icon: Icons.share_outlined,
+                            count: sharesText,
+                            onTap: () {
+                              final rawUrl =
+                                  reel['videoUrl'] ??
+                                  reel['video_url'] ??
+                                  reel['video'] ??
+                                  reel['mediaUrl'];
+                              final vUrl =
+                                  (rawUrl is String &&
+                                      rawUrl.isNotEmpty &&
+                                      rawUrl != 'null')
+                                  ? rawUrl
+                                  : '';
+                              unawaited(
+                                VideoShareHelper.precacheVideo(
+                                  vUrl,
+                                  videoId: reelId,
+                                ),
+                              );
+                              unawaited(
+                                _pushWhileCovered(
+                                  '${AppRoutes.shareReport}?id=$reelId',
+                                  extra: {
+                                    'reelId': reelId,
+                                    'videoUrl': vUrl,
+                                    'title': reel['title']?.toString(),
+                                    'caption': ReelHelpers.cleanDescription(
+                                      (reel['caption'] ?? reel['description'])
+                                          ?.toString(),
+                                    ),
+                                    'musicUrl': resolvedMusic?.url,
+                                    'musicName': resolvedMusic?.name,
+                                    'musicStartSeconds':
+                                        resolvedMusic?.startSeconds,
+                                    'musicCropDuration':
+                                        resolvedMusic?.durationSeconds,
+                                    'description':
+                                        (reel['description'] ?? reel['caption'])
+                                            ?.toString(),
+                                  },
+                                ),
+                              );
+                            },
+                          ),
+                          const SizedBox(height: 14),
+                          _ActionBtn(
+                            icon: saved
+                                ? Icons.bookmark
+                                : Icons.bookmark_border,
+                            count: saved ? 'Saved' : 'Save',
+                            active: saved,
+                            onTap: () => context
+                                .read<ReelsCubit>()
+                                .toggleBookmark(reelId),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Positioned(
+                      left: 16,
+                      right: 78,
+                      bottom: captionBottom,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          CreatorInfoRow(
+                            reel: reel,
+                            lightText: true,
+                            onNavigate: (route) =>
+                                unawaited(_pushWhileCovered(route)),
+                          ),
+                          GestureDetector(
+                            onTap: () => unawaited(
+                              _pushWhileCovered(
+                                '${AppRoutes.videoDetail}?id=$reelId',
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (challengeTitle != null &&
+                                    challengeTitle.isNotEmpty) ...[
+                                  const SizedBox(height: 8),
+                                  _MetaRow(
+                                    icon: Icons.emoji_events_outlined,
+                                    text: challengeTitle,
+                                  ),
+                                ],
                                 const SizedBox(height: 8),
                                 _MetaRow(
-                                  icon: Icons.emoji_events_outlined,
-                                  text: challengeTitle,
+                                  icon: Icons.music_note,
+                                  text: soundText,
                                 ),
+                                Builder(
+                                  builder: (_) {
+                                    final captionText =
+                                        ReelHelpers.cleanDescription(
+                                          (reel['caption']
+                                                          ?.toString()
+                                                          .trim()
+                                                          .isNotEmpty ==
+                                                      true
+                                                  ? reel['caption']
+                                                  : reel['description'])
+                                              ?.toString(),
+                                        ).replaceAll(RegExp(r'#+'), '#').trim();
+                                    if (captionText.isEmpty) {
+                                      return const SizedBox.shrink();
+                                    }
+                                    return Padding(
+                                      padding: const EdgeInsets.only(top: 8),
+                                      child: Text(
+                                        captionText,
+                                        style: TextStyle(
+                                          fontSize: 12.5,
+                                          height: 1.4,
+                                          color: Colors.white.withValues(
+                                            alpha: 0.92,
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                                const SizedBox(height: 8),
+                                _MetaRow(
+                                  icon: Icons.remove_red_eye_outlined,
+                                  text: '$viewsText views',
+                                  muted: true,
+                                ),
+                                const SizedBox(height: 6),
                               ],
-                              const SizedBox(height: 8),
-                              _MetaRow(
-                                icon: Icons.music_note,
-                                text: soundText,
-                              ),
-                              Builder(builder: (_) {
-                                final captionText = ReelHelpers.cleanDescription(
-                                  (reel['caption']?.toString().trim().isNotEmpty == true
-                                          ? reel['caption']
-                                          : reel['description'])
-                                      ?.toString(),
-                                ).replaceAll(RegExp(r'#+'), '#').trim();
-                                if (captionText.isEmpty) {
-                                  return const SizedBox.shrink();
-                                }
-                                return Padding(
-                                  padding: const EdgeInsets.only(top: 8),
-                                  child: Text(
-                                    captionText,
-                                    style: TextStyle(
-                                      fontSize: 12.5,
-                                      height: 1.4,
-                                      color: Colors.white.withValues(alpha: 0.92),
-                                    ),
-                                  ),
-                                );
-                              }),
-                              const SizedBox(height: 8),
-                              _MetaRow(
-                                icon: Icons.remove_red_eye_outlined,
-                                text: '$viewsText views',
-                                muted: true,
-                              ),
-                              const SizedBox(height: 6),
-                            ],
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                ],
-              );
-            },
-          ),
+                  ],
+                );
+              },
+            ),
           if (items.isNotEmpty)
             Positioned(
               left: 0,
@@ -1328,7 +1479,10 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
                           ),
                           IconButton(
                             onPressed: _closeRating,
-                            icon: const Icon(Icons.close, color: Colors.white70),
+                            icon: const Icon(
+                              Icons.close,
+                              color: Colors.white70,
+                            ),
                           ),
                         ],
                       ),
@@ -1340,7 +1494,10 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
                       const SizedBox(height: 16),
                       if (_ratingSuccess)
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 10,
+                          ),
                           decoration: BoxDecoration(
                             color: const Color(0xFF1E3A2B),
                             borderRadius: BorderRadius.circular(12),
@@ -1348,7 +1505,11 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
                           child: const Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(Icons.check_circle, color: Color(0xFF3CD98A), size: 18),
+                              Icon(
+                                Icons.check_circle,
+                                color: Color(0xFF3CD98A),
+                                size: 18,
+                              ),
                               SizedBox(width: 8),
                               Text(
                                 'Rating Submitted Successfully!',
@@ -1364,11 +1525,17 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
                       else
                         GestureDetector(
                           onTap: () {
-                            context.read<ReelsCubit>().rateVideo(_ratingReelId!, _ratingValue);
+                            context.read<ReelsCubit>().rateVideo(
+                              _ratingReelId!,
+                              _ratingValue,
+                            );
                             setState(() {
                               _ratingSuccess = true;
                             });
-                            Future.delayed(const Duration(milliseconds: 1200), _closeRating);
+                            Future.delayed(
+                              const Duration(milliseconds: 1200),
+                              _closeRating,
+                            );
                           },
                           child: Container(
                             width: double.infinity,
@@ -1428,6 +1595,7 @@ class _ReelVideoPlayer extends StatefulWidget {
   final String videoUrl;
   final String thumbnailUrl;
   final bool isActive;
+
   /// True when this reel is the one directly after the active reel. Its player
   /// is initialized (paused) ahead of time so that swiping to it plays instantly.
   final bool preloadNext;
@@ -1470,11 +1638,13 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
   Timer? _loadingHintTimer;
   bool _showSlowLoading = false;
   bool _isSeekingToStart = false;
+
   /// Incremented whenever controllers are disposed; lets an in-flight
   /// _initVideo detect that its result is stale and discard it.
   int _initGeneration = 0;
   int _lastPublishedPosMs = -1;
   DateTime? _lastSeekPublishAt;
+
   /// Last observed video position — used to detect native loop wrap so BGM
   /// can restart with the slider.
   int _lastVideoPosMs = -1;
@@ -1489,8 +1659,8 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
 
   String get _seekReelKey =>
       (widget.reelId != null && widget.reelId!.isNotEmpty)
-          ? widget.reelId!
-          : widget.videoUrl;
+      ? widget.reelId!
+      : widget.videoUrl;
 
   int _clipDurationMs(int index) {
     final c = _clipControllers[index];
@@ -1517,7 +1687,10 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
     final trimStart = widget.trimStart ?? 0;
     final trimEnd = widget.trimEnd;
     if (trimEnd != null && trimEnd > trimStart && clipCount > 0) {
-      return (((trimEnd - trimStart) * 1000) / clipCount).round().clamp(500, 60000);
+      return (((trimEnd - trimStart) * 1000) / clipCount).round().clamp(
+        500,
+        60000,
+      );
     }
     return 5000;
   }
@@ -1574,7 +1747,8 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
             _lastPublishedPosMs >= 0 &&
             (pos - _lastPublishedPosMs).abs() < 90 &&
             _lastSeekPublishAt != null &&
-            now.difference(_lastSeekPublishAt!) < const Duration(milliseconds: 100)) {
+            now.difference(_lastSeekPublishAt!) <
+                const Duration(milliseconds: 100)) {
           return;
         }
         _lastPublishedPosMs = pos;
@@ -1593,7 +1767,9 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
     if (current != null &&
         (identical(current.controller, _controller) ||
             identical(current.controller, _activeController) ||
-            _clipControllers.values.any((c) => identical(current.controller, c)))) {
+            _clipControllers.values.any(
+              (c) => identical(current.controller, c),
+            ))) {
       notifier.value = null;
     }
   }
@@ -1714,9 +1890,7 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
         raw = cached;
       }
     }
-    if (raw.isEmpty &&
-        widget.caption != null &&
-        widget.caption!.isNotEmpty) {
+    if (raw.isEmpty && widget.caption != null && widget.caption!.isNotEmpty) {
       final descClips = ReelHelpers.parseDescriptionClips(widget.caption).clips;
       if (descClips != null && descClips.length > 1) {
         raw = descClips;
@@ -1732,8 +1906,7 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
     for (final c in raw) {
       final url = _resolvePlayableUrl(c);
       if (url == null || url.isEmpty) continue;
-      final isRemote =
-          url.startsWith('http://') || url.startsWith('https://');
+      final isRemote = url.startsWith('http://') || url.startsWith('https://');
       if (!isRemote) {
         try {
           if (!File(url).existsSync()) continue;
@@ -1755,13 +1928,18 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
     // cached track inside the player.
     final direct = widget.musicUrl?.trim();
     if (direct != null && direct.isNotEmpty && direct != 'null') return direct;
-    final fromCaption = ReelHelpers.parseDescriptionMusic(widget.caption)?.url.trim();
-    if (fromCaption != null && fromCaption.isNotEmpty && fromCaption != 'null') {
+    final fromCaption = ReelHelpers.parseDescriptionMusic(
+      widget.caption,
+    )?.url.trim();
+    if (fromCaption != null &&
+        fromCaption.isNotEmpty &&
+        fromCaption != 'null') {
       return fromCaption;
     }
     if (widget.reelId != null && widget.reelId!.trim().isNotEmpty) {
       final cached = ReelHelpers.getCachedMusic(widget.reelId)?.url.trim();
-      if (cached != null && cached.isNotEmpty && cached != 'null') return cached;
+      if (cached != null && cached.isNotEmpty && cached != 'null')
+        return cached;
     }
     return null;
   }
@@ -1777,8 +1955,9 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
   double get _bgmCropDurationSeconds {
     final direct = widget.musicCropDuration;
     if (direct != null && direct > 0) return direct;
-    final fromCaption =
-        ReelHelpers.parseDescriptionMusic(widget.caption)?.durationSeconds;
+    final fromCaption = ReelHelpers.parseDescriptionMusic(
+      widget.caption,
+    )?.durationSeconds;
     if (fromCaption != null && fromCaption > 0) return fromCaption;
     if (widget.reelId != null) {
       final cached = ReelHelpers.getCachedMusic(widget.reelId)?.durationSeconds;
@@ -1845,8 +2024,9 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
     }
 
     final clips = _effectiveMergedClips;
-    final nextIndex =
-        clips.isEmpty ? 0 : (_currentClipIndex + 1) % clips.length;
+    final nextIndex = clips.isEmpty
+        ? 0
+        : (_currentClipIndex + 1) % clips.length;
     final layers = <Widget>[];
 
     void addLayer(int index, {required bool visible}) {
@@ -1874,15 +2054,12 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
     addLayer(_currentClipIndex, visible: true);
 
     if (layers.isEmpty) return const SizedBox.shrink();
-    return _withRecordingFilter(
-      Stack(fit: StackFit.expand, children: layers),
-    );
+    return _withRecordingFilter(Stack(fit: StackFit.expand, children: layers));
   }
 
-  String get _bgmReelKey =>
-      (widget.reelId != null && widget.reelId!.isNotEmpty)
-          ? widget.reelId!
-          : widget.videoUrl;
+  String get _bgmReelKey => (widget.reelId != null && widget.reelId!.isNotEmpty)
+      ? widget.reelId!
+      : widget.videoUrl;
 
   void _syncBgm({bool play = true, bool forceSeek = false}) {
     unawaited(_syncBgmAsync(play: play, forceSeek: forceSeek));
@@ -1893,7 +2070,9 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
   Future<void> _syncBgmAsync({bool play = true, bool forceSeek = false}) async {
     // Hard stop when leaving / pausing — deactivate alone can miss a key mismatch
     // and leave music running under Share & Report.
-    if (!play || widget.forcePaused || ReelBgmPlaybackService.isNavigationLocked) {
+    if (!play ||
+        widget.forcePaused ||
+        ReelBgmPlaybackService.isNavigationLocked) {
       ReelBgmPlaybackService.killNow();
       unawaited(ReelBgmPlaybackService.pause());
       final active = _activeController;
@@ -1966,13 +2145,13 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
     if (prev < 0) return;
 
     final looped = (prev - posMs) >= 700 && posMs <= 450;
-    final completedRestart =
-        durMs > 0 && prev >= (durMs - 350) && posMs <= 450;
+    final completedRestart = durMs > 0 && prev >= (durMs - 350) && posMs <= 450;
     if (!looped && !completedRestart) return;
 
     final now = DateTime.now();
     if (_lastBgmLoopSyncAt != null &&
-        now.difference(_lastBgmLoopSyncAt!) < const Duration(milliseconds: 350)) {
+        now.difference(_lastBgmLoopSyncAt!) <
+            const Duration(milliseconds: 350)) {
       return;
     }
     _lastBgmLoopSyncAt = now;
@@ -2082,6 +2261,9 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
           if (!_isInitializing) _initVideo();
         } else if (_isInitialized) {
           if (widget.forcePaused) {
+            try {
+              active.setVolume(0.0);
+            } catch (_) {}
             active.pause();
             _syncBgm(play: false);
           } else if (!oldWidget.isActive ||
@@ -2150,7 +2332,9 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
     }
   }
 
-  Future<VideoPlayerController?> _createAndInitController(String resolvedUrl) async {
+  Future<VideoPlayerController?> _createAndInitController(
+    String resolvedUrl,
+  ) async {
     // Free bandwidth / file locks so Full Reel can start after Video Detail.
     VideoCacheManager.cancelPrecache(resolvedUrl);
     return VideoCacheManager.createAndInitController(
@@ -2242,7 +2426,11 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
 
         final trimStart = widget.trimStart ?? 0.0;
         if (trimStart > 0) {
-          unawaited(controller.seekTo(Duration(milliseconds: (trimStart * 1000).round())));
+          unawaited(
+            controller.seekTo(
+              Duration(milliseconds: (trimStart * 1000).round()),
+            ),
+          );
         }
         if (widget.playbackSpeed != 1.0) {
           unawaited(controller.setPlaybackSpeed(widget.playbackSpeed));
@@ -2268,11 +2456,15 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
             await _playVideoWithBgm(ready);
           }
         }
-        debugPrint('=== VIDEO PLAYBACK === Single player initialized: true ($resolvedUrl)');
+        debugPrint(
+          '=== VIDEO PLAYBACK === Single player initialized: true ($resolvedUrl)',
+        );
         return;
       }
       if (lastError != null) {
-        debugPrint('=== VIDEO PLAYBACK === All single-player candidates failed: $lastError');
+        debugPrint(
+          '=== VIDEO PLAYBACK === All single-player candidates failed: $lastError',
+        );
       }
 
       // Only report the failure if this init is still the current one.
@@ -2454,12 +2646,14 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
     _nextClipWarmStarted = true;
     try {
       if (next.value.position.inMilliseconds > 40) {
-        unawaited(next.seekTo(Duration.zero).then((_) {
-          if (!mounted || _isSwitchingClip) return;
-          if (widget.isActive && !widget.forcePaused) {
-            unawaited(next.play());
-          }
-        }));
+        unawaited(
+          next.seekTo(Duration.zero).then((_) {
+            if (!mounted || _isSwitchingClip) return;
+            if (widget.isActive && !widget.forcePaused) {
+              unawaited(next.play());
+            }
+          }),
+        );
       } else if (!next.value.isPlaying) {
         unawaited(next.play());
       }
@@ -2486,7 +2680,12 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
         final leadMargin = (90 * widget.playbackSpeed).clamp(60, 220).round();
         _warmStartUpcomingClip(durMs, posMs);
 
-        if (durMs > 0 && (isCompleted || posMs >= durMs - leadMargin || (!isPlaying && posMs >= durMs - (leadMargin + 80) && posMs > 0))) {
+        if (durMs > 0 &&
+            (isCompleted ||
+                posMs >= durMs - leadMargin ||
+                (!isPlaying &&
+                    posMs >= durMs - (leadMargin + 80) &&
+                    posMs > 0))) {
           _advanceToNextClip();
         }
       }
@@ -2528,21 +2727,24 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
 
       if (!_isSeekingToStart && posMs >= endMs - 50 && posMs > startMs + 300) {
         _isSeekingToStart = true;
-        controller.seekTo(Duration(milliseconds: startMs)).then((_) {
-          if (mounted) {
-            Future.delayed(const Duration(milliseconds: 150), () {
+        controller
+            .seekTo(Duration(milliseconds: startMs))
+            .then((_) {
+              if (mounted) {
+                Future.delayed(const Duration(milliseconds: 150), () {
+                  if (mounted) _isSeekingToStart = false;
+                });
+                if (controller.value.isPlaying) {
+                  controller.play();
+                }
+                // Trim loop: video went back to start — music must too.
+                _lastVideoPosMs = startMs;
+                _syncBgm(play: true, forceSeek: true);
+              }
+            })
+            .catchError((_) {
               if (mounted) _isSeekingToStart = false;
             });
-            if (controller.value.isPlaying) {
-              controller.play();
-            }
-            // Trim loop: video went back to start — music must too.
-            _lastVideoPosMs = startMs;
-            _syncBgm(play: true, forceSeek: true);
-          }
-        }).catchError((_) {
-          if (mounted) _isSeekingToStart = false;
-        });
       }
     }
 
@@ -2551,7 +2753,12 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
       final isCompleted = controller.value.isCompleted;
       final leadMargin = (90 * widget.playbackSpeed).clamp(60, 220).round();
       _warmStartUpcomingClip(durMs, posMs);
-      if (durMs > 0 && (isCompleted || posMs >= durMs - leadMargin || (!isPlaying && posMs >= durMs - (leadMargin + 80) && posMs > 0))) {
+      if (durMs > 0 &&
+          (isCompleted ||
+              posMs >= durMs - leadMargin ||
+              (!isPlaying &&
+                  posMs >= durMs - (leadMargin + 80) &&
+                  posMs > 0))) {
         _advanceToNextClip();
       }
     }
@@ -2583,7 +2790,9 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
         }
       }
 
-      if (nextController != null && nextController.value.isInitialized && mounted) {
+      if (nextController != null &&
+          nextController.value.isInitialized &&
+          mounted) {
         oldController?.removeListener(_onVideoControllerUpdate);
 
         nextController.removeListener(_onVideoControllerUpdate);
@@ -2619,7 +2828,9 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
         // Mid-playlist handoff: keep music flowing. Playlist wrap (last→first):
         // restart music with the video/slider from the beginning.
         if (_hasBgm && widget.isActive && !widget.forcePaused) {
-          if (nextIndex == 0 && oldIndex == clips.length - 1 && clips.length > 1) {
+          if (nextIndex == 0 &&
+              oldIndex == clips.length - 1 &&
+              clips.length > 1) {
             _lastVideoPosMs = 0;
             _syncBgm(play: true, forceSeek: true);
           } else {
@@ -2635,10 +2846,13 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
         // Prime next-next clip for continuous smooth play.
         final upcomingIndex = (nextIndex + 1) % clips.length;
         final upcomingController = _clipControllers[upcomingIndex];
-        if (upcomingController != null && upcomingController.value.isInitialized) {
+        if (upcomingController != null &&
+            upcomingController.value.isInitialized) {
           if (widget.playbackSpeed != 1.0) {
             try {
-              unawaited(upcomingController.setPlaybackSpeed(widget.playbackSpeed));
+              unawaited(
+                upcomingController.setPlaybackSpeed(widget.playbackSpeed),
+              );
             } catch (_) {}
           }
           unawaited(upcomingController.seekTo(Duration.zero));
@@ -2675,7 +2889,9 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
         current != null &&
         (identical(current.controller, _controller) ||
             identical(current.controller, _activeController) ||
-            _clipControllers.values.any((c) => identical(current.controller, c)))) {
+            _clipControllers.values.any(
+              (c) => identical(current.controller, c),
+            ))) {
       notifier.value = null;
     }
     // Only silence BGM if THIS reel owned it — never killNow here or a
@@ -2713,94 +2929,99 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
   Widget build(BuildContext context) {
     super.build(context);
     return Stack(
-        fit: StackFit.expand,
-        children: [
-          // 1. Thumbnail Image Preview (shown initially as background/preview)
-          if (widget.thumbnailUrl.trim().isNotEmpty &&
-              widget.thumbnailUrl.trim() != 'null')
-            _withRecordingFilter(
-              AppImage(
-                url: widget.thumbnailUrl,
-                videoUrl: widget.videoUrl,
-                fit: BoxFit.cover,
-                isVideo: true,
-              ),
-            )
-          else
-            const ColoredBox(color: Color(0xFF140A28)),
+      fit: StackFit.expand,
+      children: [
+        // 1. Thumbnail Image Preview (shown initially as background/preview)
+        if (widget.thumbnailUrl.trim().isNotEmpty &&
+            widget.thumbnailUrl.trim() != 'null')
+          _withRecordingFilter(
+            AppImage(
+              url: widget.thumbnailUrl,
+              videoUrl: widget.videoUrl,
+              fit: BoxFit.cover,
+              isVideo: true,
+            ),
+          )
+        else
+          const ColoredBox(color: Color(0xFF140A28)),
 
-          // 2. Loading overlay only if init is actually slow (thumbnail stays visible).
-          if (_showSlowLoading && _isInitializing && !_isInitialized)
-            const Center(
-              child: SizedBox(
-                width: 28,
-                height: 28,
-                child: CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white70),
-                  strokeWidth: 2.2,
-                ),
+        // 2. Loading overlay only if init is actually slow (thumbnail stays visible).
+        if (_showSlowLoading && _isInitializing && !_isInitialized)
+          const Center(
+            child: SizedBox(
+              width: 28,
+              height: 28,
+              child: CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white70),
+                strokeWidth: 2.2,
               ),
             ),
+          ),
 
-          // 3. Actual Video Player View
-          // Multi-clip: keep current + next mounted so handoff does not remount textures.
-          if (_isInitialized) _buildActiveVideoLayer(),
+        // 3. Actual Video Player View
+        // Multi-clip: keep current + next mounted so handoff does not remount textures.
+        if (_isInitialized) _buildActiveVideoLayer(),
 
-          // 4. Play / Pause Overlay Icon (Only when user explicitly paused)
-          if (_isInitialized &&
-              _activeController != null &&
-              widget.userPaused &&
-              !_activeController!.value.isPlaying)
-            Center(
+        // 4. Play / Pause Overlay Icon (Only when user explicitly paused)
+        if (_isInitialized &&
+            _activeController != null &&
+            widget.userPaused &&
+            !_activeController!.value.isPlaying)
+          Center(
+            child: Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.black.withValues(alpha: 0.45),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.8),
+                  width: 2,
+                ),
+              ),
+              child: const Icon(
+                Icons.play_arrow_rounded,
+                color: Colors.white,
+                size: 40,
+              ),
+            ),
+          ),
+
+        // 4c. Error Retry Overlay
+        if (_hasError && widget.isActive && !_isInitialized && !_isInitializing)
+          Center(
+            child: GestureDetector(
+              onTap: _initVideo,
               child: Container(
-                width: 64,
-                height: 64,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 11,
+                ),
                 decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.black.withValues(alpha: 0.45),
-                  border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.8), width: 2),
+                  color: Colors.black.withValues(alpha: 0.75),
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(color: Colors.white38),
                 ),
-                child: const Icon(
-                  Icons.play_arrow_rounded,
-                  color: Colors.white,
-                  size: 40,
-                ),
-              ),
-            ),
-
-          // 4c. Error Retry Overlay
-          if (_hasError && widget.isActive && !_isInitialized && !_isInitializing)
-            Center(
-              child: GestureDetector(
-                onTap: _initVideo,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.75),
-                    borderRadius: BorderRadius.circular(24),
-                    border: Border.all(color: Colors.white38),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.refresh_rounded, color: Colors.white, size: 20),
-                      SizedBox(width: 8),
-                      Text(
-                        'Tap to reload video',
-                        style: TextStyle(
-                          fontFamily: 'Inter',
-                          color: Colors.white,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                        ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.refresh_rounded, color: Colors.white, size: 20),
+                    SizedBox(width: 8),
+                    Text(
+                      'Tap to reload video',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
             ),
-        ],
+          ),
+      ],
     );
   }
 }
@@ -2827,6 +3048,7 @@ class _ReelSeekInfo {
 
   void pause() {
     try {
+      controller.setVolume(0.0);
       controller.pause();
     } catch (_) {}
   }
@@ -2965,21 +3187,21 @@ class _InstagramSeekBarState extends State<_InstagramSeekBar> {
 
 class _FeedItem {
   const _FeedItem.reel(this.reel)
-      : isAd = false,
-        isBannerAd = false,
-        isNativeAd = false;
+    : isAd = false,
+      isBannerAd = false,
+      isNativeAd = false;
 
   const _FeedItem.bannerAd()
-      : reel = null,
-        isAd = true,
-        isBannerAd = true,
-        isNativeAd = false;
+    : reel = null,
+      isAd = true,
+      isBannerAd = true,
+      isNativeAd = false;
 
   const _FeedItem.nativeAd()
-      : reel = null,
-        isAd = true,
-        isBannerAd = false,
-        isNativeAd = true;
+    : reel = null,
+      isAd = true,
+      isBannerAd = false,
+      isNativeAd = true;
 
   final Map<String, dynamic>? reel;
   final bool isAd;
@@ -3025,7 +3247,9 @@ class _ActionBtn extends StatelessWidget {
               icon,
               size: 22,
               color: active
-                  ? (icon == Icons.favorite ? const Color(0xFFFF3D77) : Colors.white)
+                  ? (icon == Icons.favorite
+                        ? const Color(0xFFFF3D77)
+                        : Colors.white)
                   : Colors.white,
             ),
           ),
@@ -3045,11 +3269,7 @@ class _ActionBtn extends StatelessWidget {
 }
 
 class _MetaRow extends StatelessWidget {
-  const _MetaRow({
-    required this.icon,
-    required this.text,
-    this.muted = false,
-  });
+  const _MetaRow({required this.icon, required this.text, this.muted = false});
 
   final IconData icon;
   final String text;
@@ -3102,10 +3322,7 @@ class _AdReelCard extends StatelessWidget {
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              colors: [
-                const Color(0x590A0514),
-                const Color(0xEB06030E),
-              ],
+              colors: [const Color(0x590A0514), const Color(0xEB06030E)],
             ),
           ),
         ),
@@ -3153,7 +3370,10 @@ class _AdReelCard extends StatelessWidget {
               ),
               const SizedBox(height: 14),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 11),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 11,
+                ),
                 decoration: BoxDecoration(
                   gradient: AppGradients.button,
                   borderRadius: BorderRadius.circular(999),
@@ -3193,4 +3413,3 @@ String _formatCount(int count) {
   }
   return count.toString();
 }
-

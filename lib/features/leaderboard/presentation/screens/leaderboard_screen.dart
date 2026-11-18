@@ -8,6 +8,7 @@ import 'package:artable_app/core/widgets/app_back_header.dart';
 import 'package:artable_app/core/widgets/app_image.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
 import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
+import 'package:artable_app/features/profile/presentation/bloc/profile_cubit.dart';
 import 'package:artable_app/features/leaderboard/presentation/bloc/leaderboard_cubit.dart';
 import 'package:artable_app/features/leaderboard/data/models/leaderboard_response.dart';
 
@@ -30,8 +31,9 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
         if (widget.challengeId != null && widget.challengeId!.isNotEmpty) {
           provider.setChallengeId(widget.challengeId);
         } else {
-          provider.loadLeaderboard();
+          provider.loadLeaderboard(forceRefresh: true);
         }
+        context.read<ProfileCubit>().loadProfile(forceRefresh: true);
       }
     });
   }
@@ -40,6 +42,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
   Widget build(BuildContext context) {
     final leaderboard = context.watch<LeaderboardCubit>();
     final auth = context.watch<AuthCubit>();
+    final profile = context.watch<ProfileCubit>();
     final isLoading = leaderboard.isLoading && !leaderboard.hasLoaded;
 
     final podiumList = leaderboard.podium;
@@ -50,6 +53,23 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     final yourRankItem = leaderboard.yourRank;
     final currentUserId = auth.currentUser['id']?.toString() ?? auth.userId;
 
+    String? profileScoreStr;
+    for (final card in profile.statCards) {
+      if (card.key == 'talentScore' || card.label.toLowerCase().contains('talent')) {
+        final v = card.displayValue.trim();
+        if (v.isNotEmpty && v != '0' && v != '0.0') {
+          profileScoreStr = v;
+          break;
+        }
+      }
+    }
+    if (profileScoreStr == null) {
+      final s = profile.stats?.talentScore;
+      if (s != null && s > 0) {
+        profileScoreStr = s.toStringAsFixed(1);
+      }
+    }
+
     return AppScreen(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -58,7 +78,12 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
           Expanded(
             child: RefreshIndicator(
               color: AppColors.purple,
-              onRefresh: () => leaderboard.loadLeaderboard(forceRefresh: true),
+              onRefresh: () async {
+                await Future.wait([
+                  leaderboard.loadLeaderboard(forceRefresh: true),
+                  context.read<ProfileCubit>().loadProfile(forceRefresh: true),
+                ]);
+              },
               child: SingleChildScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 child: Column(
@@ -83,7 +108,11 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                       if (podiumList.isNotEmpty)
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 20),
-                          child: _buildApiPodium(podiumList),
+                          child: _buildApiPodium(
+                            podiumList,
+                            currentUserId: currentUserId,
+                            currentUserScore: profileScoreStr,
+                          ),
                         )
                       else if (fallbackTop3.isNotEmpty)
                         Padding(
@@ -115,6 +144,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                           yourRankItem: yourRankItem,
                           auth: auth,
                           fallbackRankings: leaderboard.fallbackRankedCreators,
+                          profileScoreStr: profileScoreStr,
                         ),
                       ),
 
@@ -147,6 +177,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                                   isCurrentUser:
                                       currentUserId != null &&
                                       rankingsList[i].user?.id == currentUserId,
+                                  currentUserScore: profileScoreStr,
                                 ),
                             ],
                           ),
@@ -318,7 +349,11 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     );
   }
 
-  Widget _buildApiPodium(List<LeaderboardRankItem> top3) {
+  Widget _buildApiPodium(
+    List<LeaderboardRankItem> top3, {
+    String? currentUserId,
+    String? currentUserScore,
+  }) {
     final rank1 = top3.firstWhere((p) => p.rank == 1, orElse: () => top3.first);
     final rank2 = top3.length > 1
         ? top3.firstWhere((p) => p.rank == 2, orElse: () => top3[1])
@@ -336,6 +371,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
             child: _ApiPodiumCard(
               item: rank2,
               rank: 2,
+              scoreOverride: (currentUserId != null && rank2.user?.id == currentUserId) ? currentUserScore : null,
               badgeGradient: const LinearGradient(
                 colors: [Color(0xFFFF3D77), Color(0xFF8B3DFF)],
               ),
@@ -352,6 +388,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
             item: rank1,
             rank: 1,
             isFirst: true,
+            scoreOverride: (currentUserId != null && rank1.user?.id == currentUserId) ? currentUserScore : null,
             badgeGradient: const LinearGradient(
               colors: [Color(0xFFFFD65C), Color(0xFFFF9500)],
             ),
@@ -366,6 +403,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
             child: _ApiPodiumCard(
               item: rank3,
               rank: 3,
+              scoreOverride: (currentUserId != null && rank3.user?.id == currentUserId) ? currentUserScore : null,
               badgeGradient: const LinearGradient(
                 colors: [Color(0xFFFF7A45), Color(0xFFFF3D77)],
               ),
@@ -432,6 +470,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     required LeaderboardRankItem? yourRankItem,
     required AuthCubit auth,
     required List<Map<String, dynamic>> fallbackRankings,
+    String? profileScoreStr,
   }) {
     final you = MockHelpers.currentUser;
     final int rank;
@@ -439,13 +478,19 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     final String avatarUrl;
     final String category;
     final String score;
+    final String votesText;
 
     if (yourRankItem != null) {
       rank = yourRankItem.rank;
       name = yourRankItem.displayName;
       avatarUrl = yourRankItem.displayAvatar;
       category = yourRankItem.displayCategory;
-      score = yourRankItem.displayScore;
+      votesText = yourRankItem.displayVotes;
+      if (profileScoreStr != null && profileScoreStr.isNotEmpty && profileScoreStr != '0.0') {
+        score = profileScoreStr;
+      } else {
+        score = yourRankItem.displayScore;
+      }
     } else {
       final user = auth.currentUser;
       final rawName = auth.fullName.isNotEmpty
@@ -462,12 +507,34 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
       final rawCat =
           user['talentCategory']?.toString() ??
           user['category']?.toString() ??
-          (you['category'] as String);
-      category = rawCat.isNotEmpty ? rawCat : (you['category'] as String);
-      score = (you['talentScore'] as num).toStringAsFixed(1);
+          '';
+      category = rawCat;
+
+      if (profileScoreStr != null && profileScoreStr.isNotEmpty && profileScoreStr != '0.0') {
+        score = profileScoreStr;
+      } else {
+        final userScore = user['talentScore'];
+        if (userScore is num && userScore > 0) {
+          score = userScore.toStringAsFixed(1);
+        } else if (profileScoreStr != null && profileScoreStr.isNotEmpty) {
+          score = profileScoreStr;
+        } else {
+          score = '0.0';
+        }
+      }
+
+      final v = user['votes'] ?? user['totalVotes'];
+      if (v is num) {
+        votesText = '$v ${v == 1 ? 'vote' : 'votes'}';
+      } else if (v != null && v.toString().isNotEmpty) {
+        votesText = '${v.toString()} votes';
+      } else {
+        votesText = '0 votes';
+      }
+
       final userId = user['id']?.toString() ?? auth.userId;
       final index = fallbackRankings.indexWhere((u) => u['id'] == userId);
-      rank = index >= 0 ? index + 1 : 12;
+      rank = index >= 0 ? index + 1 : 1;
     }
 
     return Container(
@@ -494,15 +561,29 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'YOUR RANK',
-            style: TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 10.5,
-              fontWeight: FontWeight.w800,
-              color: Color(0xFF8B3DFF),
-              letterSpacing: 0.5,
-            ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'YOUR RANK',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF8B3DFF),
+                  letterSpacing: 0.5,
+                ),
+              ),
+              Text(
+                votesText,
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF8B3DFF),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 10),
           Row(
@@ -542,53 +623,72 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      category,
+                      category.isNotEmpty ? '$category · $votesText' : votesText,
                       style: const TextStyle(
                         fontFamily: 'Inter',
                         fontSize: 11.5,
                         fontWeight: FontWeight.w500,
                         color: AppColors.textSoft,
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 7,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF5E2EAA).withValues(alpha: 0.08),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
+              const SizedBox(width: 8),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 7,
                     ),
-                  ],
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.star_rounded,
-                      size: 14,
-                      color: Color(0xFFFFB800),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF5E2EAA).withValues(alpha: 0.08),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 4),
-                    Text(
-                      score,
-                      style: const TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.text,
-                      ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.star_rounded,
+                          size: 14,
+                          color: Color(0xFFFFB800),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          score,
+                          style: const TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.text,
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    votesText,
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF8B3DFF),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -601,6 +701,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     required LeaderboardRankItem item,
     required int rank,
     required bool isCurrentUser,
+    String? currentUserScore,
   }) {
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -734,7 +835,9 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                       ),
                       const SizedBox(width: 3),
                       Text(
-                        item.displayScore,
+                        (isCurrentUser && currentUserScore != null && currentUserScore.isNotEmpty)
+                            ? currentUserScore
+                            : item.displayScore,
                         style: const TextStyle(
                           fontFamily: 'Inter',
                           fontSize: 12,
@@ -912,12 +1015,14 @@ class _ApiPodiumCard extends StatelessWidget {
     required this.rank,
     required this.badgeGradient,
     this.isFirst = false,
+    this.scoreOverride,
   });
 
   final LeaderboardRankItem item;
   final int rank;
   final Gradient badgeGradient;
   final bool isFirst;
+  final String? scoreOverride;
 
   @override
   Widget build(BuildContext context) {
@@ -1069,7 +1174,7 @@ class _ApiPodiumCard extends StatelessWidget {
                     ),
                     const SizedBox(width: 3),
                     Text(
-                      item.displayScore,
+                      scoreOverride ?? item.displayScore,
                       style: TextStyle(
                         fontFamily: 'Inter',
                         fontSize: isFirst ? 12 : 11.5,

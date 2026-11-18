@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
-
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/core/utils/media_url_utils.dart';
 import 'package:artable_app/core/utils/app_filter_utils.dart';
@@ -34,6 +33,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
   @override
   void initState() {
     super.initState();
+    _refreshLiveData();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && widget.isActive) {
         _refreshLiveData();

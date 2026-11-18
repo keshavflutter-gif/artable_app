@@ -19,7 +19,7 @@ import 'package:artable_app/core/widgets/no_internet_dialog.dart';
 import 'package:artable_app/features/home/presentation/bloc/home_state.dart';
 import 'package:artable_app/features/home/data/models/home_ui_mapper.dart';
 import 'package:artable_app/features/home/presentation/widgets/home_banner_ad.dart';
-import 'package:artable_app/core/services/app_open_ad_service.dart';
+import 'package:artable_app/features/challenges/presentation/bloc/challenges_cubit.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -41,8 +41,7 @@ class _HomeScreenState extends State<HomeScreen> {
       context.read<HomeCubit>().loadHomeDashboard(forceRefresh: true);
       final trendingCubit = context.read<TrendingVideosCubit>();
       trendingCubit.loadTrendingVideos(forceRefresh: true);
-      // Splash → Home: show App Open only after Home is on screen.
-      AppOpenAdService.instance.showWhenHomeReady();
+      context.read<ChallengesCubit>().loadTabChallenges('ACTIVE', forceRefresh: true);
     });
   }
 
@@ -74,9 +73,14 @@ class _HomeScreenState extends State<HomeScreen> {
     final heroBannerSlides = context.select<HomeCubit, List<Map<String, dynamic>>>(
       (vm) => vm.heroBannerSlides,
     );
-    final activeChallenges = context.select<HomeCubit, List<Map<String, dynamic>>>(
+    final challengesCubit = context.watch<ChallengesCubit>();
+    final apiActiveChallenges = challengesCubit.getChallengesForTab('ACTIVE');
+    final homeActiveChallenges = context.select<HomeCubit, List<Map<String, dynamic>>>(
       (vm) => vm.activeChallenges,
     );
+    final activeChallenges = apiActiveChallenges.isNotEmpty
+        ? apiActiveChallenges
+        : homeActiveChallenges;
     final trendingCubit = context.watch<TrendingVideosCubit>();
     final apiTrendingVideos = trendingCubit.videos;
     final homeCubitTrendingReels = context.select<HomeCubit, List<Map<String, dynamic>>>(
@@ -142,9 +146,13 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Stack(
           children: [
             RefreshIndicator(
-              onRefresh: () => context
-                  .read<HomeCubit>()
-                  .loadHomeDashboard(forceRefresh: true),
+              onRefresh: () async {
+                await Future.wait([
+                  context.read<HomeCubit>().loadHomeDashboard(forceRefresh: true),
+                  context.read<TrendingVideosCubit>().loadTrendingVideos(forceRefresh: true),
+                  context.read<ChallengesCubit>().loadTabChallenges('ACTIVE', forceRefresh: true),
+                ]);
+              },
             child: SingleChildScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
               child: Column(
@@ -1048,10 +1056,13 @@ class _MiniChallengeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final rawPrize = challenge['prize'] as String? ?? '₹5,000';
-    final prizeText = rawPrize.toLowerCase().startsWith('win')
-        ? rawPrize
-        : 'Win $rawPrize';
+    final rawPrize = (challenge['prize'] as String?)?.trim() ?? '';
+    final prizeText = rawPrize.isNotEmpty
+        ? (rawPrize.toLowerCase().startsWith('win')
+            ? rawPrize
+            : 'Win $rawPrize')
+        : '';
+    final timeLeft = (challenge['timeLeft'] ?? challenge['daysLeftLabel'] ?? 'Active').toString();
 
     return Container(
       decoration: BoxDecoration(
@@ -1096,7 +1107,7 @@ class _MiniChallengeCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  challenge['timeLeft'] as String? ?? 'Active',
+                  timeLeft,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -1107,41 +1118,43 @@ class _MiniChallengeCard extends StatelessWidget {
                     height: 1.15,
                   ),
                 ),
-                const SizedBox(height: 7),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 7,
-                    vertical: 3.5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE8F8F0),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(
-                        Icons.emoji_events_rounded,
-                        size: 11.5,
-                        color: Color(0xFFFFB800),
-                      ),
-                      const SizedBox(width: 4),
-                      Flexible(
-                        child: Text(
-                          prizeText,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontFamily: 'Inter',
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF00A859),
+                if (prizeText.isNotEmpty) ...[
+                  const SizedBox(height: 7),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 7,
+                      vertical: 3.5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE8F8F0),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.emoji_events_rounded,
+                          size: 11.5,
+                          color: Color(0xFFFFB800),
+                        ),
+                        const SizedBox(width: 4),
+                        Flexible(
+                          child: Text(
+                            prizeText,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF00A859),
+                            ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
+                ],
                 const SizedBox(height: 10),
                 GestureDetector(
                   onTap: () {

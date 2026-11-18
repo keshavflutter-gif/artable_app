@@ -182,12 +182,14 @@ class _SignupScreenState extends State<SignupScreen> {
     final phoneApiErr = field(['phoneNumber', 'phone']);
     final passApiErr = field(['password']);
     final confirmApiErr = field(['confirmPassword']);
-    final hasFieldErr = nameApiErr != null ||
+    final hasFieldErr =
+        nameApiErr != null ||
         emailApiErr != null ||
         phoneApiErr != null ||
         passApiErr != null ||
         confirmApiErr != null;
-    final apiMsg = auth.errorMessage ??
+    final apiMsg =
+        auth.errorMessage ??
         response?.message ??
         'Unable to create account. Please try again.';
 
@@ -293,7 +295,7 @@ class _SignupScreenState extends State<SignupScreen> {
                     height: 115,
                     child: Center(
                       child: Image.asset(
-                        'assets/screen_logo.png',
+                        'assets/logo1.png',
                         width: 115,
                         height: 115,
                         fit: BoxFit.contain,
@@ -355,7 +357,8 @@ class _SignupScreenState extends State<SignupScreen> {
                     keyboardType: TextInputType.emailAddress,
                     errorText: _emailError,
                     onChanged: (_) {
-                      if (_emailError != null) setState(() => _emailError = null);
+                      if (_emailError != null)
+                        setState(() => _emailError = null);
                     },
                   ),
 
@@ -373,7 +376,8 @@ class _SignupScreenState extends State<SignupScreen> {
                     ],
                     errorText: _phoneError,
                     onChanged: (_) {
-                      if (_phoneError != null) setState(() => _phoneError = null);
+                      if (_phoneError != null)
+                        setState(() => _phoneError = null);
                     },
                   ),
 
@@ -387,7 +391,8 @@ class _SignupScreenState extends State<SignupScreen> {
                     obscureText: _obscurePassword,
                     errorText: _passwordError,
                     onChanged: (_) {
-                      if (_passwordError != null) setState(() => _passwordError = null);
+                      if (_passwordError != null)
+                        setState(() => _passwordError = null);
                     },
                     suffixIcon: IconButton(
                       onPressed: () =>
@@ -412,11 +417,14 @@ class _SignupScreenState extends State<SignupScreen> {
                     obscureText: _obscureConfirmPassword,
                     errorText: _confirmError,
                     onChanged: (_) {
-                      if (_confirmError != null) setState(() => _confirmError = null);
+                      if (_confirmError != null)
+                        setState(() => _confirmError = null);
                     },
                     suffixIcon: IconButton(
                       onPressed: () => setState(
-                          () => _obscureConfirmPassword = !_obscureConfirmPassword),
+                        () =>
+                            _obscureConfirmPassword = !_obscureConfirmPassword,
+                      ),
                       icon: Icon(
                         _obscureConfirmPassword
                             ? Icons.visibility_outlined
@@ -431,7 +439,10 @@ class _SignupScreenState extends State<SignupScreen> {
 
                   // CREATE ACCOUNT Button
                   GestureDetector(
-                    onTap: context.select<AuthCubit, bool>((auth) => auth.isLoading)
+                    onTap:
+                        context.select<AuthCubit, bool>(
+                          (auth) => auth.isLoading,
+                        )
                         ? null
                         : _submit,
                     child: Container(
@@ -448,7 +459,10 @@ class _SignupScreenState extends State<SignupScreen> {
                         ],
                       ),
                       alignment: Alignment.center,
-                      child: context.select<AuthCubit, bool>((auth) => auth.isLoading)
+                      child:
+                          context.select<AuthCubit, bool>(
+                            (auth) => auth.isLoading,
+                          )
                           ? const SizedBox(
                               width: 22,
                               height: 22,
@@ -641,7 +655,9 @@ class _CustomAuthInput extends StatelessWidget {
             color: Colors.white,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: hasError ? const Color(0xFFFF3D77) : const Color(0xFFEFEBF7),
+              color: hasError
+                  ? const Color(0xFFFF3D77)
+                  : const Color(0xFFEFEBF7),
               width: hasError ? 1.5 : 1.2,
             ),
           ),
@@ -654,11 +670,7 @@ class _CustomAuthInput extends StatelessWidget {
                   color: const Color(0xFFF6F3FC),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(
-                  icon,
-                  size: 17,
-                  color: const Color(0xFF9B51E0),
-                ),
+                child: Icon(icon, size: 17, color: const Color(0xFF9B51E0)),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -732,19 +744,12 @@ class _SocialButton extends StatelessWidget {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(22),
-          border: Border.all(
-            color: const Color(0xFFEFEBF7),
-            width: 1.2,
-          ),
+          border: Border.all(color: const Color(0xFFEFEBF7), width: 1.2),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            SvgPicture.asset(
-              asset,
-              width: 18,
-              height: 18,
-            ),
+            SvgPicture.asset(asset, width: 18, height: 18),
             const SizedBox(width: 8),
             Text(
               label,
