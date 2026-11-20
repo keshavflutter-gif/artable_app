@@ -67,7 +67,7 @@ void main() async {
 Future<void> _preloadFonts() async {
   try {
     final poppinsLoader = FontLoader('Poppins')
-      ..addFont(rootBundle.load('assets/fonts/Poppins-Regular.ttf'))
+      ..addFont(rootBundle.load('assets/fonts/Poppins-Regular.tt  f'))
       ..addFont(rootBundle.load('assets/fonts/Poppins-Medium.ttf'))
       ..addFont(rootBundle.load('assets/fonts/Poppins-SemiBold.ttf'))
       ..addFont(rootBundle.load('assets/fonts/Poppins-Bold.ttf'))

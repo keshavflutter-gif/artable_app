@@ -58,7 +58,8 @@ class RazorpayService {
     _currentCallback = onResult;
 
     try {
-      debugPrint('RazorpayService: Opening checkout for amount ₹${options.amount}');
+      debugPrint(
+          'RazorpayService: Opening checkout for amount ₹${options.amount}');
       _razorpay!.open(options.toMap());
     } catch (e, stackTrace) {
       debugPrint('RazorpayService: Error opening checkout: $e\n$stackTrace');
@@ -82,7 +83,8 @@ class RazorpayService {
   }
 
   void _handlePaymentError(PaymentFailureResponse response) {
-    debugPrint('RazorpayService: Payment Error! Code: ${response.code}, Message: ${response.message}');
+    debugPrint('RazorpayService: Payment Error! Code: ${response
+        .code}, Message: ${response.message}');
     final result = PaymentResult.failure(
       code: response.code,
       message: response.message,
@@ -91,7 +93,8 @@ class RazorpayService {
   }
 
   void _handleExternalWallet(ExternalWalletResponse response) {
-    debugPrint('RazorpayService: External Wallet Selected: ${response.walletName}');
+    debugPrint(
+        'RazorpayService: External Wallet Selected: ${response.walletName}');
     final result = PaymentResult.externalWallet(
       walletName: response.walletName,
     );
