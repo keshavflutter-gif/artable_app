@@ -19,7 +19,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscurePassword = true;
   String? _emailError;
   String? _passwordError;
-  
+
   Future<void> _submitLogin() async {
     final email = _emailController.text.trim();
     final password = _passwordController.text;
@@ -29,7 +29,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (email.isEmpty) {
       emailErr = 'Email address is required';
-    } else if (!RegExp(r'^[a-zA-Z0-9.+_-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$').hasMatch(email)) {
+    } else if (!RegExp(
+      r'^[a-zA-Z0-9.+_-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
+    ).hasMatch(email)) {
       emailErr = 'Please enter a valid email address';
     }
 
@@ -59,7 +61,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
     final apiMsg = auth.errorMessage ?? 'Unable to log in.';
     setState(() {
-      if (apiMsg.toLowerCase().contains('email') || apiMsg.toLowerCase().contains('user')) {
+      if (apiMsg.toLowerCase().contains('email') ||
+          apiMsg.toLowerCase().contains('user')) {
         _emailError = apiMsg;
       } else {
         _passwordError = apiMsg;
@@ -103,7 +106,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     height: 125,
                     child: Center(
                       child: Image.asset(
-                        'assets/screen_logo.png',
+                        'assets/logo1.png',
                         width: 125,
                         height: 125,
                         fit: BoxFit.contain,
@@ -181,7 +184,8 @@ class _LoginScreenState extends State<LoginScreen> {
                     keyboardType: TextInputType.emailAddress,
                     errorText: _emailError,
                     onChanged: (_) {
-                      if (_emailError != null) setState(() => _emailError = null);
+                      if (_emailError != null)
+                        setState(() => _emailError = null);
                     },
                   ),
 
@@ -195,7 +199,8 @@ class _LoginScreenState extends State<LoginScreen> {
                     obscureText: _obscurePassword,
                     errorText: _passwordError,
                     onChanged: (_) {
-                      if (_passwordError != null) setState(() => _passwordError = null);
+                      if (_passwordError != null)
+                        setState(() => _passwordError = null);
                     },
                     suffixIcon: IconButton(
                       onPressed: () =>
@@ -232,7 +237,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
                   // LOG IN Button
                   GestureDetector(
-                    onTap: context.select<AuthCubit, bool>((auth) => auth.isLoading)
+                    onTap:
+                        context.select<AuthCubit, bool>(
+                          (auth) => auth.isLoading,
+                        )
                         ? null
                         : _submitLogin,
                     child: Container(
@@ -249,7 +257,10 @@ class _LoginScreenState extends State<LoginScreen> {
                         ],
                       ),
                       alignment: Alignment.center,
-                      child: context.select<AuthCubit, bool>((auth) => auth.isLoading)
+                      child:
+                          context.select<AuthCubit, bool>(
+                            (auth) => auth.isLoading,
+                          )
                           ? const SizedBox(
                               width: 22,
                               height: 22,
@@ -322,8 +333,9 @@ class _LoginScreenState extends State<LoginScreen> {
                           asset: 'assets/google.svg',
                           label: 'Google',
                           onTap: () async {
-                            final success =
-                                await context.read<AuthCubit>().loginWithGoogle();
+                            final success = await context
+                                .read<AuthCubit>()
+                                .loginWithGoogle();
                             if (success && context.mounted) {
                               context.go(AppRoutes.home);
                             }
@@ -431,7 +443,9 @@ class _CustomAuthInput extends StatelessWidget {
             color: Colors.white,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: hasError ? const Color(0xFFFF3D77) : const Color(0xFFEFEBF7),
+              color: hasError
+                  ? const Color(0xFFFF3D77)
+                  : const Color(0xFFEFEBF7),
               width: hasError ? 1.5 : 1.2,
             ),
           ),
@@ -444,11 +458,7 @@ class _CustomAuthInput extends StatelessWidget {
                   color: const Color(0xFFF6F3FC),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(
-                  icon,
-                  size: 18,
-                  color: const Color(0xFF9B51E0),
-                ),
+                child: Icon(icon, size: 18, color: const Color(0xFF9B51E0)),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -521,19 +531,12 @@ class _SocialButton extends StatelessWidget {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(23),
-          border: Border.all(
-            color: const Color(0xFFEFEBF7),
-            width: 1.2,
-          ),
+          border: Border.all(color: const Color(0xFFEFEBF7), width: 1.2),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            SvgPicture.asset(
-              asset,
-              width: 18,
-              height: 18,
-            ),
+            SvgPicture.asset(asset, width: 18, height: 18),
             const SizedBox(width: 8),
             Text(
               label,

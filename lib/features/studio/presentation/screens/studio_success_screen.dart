@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
-import 'package:artable_app/core/services/video_interstitial_ad.dart';
 
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_gradients.dart';
@@ -52,11 +51,6 @@ class _StudioSuccessScreenState extends State<StudioSuccessScreen> {
         context.read<StudioCubit>().clearActiveVideoController(dispose: true);
       } catch (_) {}
       await _loadSubmittedChallenge();
-      await VideoInterstitialAd.instance.load();
-      if (!mounted) return;
-      await Future<void>.delayed(const Duration(milliseconds: 400));
-      if (!mounted) return;
-      await VideoInterstitialAd.instance.show();
     });
   }
 

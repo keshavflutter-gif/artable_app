@@ -21,14 +21,13 @@ class StudioHeader extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(14, 16, 14, 16),
           child: Row(
             children: [
-              const Expanded(
-                flex: 3,
-                child: _HeaderLeft(),
-              ),
+              const Expanded(flex: 3, child: _HeaderLeft()),
               const SizedBox(width: 8),
               Flexible(
                 flex: 2,
-                child: _HeaderActions(onProfileTap: () => context.go(AppRoutes.profile)),
+                child: _HeaderActions(
+                  onProfileTap: () => context.go(AppRoutes.profile),
+                ),
               ),
             ],
           ),
@@ -68,7 +67,7 @@ class _HeaderLeft extends StatelessWidget {
             'assets/logo1.png',
             width: 36,
             height: 36,
-            fit: BoxFit.cover,
+            fit: BoxFit.contain,
           ),
         ),
         const SizedBox(width: 8),
@@ -146,10 +145,7 @@ class _HeaderActions extends StatelessWidget {
 }
 
 class _HeaderIconButton extends StatelessWidget {
-  const _HeaderIconButton({
-    required this.child,
-    this.onPressed,
-  });
+  const _HeaderIconButton({required this.child, this.onPressed});
 
   final Widget child;
   final VoidCallback? onPressed;
@@ -189,12 +185,18 @@ class _NotificationBell extends StatelessWidget {
                 top: -5,
                 right: -8,
                 child: Container(
-                  constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                  constraints: const BoxConstraints(
+                    minWidth: 16,
+                    minHeight: 16,
+                  ),
                   padding: const EdgeInsets.symmetric(horizontal: 3),
                   decoration: BoxDecoration(
                     gradient: AppGradients.button,
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: const Color(0xFF170A30), width: 1.5),
+                    border: Border.all(
+                      color: const Color(0xFF170A30),
+                      width: 1.5,
+                    ),
                     boxShadow: const [
                       BoxShadow(
                         color: Color(0x8CFF3D77),
@@ -246,7 +248,10 @@ class _ProfileChip extends StatelessWidget {
             height: 34,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              border: Border.all(color: Colors.white.withValues(alpha: 0.28), width: 2),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.28),
+                width: 2,
+              ),
               gradient: AppGradients.button,
             ),
             alignment: Alignment.center,

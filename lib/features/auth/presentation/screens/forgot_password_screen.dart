@@ -59,15 +59,13 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       context.push('${AppRoutes.resetPassword}?email=$encodedEmail');
       return;
     } else {
-      final errorMsg = auth.errorMessage ??
+      final errorMsg =
+          auth.errorMessage ??
           response?.message ??
           'Failed to send reset link. Please try again.';
       setState(() => _errorHint = errorMsg);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(errorMsg),
-          backgroundColor: Colors.redAccent,
-        ),
+        SnackBar(content: Text(errorMsg), backgroundColor: Colors.redAccent),
       );
     }
   }
@@ -134,7 +132,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                     height: 140,
                     child: Center(
                       child: Image.asset(
-                        'assets/screen_logo.png',
+                        'assets/logo1.png',
                         width: 140,
                         height: 140,
                         fit: BoxFit.contain,
@@ -192,8 +190,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
                   // SEND RESET LINK Button
                   GestureDetector(
-                    onTap: context.select<AuthCubit, bool>(
-                            (auth) => auth.isSendingForgotPassword)
+                    onTap:
+                        context.select<AuthCubit, bool>(
+                          (auth) => auth.isSendingForgotPassword,
+                        )
                         ? null
                         : _submit,
                     child: Container(
@@ -210,8 +210,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                         ],
                       ),
                       alignment: Alignment.center,
-                      child: context.select<AuthCubit, bool>(
-                              (auth) => auth.isSendingForgotPassword)
+                      child:
+                          context.select<AuthCubit, bool>(
+                            (auth) => auth.isSendingForgotPassword,
+                          )
                           ? const SizedBox(
                               width: 22,
                               height: 22,
@@ -313,7 +315,9 @@ class _CustomAuthInput extends StatelessWidget {
             color: Colors.white,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: hasError ? const Color(0xFFFF3D77) : const Color(0xFFEFEBF7),
+              color: hasError
+                  ? const Color(0xFFFF3D77)
+                  : const Color(0xFFEFEBF7),
               width: hasError ? 1.5 : 1.2,
             ),
           ),
@@ -326,11 +330,7 @@ class _CustomAuthInput extends StatelessWidget {
                   color: const Color(0xFFF6F3FC),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(
-                  icon,
-                  size: 18,
-                  color: const Color(0xFF9B51E0),
-                ),
+                child: Icon(icon, size: 18, color: const Color(0xFF9B51E0)),
               ),
               const SizedBox(width: 12),
               Expanded(

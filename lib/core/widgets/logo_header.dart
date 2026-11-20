@@ -20,22 +20,22 @@ class LogoHeader extends StatelessWidget {
   final bool showTaglineDivider;
 
   double get _logoSize => switch (variant) {
-        LogoHeaderVariant.full => 190,
-        LogoHeaderVariant.compact => 138,
-        LogoHeaderVariant.iconOnly => 104,
-      };
+    LogoHeaderVariant.full => 190,
+    LogoHeaderVariant.compact => 138,
+    LogoHeaderVariant.iconOnly => 104,
+  };
 
   double get _bottomMargin => switch (variant) {
-        LogoHeaderVariant.full => 14,
-        LogoHeaderVariant.compact => 10,
-        LogoHeaderVariant.iconOnly => 6,
-      };
+    LogoHeaderVariant.full => 14,
+    LogoHeaderVariant.compact => 10,
+    LogoHeaderVariant.iconOnly => 6,
+  };
 
   double get _gap => switch (variant) {
-        LogoHeaderVariant.full => 8,
-        LogoHeaderVariant.compact => 6,
-        LogoHeaderVariant.iconOnly => 0,
-      };
+    LogoHeaderVariant.full => 8,
+    LogoHeaderVariant.compact => 6,
+    LogoHeaderVariant.iconOnly => 0,
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -66,7 +66,7 @@ class LogoHeader extends StatelessWidget {
                     ),
                   ),
                   Image.asset(
-                    'assets/screen_logo.png',
+                    'assets/logo1.png',
                     width: _logoSize,
                     height: _logoSize,
                     fit: BoxFit.contain,

@@ -301,6 +301,7 @@ class ChallengeDetailData {
       'hasJoined': joined,
       'daysLeft': daysLeft,
       'daysLeftLabel': daysLeftLabel.isNotEmpty ? daysLeftLabel : '$daysLeft days left',
+      'timeLeft': daysLeftLabel.isNotEmpty ? daysLeftLabel : '$daysLeft days left',
       'endDate': endDate,
       'endDateLabel': endDateLabel,
       'imageUrl': bannerUrl,

@@ -13,11 +13,13 @@ class ProfileCoverHeader extends StatelessWidget {
     required this.coverUrl,
     required this.avatarUrl,
     this.showBackButton = false,
+    this.onShareTap,
   });
 
   final String coverUrl;
   final String avatarUrl;
   final bool showBackButton;
+  final VoidCallback? onShareTap;
 
   @override
   Widget build(BuildContext context) {
@@ -45,16 +47,23 @@ class ProfileCoverHeader extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (showBackButton)
+                if (showBackButton || onShareTap != null)
                   Positioned(
                     top: 16,
                     left: 16,
                     right: 16,
                     child: SafeArea(
                       bottom: false,
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: _CoverBackButton(onTap: () => context.pop()),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          if (showBackButton)
+                            _CoverBackButton(onTap: () => context.pop())
+                          else
+                            const SizedBox(width: 40),
+                          if (onShareTap != null)
+                            _CoverShareButton(onTap: onShareTap!),
+                        ],
                       ),
                     ),
                   ),
@@ -129,6 +138,40 @@ class _CoverBackButton extends StatelessWidget {
   }
 }
 
+class _CoverShareButton extends StatelessWidget {
+  const _CoverShareButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          shape: BoxShape.circle,
+          border: Border.all(color: AppColors.inputBorder, width: 1.5),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x0D5E2EAA),
+              blurRadius: 14,
+              offset: Offset(0, 4),
+            ),
+          ],
+        ),
+        child: const Icon(
+          Icons.share_outlined,
+          size: 18,
+          color: AppColors.text,
+        ),
+      ),
+    );
+  }
+}
+
 class ProfileStatsGrid extends StatelessWidget {
   const ProfileStatsGrid({
     super.key,
@@ -173,10 +216,7 @@ class _StatCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: AppColors.inputBg,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: const Color(0x145E2EAA),
-            width: 1,
-          ),
+          border: Border.all(color: const Color(0x145E2EAA), width: 1),
         ),
         child: Column(
           children: [
@@ -240,14 +280,21 @@ class VideoGridCard extends StatelessWidget {
                 top: 8,
                 left: 8,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.black54,
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
                     status.replaceAll('_', ' '),
-                    style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
               ),
@@ -262,12 +309,19 @@ class VideoGridCard extends StatelessWidget {
                     video['challengeTitle'] as String? ?? '',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                   if (video['views'] != '—')
                     Text(
                       '${video['views']} views',
-                      style: const TextStyle(color: Colors.white70, fontSize: 10),
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 10,
+                      ),
                     ),
                 ],
               ),
@@ -317,10 +371,7 @@ class BadgeCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: const Color(0xFFECE8F5),
-          width: 1.2,
-        ),
+        border: Border.all(color: const Color(0xFFECE8F5), width: 1.2),
         boxShadow: const [
           BoxShadow(
             color: Color(0x0C15083C),
@@ -342,19 +393,13 @@ class BadgeCard extends StatelessWidget {
                   ? const LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
-                      colors: [
-                        Color(0xFFFF4860),
-                        Color(0xFF8B2BE2),
-                      ],
+                      colors: [Color(0xFFFF4860), Color(0xFF8B2BE2)],
                     )
                   : null,
               color: isEarned ? null : const Color(0xFFF6F3FC),
               border: isEarned
                   ? null
-                  : Border.all(
-                      color: const Color(0xFFECE8F5),
-                      width: 1,
-                    ),
+                  : Border.all(color: const Color(0xFFECE8F5), width: 1),
               boxShadow: isEarned
                   ? [
                       BoxShadow(
@@ -416,24 +461,22 @@ class RewardCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final status = (reward['status'] as String? ?? 'available').toLowerCase();
     final isClaimed = status == 'claimed' || reward['isClaimed'] == true;
-    final isAvailable = (status == 'available' || reward['isAvailable'] == true) && !isClaimed;
+    final isAvailable =
+        (status == 'available' || reward['isAvailable'] == true) && !isClaimed;
     final locked = status == 'locked' || (!isClaimed && !isAvailable);
     final typeStr = reward['type'] as String? ?? 'cash';
     final actionLabel = isClaimed
         ? 'View ›'
         : isAvailable
-            ? 'Claim ›'
-            : 'Locked ›';
+        ? 'Claim ›'
+        : 'Locked ›';
 
     return GestureDetector(
       onTap: () => context.push('/reward-detail?id=${reward['id']}'),
       child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-            color: const Color(0x145E2EAA),
-            width: 1,
-          ),
+          border: Border.all(color: const Color(0x145E2EAA), width: 1),
           color: Colors.white,
           boxShadow: const [
             BoxShadow(
@@ -468,7 +511,10 @@ class RewardCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 7,
+                      vertical: 3,
+                    ),
                     decoration: BoxDecoration(
                       color: _typeColor.withValues(alpha: 0.10),
                       borderRadius: BorderRadius.circular(6),
@@ -516,13 +562,19 @@ class RewardCard extends StatelessWidget {
                         ),
                       ),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(16),
                           gradient: locked
                               ? null
                               : const LinearGradient(
-                                  colors: [Color(0xFFFF5487), Color(0xFF9652FF)],
+                                  colors: [
+                                    Color(0xFFFF5487),
+                                    Color(0xFF9652FF),
+                                  ],
                                 ),
                           color: locked ? AppColors.inputBg : null,
                         ),
@@ -617,11 +669,7 @@ class _StatusBadge extends StatelessWidget {
 }
 
 class TransactionRow extends StatelessWidget {
-  const TransactionRow({
-    super.key,
-    required this.tx,
-    this.onTap,
-  });
+  const TransactionRow({super.key, required this.tx, this.onTap});
 
   final Map<String, dynamic> tx;
   final VoidCallback? onTap;
@@ -658,10 +706,7 @@ class TransactionRow extends StatelessWidget {
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: const Color(0x145E2EAA),
-              width: 1,
-            ),
+            border: Border.all(color: const Color(0x145E2EAA), width: 1),
             boxShadow: const [
               BoxShadow(
                 color: Color(0x0A15083C),
@@ -724,12 +769,17 @@ class TransactionRow extends StatelessWidget {
                       fontFamily: 'Poppins',
                       fontWeight: FontWeight.w900,
                       fontSize: 13,
-                      color: isCredit ? const Color(0xFF00C897) : AppColors.pink,
+                      color: isCredit
+                          ? const Color(0xFF00C897)
+                          : AppColors.pink,
                     ),
                   ),
                   const SizedBox(height: 3),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 7,
+                      vertical: 2.5,
+                    ),
                     decoration: BoxDecoration(
                       color: isCredit
                           ? const Color(0xFFE6F8F3)
@@ -802,7 +852,10 @@ class WinnerCard extends StatelessWidget {
                 children: [
                   Text(
                     'Challenge ${winner['challengeId']}',
-                    style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w700, fontSize: 13),
+                    style: AppTextStyles.body.copyWith(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                    ),
                   ),
                   Text(
                     winner['prize'] as String,
@@ -819,7 +872,9 @@ class WinnerCard extends StatelessWidget {
                     const Icon(Icons.star, size: 14, color: AppColors.orange),
                     Text(
                       (winner['talentScore'] as num).toStringAsFixed(1),
-                      style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w700),
+                      style: AppTextStyles.body.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ],
                 ),

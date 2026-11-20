@@ -35,6 +35,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
   @override
   void initState() {
     super.initState();
+    _refreshLiveData();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && widget.isActive) {
         _refreshLiveData();

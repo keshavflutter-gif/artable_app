@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
-import 'package:artable_app/core/services/video_interstitial_ad.dart';
 
 import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/app/theme/app_colors.dart';
@@ -35,14 +34,12 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
       if (mounted && id.isNotEmpty) {
         context.read<ChallengesCubit>().loadChallengeDetail(id);
       }
-      unawaited(VideoInterstitialAd.instance.load());
     });
   }
 
   Future<void> _exitWithAd() async {
     if (_exitingWithAd) return;
     _exitingWithAd = true;
-    await VideoInterstitialAd.instance.show();
     if (!mounted) return;
     if (context.canPop()) {
       context.pop();

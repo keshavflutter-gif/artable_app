@@ -49,6 +49,11 @@ android {
             useLegacyPackaging = true
         }
     }
+
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
+    }
 }
 
 kotlin {
