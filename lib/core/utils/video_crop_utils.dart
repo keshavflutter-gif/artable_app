@@ -77,8 +77,9 @@ abstract final class VideoCropUtils {
         cacheDir.createSync(recursive: true);
       }
 
+      // v2hd: keep up to 1920px / CRF 18 so gallery + camera exports stay sharp.
       final key = md5
-          .convert(utf8.encode('${input.absolute.path}|$ratioId|v1'))
+          .convert(utf8.encode('${input.absolute.path}|$ratioId|v2hd'))
           .toString();
       final outFile = File('${cacheDir.path}/crop_$key.mp4');
       if (await outFile.exists() && (await outFile.length()) > 1024) {
@@ -86,10 +87,10 @@ abstract final class VideoCropUtils {
       }
 
       final (tw, th) = ratioParts(ratioId);
-      // Center crop → cap longest side at 1280 (faster encode) → even dims.
+      // Center crop → preserve up to Full HD → even dims (required by yuv420p).
       final vf =
           'crop=min(iw\\,ih*$tw/$th):min(ih\\,iw*$th/$tw):(iw-ow)/2:(ih-oh)/2,'
-          'scale=min(1280\\,iw):min(1280\\,ih):force_original_aspect_ratio=decrease,'
+          'scale=min(1920\\,iw):min(1920\\,ih):force_original_aspect_ratio=decrease,'
           'scale=trunc(iw/2)*2:trunc(ih/2)*2';
 
       Future<bool> runEncode({required bool withAudio}) async {
@@ -102,16 +103,14 @@ abstract final class VideoCropUtils {
           '-c:v',
           'libx264',
           '-preset',
-          'ultrafast',
-          '-tune',
-          'fastdecode',
+          'veryfast',
           '-crf',
-          '28',
+          '18',
           '-threads',
           '0',
           '-pix_fmt',
           'yuv420p',
-          if (withAudio) ...['-c:a', 'copy'] else '-an',
+          if (withAudio) ...['-c:a', 'aac', '-b:a', '192k'] else '-an',
           '-movflags',
           '+faststart',
           outFile.path,

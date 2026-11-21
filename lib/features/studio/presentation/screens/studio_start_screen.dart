@@ -1,7 +1,11 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:video_player/video_player.dart';
 
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
@@ -56,18 +60,86 @@ class _StudioStartScreenState extends State<StudioStartScreen> {
     return '$route?id=$id';
   }
 
-  Future<void> _pickFromGallery(String challengeId) async {
+  Future<String> _persistGalleryVideo(XFile picked) async {
+    final source = File(picked.path);
+    if (!await source.exists()) {
+      throw Exception('Selected video file was not found');
+    }
+    final tempDir = await getTemporaryDirectory();
+    final ext = picked.path.contains('.')
+        ? picked.path.split('.').last.toLowerCase()
+        : 'mp4';
+    final safeExt = (ext == 'mov' || ext == 'mp4' || ext == 'm4v') ? ext : 'mp4';
+    final target = File(
+      '${tempDir.path}/gallery_upload_${DateTime.now().millisecondsSinceEpoch}.$safeExt',
+    );
+    await source.copy(target.path);
+    return target.path;
+  }
+
+  Future<Duration?> _probeVideoDuration(String path) async {
+    VideoPlayerController? controller;
+    try {
+      controller = VideoPlayerController.file(
+        File(path),
+        videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
+      );
+      await controller.initialize();
+      return controller.value.duration;
+    } catch (_) {
+      return null;
+    } finally {
+      await controller?.dispose();
+    }
+  }
+
+  String _formatDuration(Duration d) {
+    final total = d.inSeconds.clamp(0, 99 * 60);
+    final m = total ~/ 60;
+    final s = total % 60;
+    return '$m:${s.toString().padLeft(2, '0')}';
+  }
+
+  Future<void> _pickFromGallery(
+    String challengeId, {
+    required int maxSeconds,
+  }) async {
     if (_pickingGallery) return;
     setState(() => _pickingGallery = true);
     try {
-      final file = await ImagePicker().pickVideo(source: ImageSource.gallery);
+      final file = await ImagePicker().pickVideo(
+        source: ImageSource.gallery,
+        maxDuration: Duration(seconds: maxSeconds > 0 ? maxSeconds : 60),
+      );
       if (file == null || !mounted) return;
+
+      final persistedPath = await _persistGalleryVideo(file);
+      final duration = await _probeVideoDuration(persistedPath);
+      if (!mounted) return;
+
+      if (duration != null &&
+          maxSeconds > 0 &&
+          duration.inSeconds > maxSeconds + 1) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Video is too long. Max allowed is $maxSeconds sec.',
+            ),
+            backgroundColor: Colors.deepOrange,
+          ),
+        );
+        return;
+      }
+
       final cubit = context.read<StudioCubit>();
       cubit.prepareFreshRecording(clearChallenge: !_hasChallenge);
       if (_hasChallenge) {
         cubit.fetchStudioSetup(_routeChallengeId);
       }
-      cubit.setRecordedVideoPath(file.path);
+      cubit.setRecordedVideoPath(persistedPath, fromGallery: true);
+      if (duration != null && duration.inSeconds > 0) {
+        cubit.setRecordedDuration(_formatDuration(duration), resetTrim: true);
+      }
       if (!mounted) return;
       context.push(_studioPath(AppRoutes.studioEditVideo, challengeId));
     } catch (e) {
@@ -103,9 +175,19 @@ class _StudioStartScreenState extends State<StudioStartScreen> {
     final steps = setupData?.steps;
     final recordingTips = setupData?.recordingTips;
     final policy = setupData?.policy;
-    // Free upload (no challenge setup): allow gallery by default.
-    final galleryAllowed =
-        policy?.galleryUploadAllowed ?? !_hasChallenge;
+    // Free upload always allows gallery. Challenge entries follow API policy.
+    // Ignore leftover studioSetup policy when this route has no challenge id.
+    final galleryAllowed = !_hasChallenge
+        ? true
+        : (policy?.galleryUploadAllowed == true);
+    final maxSeconds = (() {
+      final raw = challengeMap['maxVideoDuration'] ??
+          challengeMap['maxDuration'] ??
+          challengeMap['maxDurationSeconds'] ??
+          60;
+      final n = raw is num ? raw.toInt() : int.tryParse(raw.toString()) ?? 60;
+      return n > 0 ? n : 60;
+    })();
 
     return Scaffold(
       backgroundColor: AppColors.bg,
@@ -165,7 +247,10 @@ class _StudioStartScreenState extends State<StudioStartScreen> {
                         icon: const Icon(Icons.video_library_outlined, size: 17),
                         onPressed: _pickingGallery
                             ? null
-                            : () => _pickFromGallery(challengeId),
+                            : () => _pickFromGallery(
+                                  challengeId,
+                                  maxSeconds: maxSeconds,
+                                ),
                       ),
                     ],
                     const SizedBox(height: 10),

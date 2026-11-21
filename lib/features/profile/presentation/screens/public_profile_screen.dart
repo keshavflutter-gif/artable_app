@@ -416,11 +416,11 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
       }
     }
 
+    // Profile Talent Score = SUM of each video's talent score (not average).
     String talentScore = u.talentScore ?? '0';
-    if ((talentScore == '0' || talentScore == '0.0') &&
-        displayReels.isNotEmpty) {
+    if (displayReels.isNotEmpty) {
       double totalScore = 0.0;
-      int scoreCount = 0;
+      var scored = false;
       for (final r in displayReels) {
         final scoreVal =
             (r['talentScore'] as num?)?.toDouble() ??
@@ -429,11 +429,11 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                 0.0);
         if (scoreVal > 0) {
           totalScore += scoreVal;
-          scoreCount++;
+          scored = true;
         }
       }
-      if (scoreCount > 0) {
-        talentScore = (totalScore / scoreCount).toStringAsFixed(1);
+      if (scored) {
+        talentScore = totalScore.toStringAsFixed(1);
       }
     }
     final challengesWon = u.challengesWon ?? 0;

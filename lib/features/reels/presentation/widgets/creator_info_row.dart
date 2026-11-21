@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
 import 'package:artable_app/features/profile/presentation/bloc/profile_cubit.dart';
+import 'package:artable_app/features/reels/data/services/reel_bgm_playback_service.dart';
 
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_gradients.dart';
@@ -196,7 +197,11 @@ class CreatorInfoRow extends StatelessWidget {
         if (onNavigate != null) {
           onNavigate!(route);
         } else {
-          context.push(route);
+          // Fallback: stop reel BGM so it never leaks under profile.
+          ReelBgmPlaybackService.silenceForNavigation();
+          context.push(route).whenComplete(() {
+            ReelBgmPlaybackService.unlockNavigation();
+          });
         }
       }
     }

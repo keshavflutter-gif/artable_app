@@ -11,7 +11,6 @@ import 'package:artable_app/core/widgets/app_scaffold.dart';
 import 'package:artable_app/core/widgets/gradient_button.dart';
 import 'package:artable_app/data/datasources/mock_data.dart';
 import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
-import 'package:artable_app/features/bonus/data/daily_bonus_rewarded_ad.dart';
 import 'package:artable_app/features/bonus/data/models/daily_bonus_calendar_response.dart';
 import 'package:artable_app/features/bonus/data/repositories/daily_bonus_repository.dart';
 import 'package:artable_app/features/rewards/presentation/bloc/rewards_cubit.dart';
@@ -52,12 +51,6 @@ class _DailyBonusScreenState extends State<DailyBonusScreen> {
     });
   }
 
-  @override
-  void dispose() {
-    DailyBonusRewardedAd.instance.dispose();
-    super.dispose();
-  }
-
   Future<void> _loadCalendar({bool showLoader = true}) async {
     if (showLoader) {
       setState(() {
@@ -78,9 +71,6 @@ class _DailyBonusScreenState extends State<DailyBonusScreen> {
         _loading = false;
         _error = null;
       });
-      if (!res.claimedToday) {
-        unawaited(DailyBonusRewardedAd.instance.load());
-      }
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -99,19 +89,6 @@ class _DailyBonusScreenState extends State<DailyBonusScreen> {
   Future<void> _onClaimTap() async {
     if (_claimedToday || _isClaiming) return;
     setState(() => _isClaiming = true);
-
-    final earned = await DailyBonusRewardedAd.instance.show();
-    if (!mounted) return;
-
-    if (!earned) {
-      setState(() => _isClaiming = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Watch the ad to claim your daily bonus.'),
-        ),
-      );
-      return;
-    }
 
     try {
       final auth = context.read<AuthCubit>();
@@ -257,7 +234,7 @@ class _DailyBonusScreenState extends State<DailyBonusScreen> {
                                       _claimedToday
                                           ? 'Claimed Today'
                                           : (_isClaiming
-                                                ? 'Loading Ad…'
+                                                ? 'Claiming…'
                                                 : 'Claim Daily Bonus'),
                                     ),
                                   ),

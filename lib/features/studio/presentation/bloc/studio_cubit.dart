@@ -32,6 +32,9 @@ class StudioCubit extends Cubit<StudioState> {
 
   /// Uncropped source paths so re-applying a different ratio stays correct.
   List<String>? _videoCropSourcePaths;
+  /// Gallery picks stay original quality unless the user applies export crop.
+  bool _isGalleryImport = false;
+  bool _userRequestedExportCrop = false;
   bool _draftWriteLock = false;
   bool _draftsFetchInFlight = false;
 
@@ -1460,10 +1463,13 @@ class StudioCubit extends Cubit<StudioState> {
     List<String>? mergedClipPaths,
     bool clearMergedClips = false,
     bool resetTrim = true,
+    bool fromGallery = false,
   }) {
     // New/cleared recording invalidates previous crop source files.
     if (resetTrim) {
       _videoCropSourcePaths = null;
+      _isGalleryImport = path != null && fromGallery;
+      _userRequestedExportCrop = false;
     }
     if (path == null) {
       emit(state.copyWith(
@@ -1674,6 +1680,7 @@ class StudioCubit extends Cubit<StudioState> {
       return 'No video available to crop.';
     }
     _rememberCropSourcesIfNeeded();
+    _userRequestedExportCrop = true;
     emit(state.copyWith(videoCropAspectRatio: ratioId));
     return null;
   }
@@ -1686,6 +1693,15 @@ class StudioCubit extends Cubit<StudioState> {
     final sources = _videoCropSourcePaths ?? _currentWorkingVideoPaths();
     if (sources.isEmpty) {
       return 'No video available to crop.';
+    }
+
+    // Gallery import: keep original file bytes unless user applied Crop.
+    if (_isGalleryImport && !_userRequestedExportCrop) {
+      debugPrint(
+        'StudioCubit: skipping crop encode for gallery import '
+        '(upload original HD quality)',
+      );
+      return null;
     }
 
     // Encode clips in parallel — sequential FFmpeg was the main delay.
@@ -1742,6 +1758,7 @@ class StudioCubit extends Cubit<StudioState> {
 
   void clearVideoCropSources() {
     _videoCropSourcePaths = null;
+    _userRequestedExportCrop = false;
   }
 
   void setVideoTrimRange({
@@ -1885,6 +1902,8 @@ class StudioCubit extends Cubit<StudioState> {
     StudioMusicPlaybackService.invalidateLoadedTrack();
     unawaited(StudioMusicPlaybackService.stop());
     _videoCropSourcePaths = null;
+    _isGalleryImport = false;
+    _userRequestedExportCrop = false;
     emit(state.copyWith(
       recordedDuration: '0:00',
       clearRecordedVideoPath: true,

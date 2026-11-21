@@ -1292,7 +1292,13 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        CreatorInfoRow(reel: reel, lightText: true),
+                        CreatorInfoRow(
+                          reel: reel,
+                          lightText: true,
+                          onNavigate: (route) => unawaited(
+                            _pushWhileCovered(route),
+                          ),
+                        ),
                         GestureDetector(
                           onTap: () => unawaited(
                             _pushWhileCovered(

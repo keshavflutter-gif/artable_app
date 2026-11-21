@@ -7,6 +7,7 @@ import 'package:artable_app/core/utils/mock_helpers.dart';
 import 'package:artable_app/core/widgets/app_back_header.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
 import 'package:artable_app/features/profile/presentation/bloc/stats_cubit.dart';
+import 'package:artable_app/features/profile/presentation/bloc/my_videos_cubit.dart';
 import 'package:artable_app/data/datasources/mock_data.dart';
 import 'package:artable_app/features/profile/data/models/profile_stats_response.dart';
 
@@ -22,10 +23,42 @@ class _TalentScoreScreenState extends State<TalentScoreScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        context.read<StatsCubit>().loadStats();
-      }
+      if (!mounted) return;
+      context.read<StatsCubit>().loadStats();
+      try {
+        context.read<MyVideosCubit>().loadMyVideos(
+              tab: 'ALL',
+              forceRefresh: false,
+            );
+      } catch (_) {}
     });
+  }
+
+  /// Overall Talent Score = sum of each live video score.
+  String _sumOverallTalentScore({
+    required ProfileStatsData? data,
+    required Map<String, dynamic> u,
+  }) {
+    try {
+      final videos = context.watch<MyVideosCubit>().videos;
+      var total = 0.0;
+      var scored = false;
+      for (final video in videos) {
+        if (video.isDraft || !video.isVideoLive) continue;
+        final score = double.tryParse(video.talentScoreLabel.trim()) ?? 0.0;
+        if (score > 0) {
+          total += score;
+          scored = true;
+        }
+      }
+      if (scored) return total.toStringAsFixed(1);
+    } catch (_) {}
+
+    if (data?.overallTalentScoreLabel.isNotEmpty == true) {
+      return data!.overallTalentScoreLabel;
+    }
+    if (data != null) return data.overallTalentScore.toStringAsFixed(1);
+    return (u['talentScore'] as num?)?.toStringAsFixed(1) ?? '0.0';
   }
 
   @override
@@ -64,7 +97,14 @@ class _TalentScoreScreenState extends State<TalentScoreScreen> {
                             const SizedBox(height: 8),
 
                             // 1. Hero Overall Talent Score Gradient Banner
-                            _buildHeroBanner(data: data, u: u),
+                            _buildHeroBanner(
+                              data: data,
+                              u: u,
+                              overallScore: _sumOverallTalentScore(
+                                data: data,
+                                u: u,
+                              ),
+                            ),
                             const SizedBox(height: 20),
 
                             // 2. 2-Column Grid of 6 Metric Cards
@@ -120,12 +160,9 @@ class _TalentScoreScreenState extends State<TalentScoreScreen> {
   Widget _buildHeroBanner({
     required ProfileStatsData? data,
     required Map<String, dynamic> u,
+    required String overallScore,
   }) {
-    final scoreStr = data?.overallTalentScoreLabel.isNotEmpty == true
-        ? data!.overallTalentScoreLabel
-        : (data != null
-            ? data.overallTalentScore.toStringAsFixed(1)
-            : (u['talentScore'] as num?)?.toStringAsFixed(1) ?? '7.6');
+    final scoreStr = overallScore;
 
     final avgRating = data?.avgRatingLabel.isNotEmpty == true
         ? data!.avgRatingLabel

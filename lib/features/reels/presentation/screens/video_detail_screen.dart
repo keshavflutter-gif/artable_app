@@ -22,7 +22,6 @@ import 'package:artable_app/features/trending/data/models/trending_videos_respon
 import 'package:video_player/video_player.dart';
 import 'package:artable_app/core/utils/video_cache_manager.dart';
 import 'package:artable_app/core/utils/media_url_utils.dart';
-import 'package:artable_app/core/services/video_interstitial_ad.dart';
 import 'package:artable_app/data/datasources/music_api_service.dart';
 import 'package:artable_app/features/reels/data/services/reel_bgm_playback_service.dart';
 import 'package:artable_app/features/trending/data/repositories/videos_repository.dart';
@@ -215,7 +214,6 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
             );
           });
         }
-        unawaited(VideoInterstitialAd.instance.load());
       }
     });
   }
@@ -804,10 +802,9 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
   Future<void> _onBackRefresh() async {
     if (_exitingWithAd) return;
     _exitingWithAd = true;
-    // Kill BGM immediately — interstitial / dispose must not leave music running.
+    // Kill BGM immediately — dispose must not leave music running.
     ReelBgmPlaybackService.killNow();
     await _releaseStagePlayer();
-    await VideoInterstitialAd.instance.show();
     if (!mounted) return;
     context.read<TrendingVideosCubit>().loadTrendingVideos(forceRefresh: true);
     context.read<HomeCubit>().loadHomeDashboard(forceRefresh: true);

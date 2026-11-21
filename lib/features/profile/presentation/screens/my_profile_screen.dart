@@ -548,23 +548,51 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
     );
   }
 
+  /// Sum of each video's talent score (8.5 + 7.5 + 9 → 25.0).
+  String _sumTalentScoreLabel(BuildContext context) {
+    final myVideos = context.watch<MyVideosCubit>().videos;
+    final profileRecent = context.watch<ProfileCubit>().recentVideos;
+    final seen = <String>{};
+    var total = 0.0;
+    var scored = false;
+
+    for (final video in [...myVideos, ...profileRecent]) {
+      if (video.id.isEmpty || !seen.add(video.id)) continue;
+      if (video.isDraft || !video.isVideoLive) continue;
+      final score = double.tryParse(video.talentScoreLabel.trim()) ?? 0.0;
+      if (score > 0) {
+        total += score;
+        scored = true;
+      }
+    }
+
+    if (scored) return total.toStringAsFixed(1);
+
+    final stats = context.read<ProfileCubit>().stats;
+    return stats?.talentScore.toStringAsFixed(1) ?? '0.0';
+  }
+
   // --- 2. Stats Grid ---
   Widget _buildStatsRow(BuildContext context) {
     final profileState = context.watch<ProfileCubit>();
     final statCards = profileState.statCards;
     final stats = profileState.stats;
+    final talentScoreSum = _sumTalentScoreLabel(context);
 
     if (statCards.isNotEmpty) {
       return Row(
         children: statCards.map((card) {
-          return _buildStatCard(card.displayValue, card.label.toUpperCase());
+          final label = card.label.toUpperCase();
+          final value = label.contains('TALENT')
+              ? talentScoreSum
+              : card.displayValue;
+          return _buildStatCard(value, label);
         }).toList(),
       );
     }
 
     final videos = stats?.approvedVideos ?? 0;
     final likes = stats?.totalLikes ?? 0;
-    final talentScore = stats?.talentScore.toStringAsFixed(1) ?? '0.0';
     final wins = stats?.wins ?? 0;
 
     return Row(
@@ -573,7 +601,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
         const SizedBox(width: 8),
         _buildStatCard('$likes', 'LIKES'),
         const SizedBox(width: 8),
-        _buildStatCard(talentScore, 'TALENT SCORE'),
+        _buildStatCard(talentScoreSum, 'TALENT SCORE'),
         const SizedBox(width: 8),
         _buildStatCard('$wins', 'WON'),
       ],
