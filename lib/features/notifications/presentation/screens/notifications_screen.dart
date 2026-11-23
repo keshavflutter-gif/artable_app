@@ -8,7 +8,6 @@ import 'package:artable_app/core/widgets/app_back_header.dart';
 import 'package:artable_app/core/widgets/app_image.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
 import 'package:artable_app/core/widgets/filter_pills.dart';
-import 'package:artable_app/data/datasources/mock_data.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -25,7 +24,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   @override
   void initState() {
     super.initState();
-    _items = MockData.NOTIFICATIONS.map((n) => Map<String, dynamic>.from(n)).toList();
+    // Inbox API not wired yet — show empty, not fake notifications.
+    _items = <Map<String, dynamic>>[];
   }
 
   List<Map<String, dynamic>> get _filtered {
@@ -125,14 +125,7 @@ class _NotificationTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final read = n['read'] as bool? ?? true;
-    final avatarId = n['avatarId'] as String?;
-    Map<String, dynamic>? user;
-    if (avatarId != null) {
-      user = MockData.CREATORS.cast<Map<String, dynamic>?>().firstWhere(
-        (u) => u!['id'] == avatarId,
-        orElse: () => null,
-      );
-    }
+    final avatarUrl = n['avatarUrl']?.toString();
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -145,14 +138,26 @@ class _NotificationTile extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (user != null)
-            AppImage(url: user['avatarUrl'] as String, width: 40, height: 40, borderRadius: BorderRadius.circular(20))
+          if (avatarUrl != null && avatarUrl.isNotEmpty)
+            AppImage(
+              url: avatarUrl,
+              width: 40,
+              height: 40,
+              borderRadius: BorderRadius.circular(20),
+            )
           else
             Container(
               width: 40,
               height: 40,
-              decoration: BoxDecoration(color: AppColors.purple.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)),
-              child: Icon(_getIcon(n['icon'] as String?, n['category'] as String?), color: AppColors.purple, size: 20),
+              decoration: BoxDecoration(
+                color: AppColors.purple.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                _getIcon(n['icon'] as String?, n['category'] as String?),
+                color: AppColors.purple,
+                size: 20,
+              ),
             ),
           const SizedBox(width: 12),
           Expanded(
@@ -194,13 +199,8 @@ class _ActivityCenterScreenState extends State<ActivityCenterScreen> {
   var _filter = 'All';
 
   List<Map<String, dynamic>> get _filtered {
-    final all = MockData.ACTIVITY_LOG;
-    if (_filter == 'All') return all;
-    final key = _filter.toLowerCase();
-    return all.where((a) {
-      final type = (a['type'] as String? ?? '').toLowerCase();
-      return type == key || type == '${key}s' || type.startsWith(key);
-    }).toList();
+    // Activity feed API not wired yet — empty, not fake log.
+    return const <Map<String, dynamic>>[];
   }
 
   void _openActivity(Map<String, dynamic> item) {
@@ -225,7 +225,13 @@ class _ActivityCenterScreenState extends State<ActivityCenterScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final s = MockData.ACTIVITY_SUMMARY;
+    const s = <String, dynamic>{
+      'likes': 0,
+      'comments': 0,
+      'ratings': 0,
+      'entries': 0,
+      'rewardsEarned': '₹0',
+    };
     final list = _filtered;
 
     return AppScreen(

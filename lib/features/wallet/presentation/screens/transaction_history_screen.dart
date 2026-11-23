@@ -6,7 +6,6 @@ import 'package:artable_app/core/utils/format_utils.dart';
 import 'package:artable_app/core/widgets/app_back_header.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
 import 'package:artable_app/core/widgets/filter_pills.dart';
-import 'package:artable_app/data/datasources/mock_data.dart';
 import 'package:artable_app/features/wallet/presentation/bloc/wallet_cubit.dart';
 import 'package:artable_app/features/wallet/presentation/bloc/wallet_state.dart';
 
@@ -60,7 +59,7 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
 
           final rawList = state.hasTransactionsLoaded
               ? state.transactions.map((tx) => tx.toUiMap()).toList()
-              : MockData.TRANSACTIONS;
+              : <Map<String, dynamic>>[];
 
           final selectedFilter = state.selectedTransactionTab;
 

@@ -326,7 +326,13 @@ class ProfileStats {
 
   factory ProfileStats.fromJson(Map<String, dynamic> json) {
     num parsedTalentScore = 0;
-    final rawScore = json['talentScore'] ?? json['talent_score'];
+    // Backend now returns SUM of all video talent scores.
+    final rawScore = json['talentScore'] ??
+        json['talent_score'] ??
+        json['totalTalentScore'] ??
+        json['total_talent_score'] ??
+        json['overallTalentScore'] ??
+        json['overall_talent_score'];
     if (rawScore is num) {
       parsedTalentScore = rawScore;
     } else if (rawScore != null) {

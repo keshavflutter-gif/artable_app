@@ -7,7 +7,6 @@ import 'package:artable_app/app/theme/app_gradients.dart';
 import 'package:artable_app/core/widgets/app_back_header.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
 import 'package:artable_app/features/profile/presentation/widgets/profile_reward_widgets.dart';
-import 'package:artable_app/data/datasources/mock_data.dart';
 import 'package:artable_app/features/wallet/presentation/bloc/wallet_cubit.dart';
 import 'package:artable_app/features/wallet/presentation/bloc/wallet_state.dart';
 
@@ -43,14 +42,23 @@ class _WalletScreenState extends State<WalletScreen> {
                 final cubit = context.read<WalletCubit>();
                 final walletData = state.walletData;
 
-                final availableBalance = walletData?.displayAvailableBalance ?? MockData.WALLET_SUMMARY['availableBalance'] as String;
-                final pendingRewards = walletData != null ? walletData.displayPendingAmount : MockData.WALLET_SUMMARY['pendingRewards'] as String;
-                final totalWithdrawn = walletData != null ? walletData.displayWithdrawnAmount : MockData.WALLET_SUMMARY['totalWithdrawn'] as String;
-                final minWithdrawal = walletData != null ? '₹${walletData.minimumWithdrawalAmount.toStringAsFixed(0)}' : MockData.WALLET_SUMMARY['minWithdrawal'] as String;
+                final availableBalance =
+                    walletData?.displayAvailableBalance ?? '₹0.00';
+                final pendingRewards =
+                    walletData?.displayPendingAmount ?? '₹0.00';
+                final totalWithdrawn =
+                    walletData?.displayWithdrawnAmount ?? '₹0.00';
+                final minWithdrawal = walletData != null
+                    ? '₹${walletData.minimumWithdrawalAmount.toStringAsFixed(0)}'
+                    : '₹50';
 
-                final transactionsList = (walletData?.recentTransactions != null && walletData!.recentTransactions.isNotEmpty)
-                    ? walletData.recentTransactions.map((tx) => tx.toUiMap()).toList()
-                    : MockData.TRANSACTIONS;
+                final transactionsList =
+                    (walletData?.recentTransactions != null &&
+                            walletData!.recentTransactions.isNotEmpty)
+                        ? walletData.recentTransactions
+                            .map((tx) => tx.toUiMap())
+                            .toList()
+                        : <Map<String, dynamic>>[];
 
                 return RefreshIndicator(
                   onRefresh: () => cubit.loadWalletInfo(forceRefresh: true),
@@ -294,22 +302,22 @@ class _WalletScreenState extends State<WalletScreen> {
                             childAspectRatio: 1.35,
                             children: [
                               _EarningStat(
-                                value: _findEarnings(walletData, 'CHALLENGE_WIN') ?? (MockData.WALLET_SUMMARY['challengeWins'] as String),
+                                value: _findEarnings(walletData, 'CHALLENGE_WIN') ?? '₹0',
                                 label: 'Challenge Wins',
                                 icon: Icons.emoji_events_rounded,
                               ),
                               _EarningStat(
-                                value: _findEarnings(walletData, 'REFERRAL') ?? (MockData.WALLET_SUMMARY['referralRewards'] as String),
+                                value: _findEarnings(walletData, 'REFERRAL') ?? '₹0',
                                 label: 'Referral Rewards',
                                 icon: Icons.person_add_outlined,
                               ),
                               _EarningStat(
-                                value: _findEarnings(walletData, 'BONUS') ?? (MockData.WALLET_SUMMARY['dailyBonus'] as String),
+                                value: _findEarnings(walletData, 'BONUS') ?? '₹0',
                                 label: 'Daily Bonus',
                                 icon: Icons.calendar_today_rounded,
                               ),
                               _EarningStat(
-                                value: _findEarnings(walletData, 'WITHDRAWAL') ?? (MockData.WALLET_SUMMARY['sponsorRewards'] as String),
+                                value: _findEarnings(walletData, 'WITHDRAWAL') ?? '₹0',
                                 label: 'Withdrawal Sum',
                                 icon: Icons.outbox_rounded,
                               ),

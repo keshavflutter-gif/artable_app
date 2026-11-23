@@ -1,5 +1,3 @@
-import 'package:artable_app/core/utils/mock_helpers.dart';
-import 'package:artable_app/data/datasources/mock_data.dart';
 import 'package:artable_app/features/leaderboard/data/models/leaderboard_response.dart';
 
 class LeaderboardState {
@@ -64,53 +62,31 @@ class LeaderboardState {
     return defaultCategories;
   }
 
-  String get mockSortKey {
-    switch (selectedTab) {
-      case 'Challenge':
-        return 'challenge';
-      case 'Weekly':
-        return 'weekly';
-      case 'Monthly':
-        return 'monthly';
-      default:
-        return 'global';
-    }
-  }
-
-  List<Map<String, dynamic>> get fallbackRankedCreators {
-    var list = List<Map<String, dynamic>>.from(MockData.CREATORS)
-      ..sort((a, b) => MockHelpers.sortValue(b, mockSortKey)
-          .compareTo(MockHelpers.sortValue(a, mockSortKey)));
-    if (selectedCategory != 'All Categories') {
-      list = list.where((u) => u['category'] == selectedCategory).toList();
-    }
-    return list;
-  }
+  /// No mock creators — empty until API data is available.
+  List<Map<String, dynamic>> get fallbackRankedCreators => const [];
 
   List<Map<String, dynamic>> get top3PodiumAsUiMaps {
     if (podium.isNotEmpty) {
       return podium.map((p) => p.toUiMap()).toList();
     }
-    return fallbackRankedCreators.take(3).toList();
+    return const [];
   }
 
   List<Map<String, dynamic>> get restRankingsAsUiMaps {
-    if (rankings.isNotEmpty) {
-      if (podium.isNotEmpty) {
-        final podiumIds = podium.map((p) => p.user?.id ?? p.id).toSet();
-        final nonPodium = rankings
-            .where((r) => !podiumIds.contains(r.user?.id ?? r.id))
-            .toList();
-        if (nonPodium.isNotEmpty) {
-          return nonPodium.map((r) => r.toUiMap()).toList();
-        }
+    if (rankings.isEmpty) return const [];
+    if (podium.isNotEmpty) {
+      final podiumIds = podium.map((p) => p.user?.id ?? p.id).toSet();
+      final nonPodium = rankings
+          .where((r) => !podiumIds.contains(r.user?.id ?? r.id))
+          .toList();
+      if (nonPodium.isNotEmpty) {
+        return nonPodium.map((r) => r.toUiMap()).toList();
       }
-      if (rankings.length > 3) {
-        return rankings.skip(3).map((r) => r.toUiMap()).toList();
-      }
-      return const [];
     }
-    return fallbackRankedCreators.skip(3).toList();
+    if (rankings.length > 3) {
+      return rankings.skip(3).map((r) => r.toUiMap()).toList();
+    }
+    return const [];
   }
 
   LeaderboardState copyWith({

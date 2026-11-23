@@ -8,7 +8,6 @@ import 'package:artable_app/core/widgets/app_back_header.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
 import 'package:artable_app/features/profile/presentation/bloc/stats_cubit.dart';
 import 'package:artable_app/features/profile/presentation/bloc/my_videos_cubit.dart';
-import 'package:artable_app/data/datasources/mock_data.dart';
 import 'package:artable_app/features/profile/data/models/profile_stats_response.dart';
 
 class TalentScoreScreen extends StatefulWidget {
@@ -34,11 +33,25 @@ class _TalentScoreScreenState extends State<TalentScoreScreen> {
     });
   }
 
-  /// Overall Talent Score = sum of each live video score.
-  String _sumOverallTalentScore({
+  /// Prefer API overall sum; fallback to client sum of live videos.
+  String _overallTalentScoreLabel({
     required ProfileStatsData? data,
     required Map<String, dynamic> u,
   }) {
+    if (data != null) {
+      final api = data.overallTalentScore;
+      if (api > 0) {
+        if (data.overallTalentScoreLabel.isNotEmpty &&
+            data.overallTalentScoreLabel != '0.0') {
+          return data.overallTalentScoreLabel;
+        }
+        return api.toStringAsFixed(1);
+      }
+      if (data.stats.talentScore > 0) {
+        return data.stats.talentScore.toStringAsFixed(1);
+      }
+    }
+
     try {
       final videos = context.watch<MyVideosCubit>().videos;
       var total = 0.0;
@@ -54,10 +67,6 @@ class _TalentScoreScreenState extends State<TalentScoreScreen> {
       if (scored) return total.toStringAsFixed(1);
     } catch (_) {}
 
-    if (data?.overallTalentScoreLabel.isNotEmpty == true) {
-      return data!.overallTalentScoreLabel;
-    }
-    if (data != null) return data.overallTalentScore.toStringAsFixed(1);
     return (u['talentScore'] as num?)?.toStringAsFixed(1) ?? '0.0';
   }
 
@@ -100,7 +109,7 @@ class _TalentScoreScreenState extends State<TalentScoreScreen> {
                             _buildHeroBanner(
                               data: data,
                               u: u,
-                              overallScore: _sumOverallTalentScore(
+                              overallScore: _overallTalentScoreLabel(
                                 data: data,
                                 u: u,
                               ),
@@ -501,79 +510,18 @@ class _TalentScoreScreenState extends State<TalentScoreScreen> {
       );
     }
 
-    final max = MockData.RATING_DISTRIBUTION.reduce(
-      (a, b) => a > b ? a : b,
-    );
-
-    return Column(
-      children: List.generate(MockData.RATING_DISTRIBUTION.length, (i) {
-        final count = MockData.RATING_DISTRIBUTION[i];
-        final pct = (count / max).clamp(0.04, 1.0);
-
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 7),
-          child: Row(
-            children: [
-              SizedBox(
-                width: 16,
-                child: Text(
-                  '${i + 1}',
-                  style: const TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF8B849C),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final barWidth = constraints.maxWidth * pct;
-                    return Container(
-                      height: 7,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF5F2FA),
-                        borderRadius: BorderRadius.circular(3.5),
-                      ),
-                      alignment: Alignment.centerLeft,
-                      child: Container(
-                        width: barWidth,
-                        height: 7,
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [
-                              Color(0xFFFF5E3A),
-                              Color(0xFFFF2A6D),
-                              Color(0xFF8B3DFF),
-                            ],
-                          ),
-                          borderRadius: BorderRadius.circular(3.5),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(width: 8),
-              SizedBox(
-                width: 24,
-                child: Text(
-                  '$count',
-                  textAlign: TextAlign.right,
-                  style: const TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF8B849C),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      }),
+    return const Padding(
+      padding: EdgeInsets.symmetric(vertical: 12),
+      child: Text(
+        'Rating breakdown will appear when stats are available.',
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          fontFamily: 'Inter',
+          fontSize: 12.5,
+          fontWeight: FontWeight.w500,
+          color: Color(0xFF8B849C),
+        ),
+      ),
     );
   }
 
@@ -673,89 +621,18 @@ class _TalentScoreScreenState extends State<TalentScoreScreen> {
       );
     }
 
-    return Column(
-      children: MockData.RECENT_PERFORMANCE.map((p) {
-        final title = p['title'] as String? ?? 'Challenge';
-        final result = p['result'] as String? ?? 'Top 10';
-        final date = p['date'] as String? ?? 'Jul 10, 2026';
-        final isPlaced = p['score'] != null;
-
-        return GestureDetector(
-          onTap: () => context.push('/challenge-detail?id=${p['challengeId']}'),
-          child: Container(
-            margin: const EdgeInsets.only(bottom: 10),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFFECE8F5), width: 1.2),
-              boxShadow: const [
-                BoxShadow(
-                  color: Color(0x0A15083C),
-                  blurRadius: 10,
-                  offset: Offset(0, 3),
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontFamily: 'Poppins',
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w800,
-                          color: Color(0xFF1B132C),
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        date,
-                        style: const TextStyle(
-                          fontFamily: 'Inter',
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w500,
-                          color: AppColors.textSoft,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4.5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: isPlaced
-                        ? const Color(0xFFE8F8F0)
-                        : const Color(0xFFF6F3FC),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text(
-                    result,
-                    style: TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.w800,
-                      color: isPlaced
-                          ? const Color(0xFF00C853)
-                          : const Color(0xFF8B849C),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      }).toList(),
+    return const Padding(
+      padding: EdgeInsets.symmetric(vertical: 12),
+      child: Text(
+        'Recent challenge performance will appear when stats are available.',
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          fontFamily: 'Inter',
+          fontSize: 12.5,
+          fontWeight: FontWeight.w500,
+          color: Color(0xFF8B849C),
+        ),
+      ),
     );
   }
 

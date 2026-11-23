@@ -402,7 +402,10 @@ class WinnerDetailScreen extends StatelessWidget {
                       child: InkWell(
                         onTap: () {
                           if (reel != null) {
-                            context.push('/reel?id=${reel['id']}');
+                            final id = reel['id']?.toString() ?? '';
+                            if (id.isNotEmpty) {
+                              context.push('/reels-feed?id=$id', extra: reel);
+                            }
                           }
                         },
                         borderRadius: BorderRadius.circular(27),
@@ -511,7 +514,7 @@ class WinnerDetailScreen extends StatelessWidget {
                   OutlinedButton.icon(
                     onPressed: () {
                       if (userId != null && userId.isNotEmpty) {
-                        context.push('/profile?id=$userId');
+                        context.push('/public-profile?id=$userId');
                       }
                     },
                     icon: const Icon(Icons.person_outline_rounded, color: Color(0xFF8B3DFF), size: 18),

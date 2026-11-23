@@ -151,7 +151,13 @@ class UserInfo {
           json['cover_image_url']?.toString() ??
           json['coverUrl']?.toString() ??
           json['cover_url']?.toString(),
-      talentScore: json['talentScore']?.toString() ?? json['talent_score']?.toString(),
+      // Backend returns SUM of all video talent scores (e.g. 8.5+7.5+9=25).
+      talentScore: json['talentScore']?.toString() ??
+          json['talent_score']?.toString() ??
+          json['totalTalentScore']?.toString() ??
+          json['total_talent_score']?.toString() ??
+          json['overallTalentScore']?.toString() ??
+          json['overall_talent_score']?.toString(),
       challengesWon: _parseInt(json['challengesWon'] ?? json['challenges_won']),
       rewardEarnings: json['rewardEarnings']?.toString() ?? json['reward_earnings']?.toString(),
       isBlueTick: _parseBool(json['isBlueTick'] ?? json['is_blue_tick']),

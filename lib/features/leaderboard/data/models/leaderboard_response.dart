@@ -229,8 +229,15 @@ class LeaderboardRankItem {
     if (talentScoreLabel != null && talentScoreLabel!.trim().isNotEmpty) {
       return talentScoreLabel!.trim();
     }
-    if (talentScore != null && talentScore! > 0) {
+    if (talentScore != null) {
       return talentScore!.toStringAsFixed(1);
+    }
+    final bestScore = bestVideo?.talentScore;
+    if (bestScore != null) {
+      return bestScore.toStringAsFixed(1);
+    }
+    if (leaderboardScore != null) {
+      return leaderboardScore!.toString();
     }
     return '0.0';
   }
@@ -264,6 +271,24 @@ class LeaderboardRankItem {
   }
 
   factory LeaderboardRankItem.fromJson(Map<String, dynamic> json) {
+    final bestVideo = json['bestVideo'] is Map
+        ? LeaderboardBestVideo.fromJson(
+            Map<String, dynamic>.from(json['bestVideo'] as Map))
+        : null;
+
+    final parsedTalent = _parseDouble(json['talentScore']) ??
+        _parseDouble(json['score']) ??
+        _parseDouble(json['averageRating']) ??
+        bestVideo?.talentScore;
+
+    final label = json['talentScoreLabel']?.toString() ??
+        json['scoreLabel']?.toString();
+
+    final parsedVotes = _parseInt(json['votes']) ??
+        _parseInt(json['totalVotes']) ??
+        _parseInt(json['voteCount']) ??
+        _parseInt(json['votesCount']);
+
     return LeaderboardRankItem(
       rank: _parseInt(json['rank']) ?? 1,
       user: json['user'] is Map
@@ -272,10 +297,11 @@ class LeaderboardRankItem {
           : null,
       fullName: json['fullName']?.toString(),
       username: json['username']?.toString(),
-      talentScore: _parseDouble(json['talentScore']),
-      talentScoreLabel: json['talentScoreLabel']?.toString(),
-      leaderboardScore: _parseInt(json['leaderboardScore']),
-      votes: _parseInt(json['votes']),
+      talentScore: parsedTalent,
+      talentScoreLabel: label,
+      leaderboardScore: _parseInt(json['leaderboardScore']) ??
+          _parseInt(json['points']),
+      votes: parsedVotes,
       votesLabel: json['votesLabel']?.toString(),
       likes: _parseInt(json['likes']) ?? 0,
       views: _parseInt(json['views']) ?? 0,
@@ -286,10 +312,7 @@ class LeaderboardRankItem {
               Map<String, dynamic>.from(json['category'] as Map))
           : null,
       categoryName: json['categoryName']?.toString(),
-      bestVideo: json['bestVideo'] is Map
-          ? LeaderboardBestVideo.fromJson(
-              Map<String, dynamic>.from(json['bestVideo'] as Map))
-          : null,
+      bestVideo: bestVideo,
     );
   }
 

@@ -9,7 +9,6 @@ import 'package:artable_app/core/network/api_exception.dart';
 import 'package:artable_app/core/widgets/app_back_header.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
 import 'package:artable_app/core/widgets/gradient_button.dart';
-import 'package:artable_app/data/datasources/mock_data.dart';
 import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
 import 'package:artable_app/features/bonus/data/models/daily_bonus_calendar_response.dart';
 import 'package:artable_app/features/bonus/data/repositories/daily_bonus_repository.dart';
@@ -393,80 +392,28 @@ class RewardCalendarScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final d = MockData.DAILY_BONUS;
-    final streak = (d['currentStreak'] as int? ?? 5);
-    final claimed = (d['claimedToday'] as bool? ?? false);
-    final effectiveStreak = streak + (claimed ? 1 : 0);
-    final totalDays = (d['totalDays'] as int? ?? 30);
-    final pct = (effectiveStreak / totalDays * 100).clamp(0, 100).round();
-
     return AppScreen(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const AppBackHeader(title: 'Reward Calendar'),
           Expanded(
-            child: SingleChildScrollView(
-              child: AppContent(
-                noBottomPad: true,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '$effectiveStreak / $totalDays days ($pct%)',
-                      style: AppTextStyles.body.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    LinearProgressIndicator(
-                      value: pct / 100,
-                      color: AppColors.purple,
-                      backgroundColor: AppColors.inputBg,
-                    ),
-                    const SizedBox(height: 20),
-                    GridView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 7,
-                            crossAxisSpacing: 6,
-                            mainAxisSpacing: 6,
-                          ),
-                      itemCount: totalDays,
-                      itemBuilder: (_, i) {
-                        final day = i + 1;
-                        final isClaimed = day < effectiveStreak;
-                        final isToday = day == effectiveStreak;
-                        return Container(
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: isToday
-                                ? AppColors.purple
-                                : isClaimed
-                                ? AppColors.success.withValues(alpha: 0.15)
-                                : AppColors.inputBg,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            '$day',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 11,
-                              color: isToday ? Colors.white : AppColors.text,
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 24),
-                    GradientButton(
-                      label: claimed ? 'View Bonus' : 'Claim Today',
-                      onPressed: () => context.push('/daily-bonus'),
-                    ),
-                  ],
-                ),
+            child: AppContent(
+              noBottomPad: true,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    'Reward calendar will sync with your daily bonus streak soon.',
+                    textAlign: TextAlign.center,
+                    style: AppTextStyles.bodySoft.copyWith(fontSize: 13),
+                  ),
+                  const SizedBox(height: 20),
+                  GradientButton(
+                    label: 'Go to Daily Bonus',
+                    onPressed: () => context.push('/daily-bonus'),
+                  ),
+                ],
               ),
             ),
           ),

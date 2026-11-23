@@ -6,7 +6,6 @@ import 'package:artable_app/app/theme/app_text_styles.dart';
 import 'package:artable_app/core/widgets/app_back_header.dart';
 import 'package:artable_app/core/widgets/app_image.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
-import 'package:artable_app/data/datasources/mock_data.dart';
 
 class SearchResultsScreen extends StatefulWidget {
   const SearchResultsScreen({
@@ -41,33 +40,10 @@ class _SearchResultsScreenState extends State<SearchResultsScreen>
 
   @override
   Widget build(BuildContext context) {
-    final q = _controller.text.toLowerCase().trim();
-
-    final matchingVideos = MockData.REELS.where((v) {
-      final title = (v['title'] as String? ?? '').toLowerCase();
-      final creator = (v['creatorName'] as String? ?? '').toLowerCase();
-      final tag = (v['tag'] as String? ?? '').toLowerCase();
-      return q.isEmpty ||
-          title.contains(q) ||
-          creator.contains(q) ||
-          tag.contains(q);
-    }).toList();
-
-    final matchingCreators = MockData.CREATORS.where((c) {
-      final name = (c['name'] as String? ?? '').toLowerCase();
-      final handle = (c['handle'] as String? ?? '').toLowerCase();
-      final bio = (c['bio'] as String? ?? '').toLowerCase();
-      return q.isEmpty ||
-          name.contains(q) ||
-          handle.contains(q) ||
-          bio.contains(q);
-    }).toList();
-
-    final matchingChallenges = MockData.CHALLENGES.where((c) {
-      final title = (c['title'] as String? ?? '').toLowerCase();
-      final cat = (c['category'] as String? ?? '').toLowerCase();
-      return q.isEmpty || title.contains(q) || cat.contains(q);
-    }).toList();
+    // Search API not wired yet — never show mock creators/videos/challenges.
+    const matchingVideos = <Map<String, dynamic>>[];
+    const matchingCreators = <Map<String, dynamic>>[];
+    const matchingChallenges = <Map<String, dynamic>>[];
 
     return AppScreen(
       child: Column(
@@ -410,7 +386,7 @@ class _SearchResultsScreenState extends State<SearchResultsScreen>
           ),
           const SizedBox(height: 12),
           Text(
-            'No results found',
+            'Search will be available soon',
             style: AppTextStyles.displaySemiBold14.copyWith(
               color: AppColors.textSoft,
             ),

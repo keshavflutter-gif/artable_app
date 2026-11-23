@@ -97,10 +97,26 @@ class ProfileStatsData {
       }
     }
 
+    final overallRaw = json['overallTalentScore'] ??
+        json['overall_talent_score'] ??
+        json['totalTalentScore'] ??
+        json['total_talent_score'] ??
+        json['talentScore'] ??
+        json['talent_score'];
+    num overallScore = 0;
+    if (overallRaw is num) {
+      overallScore = overallRaw;
+    } else if (overallRaw != null) {
+      overallScore = double.tryParse(overallRaw.toString()) ?? 0;
+    }
+    final overallLabel = json['overallTalentScoreLabel']?.toString() ??
+        json['totalTalentScoreLabel']?.toString() ??
+        json['talentScoreLabel']?.toString() ??
+        (overallScore > 0 ? overallScore.toStringAsFixed(1) : '0.0');
+
     return ProfileStatsData(
-      overallTalentScore: (json['overallTalentScore'] as num?) ?? 0,
-      overallTalentScoreLabel:
-          json['overallTalentScoreLabel']?.toString() ?? '0.0',
+      overallTalentScore: overallScore,
+      overallTalentScoreLabel: overallLabel,
       avgRating: (json['avgRating'] as num?) ?? 0,
       avgRatingLabel: json['avgRatingLabel']?.toString() ?? '0.0',
       totalVotes: (json['totalVotes'] as num?) ?? 0,
@@ -169,7 +185,15 @@ class UserCoreStats {
       approvedVideos: (json['approvedVideos'] as num?)?.toInt() ?? 0,
       totalLikes: (json['totalLikes'] as num?)?.toInt() ?? 0,
       totalViews: (json['totalViews'] as num?)?.toInt() ?? 0,
-      talentScore: (json['talentScore'] as num?) ?? 0,
+      talentScore: () {
+        final raw = json['talentScore'] ??
+            json['talent_score'] ??
+            json['totalTalentScore'] ??
+            json['total_talent_score'] ??
+            json['overallTalentScore'];
+        if (raw is num) return raw;
+        return double.tryParse(raw?.toString() ?? '') ?? 0;
+      }(),
       wins: (json['wins'] as num?)?.toInt() ?? 0,
       joinedChallenges: (json['joinedChallenges'] as num?)?.toInt() ?? 0,
       topThree: (json['topThree'] as num?)?.toInt() ?? 0,

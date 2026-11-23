@@ -286,10 +286,18 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
             'views': v['views'] ?? 0,
             'likes': v['likes'] ?? 0,
             'likesCount': v['likes'] ?? 0,
-            'averageRating': v['averageRating']?.toString() ?? '0',
-            'talentScore':
-                double.tryParse(v['averageRating']?.toString() ?? '') ?? 0.0,
-            'score': v['averageRating']?.toString(),
+            'averageRating': v['averageRating']?.toString() ??
+                v['talentScore']?.toString() ??
+                '0',
+            'talentScore': double.tryParse(
+                  v['talentScore']?.toString() ??
+                      v['talent_score']?.toString() ??
+                      v['averageRating']?.toString() ??
+                      '',
+                ) ??
+                0.0,
+            'score': v['talentScore']?.toString() ??
+                v['averageRating']?.toString(),
             'handle': handle,
             'creator': name,
           });
@@ -330,14 +338,17 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
         }
       }
 
-      if (homeCubit.trendingReels.isNotEmpty)
+      if (homeCubit.trendingReels.isNotEmpty) {
         collectMatchingReels(homeCubit.trendingReels);
-      if (trendingCubit.videos.isNotEmpty)
+      }
+      if (trendingCubit.videos.isNotEmpty) {
         collectMatchingReels(
           trendingCubit.videos.map((v) => v.toUiMap()).toList(),
         );
-      if (trendingCubit.hero != null)
+      }
+      if (trendingCubit.hero != null) {
         collectMatchingReels([trendingCubit.hero!.toUiMap()]);
+      }
       if (reelsCubit.videos.isNotEmpty) collectMatchingReels(reelsCubit.videos);
       if (isCurrentLoggedInUser && myVideosCubit.videos.isNotEmpty) {
         collectMatchingReels(
@@ -416,9 +427,12 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
       }
     }
 
-    // Profile Talent Score = SUM of each video's talent score (not average).
-    String talentScore = u.talentScore ?? '0';
-    if (displayReels.isNotEmpty) {
+    // Prefer API sum (backend: talentScore = Σ video scores). Fallback: client sum.
+    final apiTalent = double.tryParse((u.talentScore ?? '').trim()) ?? 0;
+    String talentScore;
+    if (apiTalent > 0) {
+      talentScore = apiTalent.toStringAsFixed(1);
+    } else if (displayReels.isNotEmpty) {
       double totalScore = 0.0;
       var scored = false;
       for (final r in displayReels) {
@@ -432,9 +446,9 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
           scored = true;
         }
       }
-      if (scored) {
-        talentScore = totalScore.toStringAsFixed(1);
-      }
+      talentScore = scored ? totalScore.toStringAsFixed(1) : '0.0';
+    } else {
+      talentScore = '0.0';
     }
     final challengesWon = u.challengesWon ?? 0;
 

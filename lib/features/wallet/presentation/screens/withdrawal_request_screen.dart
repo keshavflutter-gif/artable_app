@@ -6,7 +6,6 @@ import 'package:artable_app/app/theme/app_gradients.dart';
 import 'package:artable_app/core/widgets/app_back_header.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
 import 'package:artable_app/core/widgets/gradient_button.dart';
-import 'package:artable_app/data/datasources/mock_data.dart';
 import 'package:artable_app/features/wallet/presentation/bloc/wallet_cubit.dart';
 
 class WithdrawalRequestScreen extends StatefulWidget {
@@ -44,7 +43,8 @@ class _WithdrawalRequestScreenState extends State<WithdrawalRequestScreen> {
   @override
   Widget build(BuildContext context) {
     final walletState = context.watch<WalletCubit>().state;
-    final availableStr = walletState.walletData?.displayAvailableBalance ?? MockData.WALLET_SUMMARY['availableBalance'] as String;
+    final availableStr =
+        walletState.walletData?.displayAvailableBalance ?? '₹0.00';
 
     if (_success) {
       return AppScreen(
@@ -444,17 +444,29 @@ class _WithdrawalRequestScreenState extends State<WithdrawalRequestScreen> {
                         color: Colors.transparent,
                         child: InkWell(
                           onTap: () {
-                            final parsed = double.tryParse(_amountController.text) ?? 0.0;
-                            if (parsed >= 50.0) {
-                              setState(() => _success = true);
-                            } else {
+                            final parsed =
+                                double.tryParse(_amountController.text) ?? 0.0;
+                            if (parsed < 50.0) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
-                                  content: Text('Minimum withdrawal amount is ₹50.'),
+                                  content: Text(
+                                    'Minimum withdrawal amount is ₹50.',
+                                  ),
                                   backgroundColor: Color(0xFFFF3D77),
                                 ),
                               );
+                              return;
                             }
+                            // Withdraw API / Razorpay payout not wired yet —
+                            // do not show a fake success state.
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Withdrawal is coming soon. Your balance is safe in the wallet.',
+                                ),
+                                backgroundColor: Color(0xFF5E2EAA),
+                              ),
+                            );
                           },
                           borderRadius: BorderRadius.circular(27),
                           child: const Center(

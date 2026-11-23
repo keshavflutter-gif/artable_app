@@ -53,9 +53,11 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     final yourRankItem = leaderboard.yourRank;
     final currentUserId = auth.currentUser['id']?.toString() ?? auth.userId;
 
+    // Profile talent sum — only used when leaderboard row has no score yet.
     String? profileScoreStr;
     for (final card in profile.statCards) {
-      if (card.key == 'talentScore' || card.label.toLowerCase().contains('talent')) {
+      if (card.key == 'talentScore' ||
+          card.label.toLowerCase().contains('talent')) {
         final v = card.displayValue.trim();
         if (v.isNotEmpty && v != '0' && v != '0.0') {
           profileScoreStr = v;
@@ -111,7 +113,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                           child: _buildApiPodium(
                             podiumList,
                             currentUserId: currentUserId,
-                            currentUserScore: profileScoreStr,
+                            profileScoreFallback: profileScoreStr,
                           ),
                         )
                       else if (fallbackTop3.isNotEmpty)
@@ -177,7 +179,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                                   isCurrentUser:
                                       currentUserId != null &&
                                       rankingsList[i].user?.id == currentUserId,
-                                  currentUserScore: profileScoreStr,
+                                  profileScoreFallback: profileScoreStr,
                                 ),
                             ],
                           ),
@@ -349,10 +351,28 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     );
   }
 
+  String _scoreForItem(
+    LeaderboardRankItem item, {
+    required bool isCurrentUser,
+    String? profileScoreFallback,
+  }) {
+    final apiScore = item.displayScore;
+    if (apiScore.isNotEmpty && apiScore != '0.0' && apiScore != '0') {
+      return apiScore;
+    }
+    if (isCurrentUser &&
+        profileScoreFallback != null &&
+        profileScoreFallback.isNotEmpty &&
+        profileScoreFallback != '0.0') {
+      return profileScoreFallback;
+    }
+    return apiScore;
+  }
+
   Widget _buildApiPodium(
     List<LeaderboardRankItem> top3, {
     String? currentUserId,
-    String? currentUserScore,
+    String? profileScoreFallback,
   }) {
     final rank1 = top3.firstWhere((p) => p.rank == 1, orElse: () => top3.first);
     final rank2 = top3.length > 1
@@ -361,6 +381,18 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     final rank3 = top3.length > 2
         ? top3.firstWhere((p) => p.rank == 3, orElse: () => top3[2])
         : null;
+
+    String? overrideFor(LeaderboardRankItem item) {
+      final isMe =
+          currentUserId != null && item.user?.id == currentUserId;
+      if (!isMe) return null;
+      final resolved = _scoreForItem(
+        item,
+        isCurrentUser: true,
+        profileScoreFallback: profileScoreFallback,
+      );
+      return resolved == item.displayScore ? null : resolved;
+    }
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.end,
@@ -371,7 +403,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
             child: _ApiPodiumCard(
               item: rank2,
               rank: 2,
-              scoreOverride: (currentUserId != null && rank2.user?.id == currentUserId) ? currentUserScore : null,
+              scoreOverride: overrideFor(rank2),
               badgeGradient: const LinearGradient(
                 colors: [Color(0xFFFF3D77), Color(0xFF8B3DFF)],
               ),
@@ -388,7 +420,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
             item: rank1,
             rank: 1,
             isFirst: true,
-            scoreOverride: (currentUserId != null && rank1.user?.id == currentUserId) ? currentUserScore : null,
+            scoreOverride: overrideFor(rank1),
             badgeGradient: const LinearGradient(
               colors: [Color(0xFFFFD65C), Color(0xFFFF9500)],
             ),
@@ -403,7 +435,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
             child: _ApiPodiumCard(
               item: rank3,
               rank: 3,
-              scoreOverride: (currentUserId != null && rank3.user?.id == currentUserId) ? currentUserScore : null,
+              scoreOverride: overrideFor(rank3),
               badgeGradient: const LinearGradient(
                 colors: [Color(0xFFFF7A45), Color(0xFFFF3D77)],
               ),
@@ -486,11 +518,11 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
       avatarUrl = yourRankItem.displayAvatar;
       category = yourRankItem.displayCategory;
       votesText = yourRankItem.displayVotes;
-      if (profileScoreStr != null && profileScoreStr.isNotEmpty && profileScoreStr != '0.0') {
-        score = profileScoreStr;
-      } else {
-        score = yourRankItem.displayScore;
-      }
+      score = _scoreForItem(
+        yourRankItem,
+        isCurrentUser: true,
+        profileScoreFallback: profileScoreStr,
+      );
     } else {
       final user = auth.currentUser;
       final rawName = auth.fullName.isNotEmpty
@@ -701,7 +733,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     required LeaderboardRankItem item,
     required int rank,
     required bool isCurrentUser,
-    String? currentUserScore,
+    String? profileScoreFallback,
   }) {
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -835,9 +867,11 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                       ),
                       const SizedBox(width: 3),
                       Text(
-                        (isCurrentUser && currentUserScore != null && currentUserScore.isNotEmpty)
-                            ? currentUserScore
-                            : item.displayScore,
+                        _scoreForItem(
+                          item,
+                          isCurrentUser: isCurrentUser,
+                          profileScoreFallback: profileScoreFallback,
+                        ),
                         style: const TextStyle(
                           fontFamily: 'Inter',
                           fontSize: 12,

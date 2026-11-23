@@ -548,14 +548,27 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
     );
   }
 
-  /// Sum of each video's talent score (8.5 + 7.5 + 9 → 25.0).
-  String _sumTalentScoreLabel(BuildContext context) {
+  /// Prefer API sum (`stats.talentScore`); fallback to client sum of videos.
+  String _talentScoreLabel(BuildContext context) {
+    final profileState = context.watch<ProfileCubit>();
+    final apiScore = profileState.stats?.talentScore;
+    if (apiScore != null && apiScore > 0) {
+      return apiScore.toStringAsFixed(1);
+    }
+
+    // Prefer TALENT card from profile API if already the sum.
+    for (final card in profileState.statCards) {
+      if (card.label.toUpperCase().contains('TALENT')) {
+        final v = double.tryParse(card.displayValue.trim()) ?? 0;
+        if (v > 0) return card.displayValue.trim();
+      }
+    }
+
     final myVideos = context.watch<MyVideosCubit>().videos;
-    final profileRecent = context.watch<ProfileCubit>().recentVideos;
+    final profileRecent = profileState.recentVideos;
     final seen = <String>{};
     var total = 0.0;
     var scored = false;
-
     for (final video in [...myVideos, ...profileRecent]) {
       if (video.id.isEmpty || !seen.add(video.id)) continue;
       if (video.isDraft || !video.isVideoLive) continue;
@@ -565,11 +578,8 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
         scored = true;
       }
     }
-
     if (scored) return total.toStringAsFixed(1);
-
-    final stats = context.read<ProfileCubit>().stats;
-    return stats?.talentScore.toStringAsFixed(1) ?? '0.0';
+    return '0.0';
   }
 
   // --- 2. Stats Grid ---
@@ -577,15 +587,14 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
     final profileState = context.watch<ProfileCubit>();
     final statCards = profileState.statCards;
     final stats = profileState.stats;
-    final talentScoreSum = _sumTalentScoreLabel(context);
+    final talentScore = _talentScoreLabel(context);
 
     if (statCards.isNotEmpty) {
       return Row(
         children: statCards.map((card) {
           final label = card.label.toUpperCase();
-          final value = label.contains('TALENT')
-              ? talentScoreSum
-              : card.displayValue;
+          final value =
+              label.contains('TALENT') ? talentScore : card.displayValue;
           return _buildStatCard(value, label);
         }).toList(),
       );
@@ -601,7 +610,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
         const SizedBox(width: 8),
         _buildStatCard('$likes', 'LIKES'),
         const SizedBox(width: 8),
-        _buildStatCard(talentScoreSum, 'TALENT SCORE'),
+        _buildStatCard(talentScore, 'TALENT SCORE'),
         const SizedBox(width: 8),
         _buildStatCard('$wins', 'WON'),
       ],

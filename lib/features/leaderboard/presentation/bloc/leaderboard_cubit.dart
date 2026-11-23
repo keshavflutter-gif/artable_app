@@ -101,11 +101,28 @@ class LeaderboardCubit extends Cubit<LeaderboardState> {
         }
       }
 
+      final data = res.data;
+      final all = data?.allRankings ?? const <LeaderboardRankItem>[];
+      var podium = data?.podium ?? const <LeaderboardRankItem>[];
+      if (podium.isEmpty && all.isNotEmpty) {
+        podium = all.where((e) => e.rank >= 1 && e.rank <= 3).toList();
+        if (podium.isEmpty) {
+          podium = all.take(3).toList();
+        }
+      }
+      final podiumIds = podium.map((p) => p.user?.id ?? p.id).toSet();
+      var rankings = all
+          .where((r) => !podiumIds.contains(r.user?.id ?? r.id))
+          .toList();
+      if (rankings.isEmpty && all.length > podium.length) {
+        rankings = all.skip(podium.length).toList();
+      }
+
       emit(state.copyWith(
         response: res,
-        podium: res.data?.podium ?? const [],
-        rankings: res.data?.allRankings ?? const [],
-        yourRank: res.data?.yourRank ?? res.data?.currentUserRank,
+        podium: podium,
+        rankings: rankings,
+        yourRank: data?.yourRank ?? data?.currentUserRank,
         tabs: tabs,
         categories: categories,
         isLoading: false,

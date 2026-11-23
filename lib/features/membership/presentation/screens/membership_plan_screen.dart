@@ -994,7 +994,16 @@ class PrimePaymentScreen extends StatelessWidget {
                     child: Material(
                       color: Colors.transparent,
                       child: InkWell(
-                        onTap: () => context.push('/subscription-success'),
+                        onTap: () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Prime payment is coming soon. No charge was made.',
+                              ),
+                              backgroundColor: Color(0xFF5E2EAA),
+                            ),
+                          );
+                        },
                         borderRadius: BorderRadius.circular(28),
                         child: Container(
                           height: 52,
