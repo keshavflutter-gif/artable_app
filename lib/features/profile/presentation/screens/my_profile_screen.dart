@@ -17,6 +17,8 @@ import 'package:artable_app/features/profile/presentation/bloc/profile_cubit.dar
 import 'package:artable_app/features/profile/presentation/bloc/my_videos_cubit.dart';
 import 'package:artable_app/features/profile/data/models/my_videos_response.dart';
 import 'package:artable_app/features/reels/presentation/bloc/reels_cubit.dart';
+import 'package:artable_app/features/wallet/presentation/bloc/wallet_cubit.dart';
+import 'package:artable_app/features/rewards/presentation/bloc/rewards_cubit.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
 
 class MyProfileScreen extends StatefulWidget {
@@ -67,6 +69,9 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
             forceRefresh: true,
           ),
     );
+    // Pre-fetch wallet and rewards so balance is ready before opening wallet/rewards.
+    unawaited(context.read<WalletCubit>().loadWalletInfo());
+    unawaited(context.read<RewardsCubit>().loadRewards());
   }
 
   @override
@@ -719,7 +724,10 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
         _buildActionCard(
           icon: Icons.account_balance_wallet_outlined,
           label: 'Wallet',
-          onTap: () => context.push('/wallet'),
+          onTap: () {
+            context.read<WalletCubit>().loadWalletInfo();
+            context.push('/wallet');
+          },
         ),
         const SizedBox(width: 12),
         _buildActionCard(
@@ -916,8 +924,8 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
         crossAxisCount: 2,
         crossAxisSpacing: 12,
         mainAxisSpacing: 12,
-        // Tighter card: less empty gap between stats and View/Share.
-        childAspectRatio: 0.66,
+        // Responsive card aspect ratio to ensure no overflow
+        childAspectRatio: 0.64,
       ),
       itemCount: videos.take(6).length,
       itemBuilder: (context, i) {
@@ -1048,95 +1056,63 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Thumbnail with top rounded corners and Status Badge
-          ClipRRect(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(14.8)),
-            child: SizedBox(
-              height: 135,
-              width: double.infinity,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  GestureDetector(
-                    onTap: () {
-                      final statusRaw = video.status.toLowerCase();
-                      final isDraft = video.canContinueDraft || statusRaw == 'draft';
-                      if (isDraft) {
-                        final challengeObj = video.challenge;
-                        final challengeId = challengeObj?['id']?.toString() ?? '';
-                        if (challengeId.isNotEmpty) {
-                          context.push('/studio-drafts?id=$challengeId');
-                        } else {
-                          context.push('/studio-drafts');
+          Expanded(
+            child: ClipRRect(
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(14.8)),
+              child: SizedBox(
+                width: double.infinity,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    GestureDetector(
+                      onTap: () {
+                        final statusRaw = video.status.toLowerCase();
+                        final isDraft = video.canContinueDraft || statusRaw == 'draft';
+                        if (isDraft) {
+                          final challengeObj = video.challenge;
+                          final challengeId = challengeObj?['id']?.toString() ?? '';
+                          if (challengeId.isNotEmpty) {
+                            context.push('/studio-drafts?id=$challengeId');
+                          } else {
+                            context.push('/studio-drafts');
+                          }
+                          return;
                         }
-                        return;
-                      }
-                      final routeId = video.id.trim();
-                      if (routeId.isEmpty) return;
-                      final uiMap = _enrichUiMap(context, video);
-                      context.read<ReelsCubit>().syncVideos([uiMap]);
-                      context.push('/video-detail?id=$routeId', extra: uiMap);
-                    },
-                    child: AppFilterUtils.wrap(
-                      filterId: ReelHelpers.resolveFilter(
-                            filterId: video.filterId,
-                            beautyOn: video.beautyOn,
-                            beautyIntensity: video.beautyIntensity,
-                            description: video.description,
-                            videoId: video.id,
-                            videoUrl: video.videoUrl,
-                          )?.filterId ??
-                          video.filterId,
-                      beautyOn: video.beautyOn,
-                      beautyIntensity: video.beautyIntensity,
-                      child: AppImage(
-                        url: effectiveThumb,
-                        videoUrl: effectiveVideo,
-                        fallbackUrl: fallbackImg,
-                        fit: BoxFit.cover,
-                        isVideo: true,
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    top: 8,
-                    left: 8,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: badgeColor,
-                        borderRadius: BorderRadius.circular(5),
-                        boxShadow: const [
-                          BoxShadow(
-                            color: Color(0x33000000),
-                            blurRadius: 4,
-                            offset: Offset(0, 1),
-                          ),
-                        ],
-                      ),
-                      child: Text(
-                        badgeLabel,
-                        style: const TextStyle(
-                          fontFamily: 'Poppins',
-                          fontSize: 8.5,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
-                          letterSpacing: 0.3,
+                        final routeId = video.id.trim();
+                        if (routeId.isEmpty) return;
+                        final uiMap = _enrichUiMap(context, video);
+                        context.read<ReelsCubit>().syncVideos([uiMap]);
+                        context.push('/video-detail?id=$routeId', extra: uiMap);
+                      },
+                      child: AppFilterUtils.wrap(
+                        filterId: ReelHelpers.resolveFilter(
+                              filterId: video.filterId,
+                              beautyOn: video.beautyOn,
+                              beautyIntensity: video.beautyIntensity,
+                              description: video.description,
+                              videoId: video.id,
+                              videoUrl: video.videoUrl,
+                            )?.filterId ??
+                            video.filterId,
+                        beautyOn: video.beautyOn,
+                        beautyIntensity: video.beautyIntensity,
+                        child: AppImage(
+                          url: effectiveThumb,
+                          videoUrl: effectiveVideo,
+                          fallbackUrl: fallbackImg,
+                          fit: BoxFit.cover,
+                          isVideo: true,
                         ),
                       ),
                     ),
-                  ),
-                  // Delete Overlay Button (Top-Right)
-                  Positioned(
-                    top: 8,
-                    right: 8,
-                    child: GestureDetector(
-                      onTap: () => _confirmAndDeleteVideo(context, video.id, title),
+                    Positioned(
+                      top: 8,
+                      left: 8,
                       child: Container(
-                        width: 26,
-                        height: 26,
+                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                         decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.92),
-                          shape: BoxShape.circle,
+                          color: badgeColor,
+                          borderRadius: BorderRadius.circular(5),
                           boxShadow: const [
                             BoxShadow(
                               color: Color(0x33000000),
@@ -1145,15 +1121,48 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
                             ),
                           ],
                         ),
-                        child: const Icon(
-                          Icons.delete_outline_rounded,
-                          size: 15,
-                          color: Color(0xFFFF3B30),
+                        child: Text(
+                          badgeLabel,
+                          style: const TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 8.5,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                            letterSpacing: 0.3,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                ],
+                    // Delete Overlay Button (Top-Right)
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: GestureDetector(
+                        onTap: () => _confirmAndDeleteVideo(context, video.id, title),
+                        child: Container(
+                          width: 26,
+                          height: 26,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.92),
+                            shape: BoxShape.circle,
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Color(0x33000000),
+                                blurRadius: 4,
+                                offset: Offset(0, 1),
+                              ),
+                            ],
+                          ),
+                          child: const Icon(
+                            Icons.delete_outline_rounded,
+                            size: 15,
+                            color: Color(0xFFFF3B30),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

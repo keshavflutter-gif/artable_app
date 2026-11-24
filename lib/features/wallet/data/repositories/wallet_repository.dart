@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:artable_app/core/constants/api_constants.dart';
 import 'package:artable_app/core/network/api_auth_headers.dart';
@@ -5,6 +6,7 @@ import 'package:artable_app/core/network/api_client.dart';
 import 'package:artable_app/core/network/api_response_helpers.dart';
 import 'package:artable_app/core/network/api_session_callbacks_factory.dart';
 import 'package:artable_app/core/storage/auth_storage_service.dart';
+import 'package:artable_app/core/storage/local_storage.dart';
 import '../models/wallet_response.dart';
 import '../models/wallet_transactions_response.dart';
 
@@ -53,6 +55,12 @@ class WalletRepository {
     );
 
     debugPrint('=== GET WALLET === Response status: ${response['success']}');
+
+    if (response['success'] == true && response['data'] != null) {
+      try {
+        LocalStorage.rawPrefs?.setString('cached_wallet_info', jsonEncode(response));
+      } catch (_) {}
+    }
 
     return WalletResponse.fromJson(response);
   }

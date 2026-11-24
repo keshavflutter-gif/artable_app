@@ -1,5 +1,8 @@
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:artable_app/core/storage/local_storage.dart';
 import 'package:artable_app/features/rewards/data/models/rewards_dashboard_response.dart';
 import 'package:artable_app/features/rewards/data/repositories/rewards_repository.dart';
 import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
@@ -15,10 +18,47 @@ class RewardsCubit extends Cubit<RewardsState> {
               onTokensRefreshed: authCubit?.applyRefreshedTokens,
               onSessionRefreshFailed: authCubit?.handleSessionRefreshFailed,
             ),
-        super(const RewardsState());
+        super(const RewardsState()) {
+    _loadFromCache();
+  }
 
   AuthCubit? _authCubit;
   final RewardsRepository _rewardsRepository;
+
+  void _loadFromCache() {
+    try {
+      final jsonStr = LocalStorage.rawPrefs?.getString('cached_rewards_dashboard');
+      if (jsonStr != null && jsonStr.isNotEmpty) {
+        final decoded = jsonDecode(jsonStr);
+        if (decoded is Map<String, dynamic>) {
+          final res = RewardsDashboardResponse.fromJson(decoded);
+          if (res.data != null) {
+            List<String> tabs = state.tabs;
+            if (res.data!.tabs.isNotEmpty) {
+              final merged = <String>[...res.data!.tabs];
+              for (final dTab in RewardsState.defaultTabs) {
+                if (!merged.contains(dTab)) {
+                  merged.add(dTab);
+                }
+              }
+              tabs = merged;
+            }
+
+            emit(state.copyWith(
+              response: res,
+              wallet: res.data?.wallet,
+              featuredReward: res.data?.featuredReward,
+              rewards: res.data?.rewards ?? const [],
+              tabs: tabs,
+              hasLoaded: true,
+            ));
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[REWARDS_CUBIT] Cache restore error: $e');
+    }
+  }
 
   int get coins => state.effectiveCoins;
   int get streakDays => state.streakDays;

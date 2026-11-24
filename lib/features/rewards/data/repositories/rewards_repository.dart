@@ -1,7 +1,9 @@
+import 'dart:convert';
 import 'package:artable_app/core/network/api_auth_headers.dart';
 import 'package:artable_app/core/network/api_client.dart';
 import 'package:artable_app/core/network/api_session_callbacks_factory.dart';
 import 'package:artable_app/core/storage/auth_storage_service.dart';
+import 'package:artable_app/core/storage/local_storage.dart';
 import '../models/rewards_dashboard_response.dart';
 
 class RewardsRepository {
@@ -68,6 +70,14 @@ class RewardsRepository {
       path,
       headers: headers.isNotEmpty ? headers : null,
     );
+
+    if ((tab == null || tab.trim().toLowerCase() == 'all') && type == null) {
+      if (data['success'] == true && data['data'] != null) {
+        try {
+          LocalStorage.rawPrefs?.setString('cached_rewards_dashboard', jsonEncode(data));
+        } catch (_) {}
+      }
+    }
 
     return RewardsDashboardResponse.fromJson(data);
   }

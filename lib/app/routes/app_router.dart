@@ -1,4 +1,7 @@
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:artable_app/features/wallet/presentation/bloc/wallet_cubit.dart';
+import 'package:artable_app/features/rewards/presentation/bloc/rewards_cubit.dart';
 
 import 'package:artable_app/core/auth/auth_gate.dart';
 import 'package:artable_app/core/storage/deep_link_storage.dart';
@@ -440,7 +443,10 @@ abstract final class AppRouter {
         ),
         GoRoute(
           path: AppRoutes.wallet,
-          builder: (context, state) => const WalletScreen(),
+          builder: (context, state) {
+            context.read<WalletCubit>().loadWalletInfo();
+            return const WalletScreen();
+          },
         ),
         GoRoute(
           path: AppRoutes.withdrawalRequest,
@@ -553,7 +559,10 @@ abstract final class AppRouter {
         ),
         GoRoute(
           path: AppRoutes.rewards,
-          builder: (context, state) => const RewardsScreen(),
+          builder: (context, state) {
+            context.read<RewardsCubit>().loadRewards();
+            return const RewardsScreen();
+          },
         ),
         GoRoute(
           path: AppRoutes.cashRewards,

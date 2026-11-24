@@ -28,6 +28,8 @@ import 'package:artable_app/features/home/data/models/home_ui_mapper.dart';
 import 'package:artable_app/features/home/presentation/widgets/home_banner_ad.dart';
 import 'package:artable_app/features/referral/presentation/bloc/referral_cubit.dart';
 import 'package:artable_app/features/challenges/presentation/bloc/challenges_cubit.dart';
+import 'package:artable_app/features/wallet/presentation/bloc/wallet_cubit.dart';
+import 'package:artable_app/features/rewards/presentation/bloc/rewards_cubit.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -58,6 +60,13 @@ class _HomeScreenState extends State<HomeScreen> {
       // Apply invite code if user opened /invite/{code} while logged in.
       unawaited(
         context.read<ReferralCubit>().applyPendingReferralIfAny(),
+      );
+      // Pre-fetch wallet and rewards so balance is instantly ready before user opens them.
+      unawaited(
+        context.read<WalletCubit>().loadWalletInfo(),
+      );
+      unawaited(
+        context.read<RewardsCubit>().loadRewards(),
       );
     });
   }
@@ -861,6 +870,7 @@ void _openHomeQuickAction(BuildContext context, Map<String, dynamic> action) {
       push(AppRoutes.winners);
       return;
     case 'rewards':
+      context.read<RewardsCubit>().loadRewards();
       push(AppRoutes.rewards);
       return;
     case 'invite friends':

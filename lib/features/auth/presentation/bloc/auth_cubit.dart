@@ -9,6 +9,7 @@ import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:crypto/crypto.dart';
 
 import 'package:artable_app/core/network/api_exception.dart';
+import 'package:artable_app/core/storage/local_storage.dart';
 import 'package:artable_app/core/services/notification_service.dart';
 import 'package:artable_app/features/auth/data/apple_auth_config.dart';
 import 'package:artable_app/features/auth/data/models/change_password_request.dart';
@@ -1018,6 +1019,10 @@ class AuthCubit extends Cubit<AuthState> {
       );
 
       await _signOutSocialProviders();
+      try {
+        await LocalStorage.remove('cached_wallet_info');
+        await LocalStorage.remove('cached_rewards_dashboard');
+      } catch (_) {}
 
       final clearedUser = Map<String, dynamic>.from(state.currentUser);
       clearedUser['isLoggedIn'] = false;
@@ -1039,6 +1044,10 @@ class AuthCubit extends Cubit<AuthState> {
     } on ApiException catch (e) {
       debugPrint('=== LOGOUT API EXCEPTION ===: ${e.message}');
       await _signOutSocialProviders();
+      try {
+        await LocalStorage.remove('cached_wallet_info');
+        await LocalStorage.remove('cached_rewards_dashboard');
+      } catch (_) {}
       final clearedUser = Map<String, dynamic>.from(state.currentUser);
       clearedUser['isLoggedIn'] = false;
       clearedUser['name'] = '';
@@ -1058,6 +1067,10 @@ class AuthCubit extends Cubit<AuthState> {
     } catch (e) {
       debugPrint('=== LOGOUT ERROR ===: $e');
       await _signOutSocialProviders();
+      try {
+        await LocalStorage.remove('cached_wallet_info');
+        await LocalStorage.remove('cached_rewards_dashboard');
+      } catch (_) {}
       final clearedUser = Map<String, dynamic>.from(state.currentUser);
       clearedUser['isLoggedIn'] = false;
       clearedUser['name'] = '';
@@ -1094,6 +1107,10 @@ class AuthCubit extends Cubit<AuthState> {
       );
 
       await _signOutSocialProviders();
+      try {
+        await LocalStorage.remove('cached_wallet_info');
+        await LocalStorage.remove('cached_rewards_dashboard');
+      } catch (_) {}
 
       final clearedUser = Map<String, dynamic>.from(state.currentUser);
       clearedUser['isLoggedIn'] = false;

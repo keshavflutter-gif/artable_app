@@ -9,6 +9,7 @@ import 'package:artable_app/core/widgets/app_image.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
 import 'package:artable_app/features/profile/presentation/widgets/profile_reward_widgets.dart';
 import 'package:artable_app/features/rewards/presentation/bloc/rewards_cubit.dart';
+import 'package:artable_app/features/wallet/presentation/bloc/wallet_cubit.dart';
 
 class RewardsScreen extends StatefulWidget {
   const RewardsScreen({super.key});
@@ -21,11 +22,10 @@ class _RewardsScreenState extends State<RewardsScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        context.read<RewardsCubit>().loadRewards();
-      }
-    });
+    final cubit = context.read<RewardsCubit>();
+    if (!cubit.hasLoaded) {
+      cubit.loadRewards();
+    }
   }
 
   @override
@@ -45,7 +45,10 @@ class _RewardsScreenState extends State<RewardsScreen> {
             title: 'Rewards',
             trailing: AppIconButton(
               icon: Icons.account_balance_wallet_outlined,
-              onTap: () => context.push('/wallet'),
+              onTap: () {
+                context.read<WalletCubit>().loadWalletInfo();
+                context.push('/wallet');
+              },
             ),
           ),
           Expanded(
@@ -92,6 +95,7 @@ class _RewardsScreenState extends State<RewardsScreen> {
                               child: _BalanceCol(
                                 value: rewardsProvider.availableBalanceFormatted,
                                 label: 'AVAILABLE REWARDS',
+                                isLoading: isLoading,
                               ),
                             ),
                             Container(
@@ -100,6 +104,7 @@ class _RewardsScreenState extends State<RewardsScreen> {
                               child: _BalanceCol(
                                 value: rewardsProvider.totalEarnedFormatted,
                                 label: 'TOTAL EARNED',
+                                isLoading: isLoading,
                               ),
                             ),
                           ],
@@ -349,24 +354,40 @@ class _RewardsScreenState extends State<RewardsScreen> {
 }
 
 class _BalanceCol extends StatelessWidget {
-  const _BalanceCol({required this.value, required this.label});
+  const _BalanceCol({
+    required this.value,
+    required this.label,
+    this.isLoading = false,
+  });
 
   final String value;
   final String label;
+  final bool isLoading;
 
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Text(
-          value,
-          style: const TextStyle(
-            fontFamily: 'Poppins',
-            fontSize: 20,
-            fontWeight: FontWeight.w900,
-            color: Colors.white,
+        if (isLoading)
+          Container(
+            width: 70,
+            height: 24,
+            margin: const EdgeInsets.symmetric(vertical: 3),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.22),
+              borderRadius: BorderRadius.circular(6),
+            ),
+          )
+        else
+          Text(
+            value,
+            style: const TextStyle(
+              fontFamily: 'Poppins',
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+              color: Colors.white,
+            ),
           ),
-        ),
         const SizedBox(height: 3),
         Text(
           label,

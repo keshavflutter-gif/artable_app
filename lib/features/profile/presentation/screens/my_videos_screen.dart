@@ -168,7 +168,7 @@ class _MyVideosScreenState extends State<MyVideosScreen> {
                                 crossAxisCount: 2,
                                 crossAxisSpacing: 12,
                                 mainAxisSpacing: 12,
-                                childAspectRatio: 0.66,
+                                childAspectRatio: 0.64,
                               ),
                               itemCount: list.length,
                               itemBuilder: (context, i) => _FigmaMyVideoCard(item: list[i]),
@@ -345,13 +345,13 @@ class _FigmaMyVideoCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Thumbnail with top rounded corners and Status Badge / Rating Pill
-          ClipRRect(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(14.8)),
-            child: SizedBox(
-              height: 140,
-              width: double.infinity,
-              child: Stack(
-                fit: StackFit.expand,
+          Expanded(
+            child: ClipRRect(
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(14.8)),
+              child: SizedBox(
+                width: double.infinity,
+                child: Stack(
+                  fit: StackFit.expand,
                 children: [
                   GestureDetector(
                     onTap: () {
@@ -469,6 +469,7 @@ class _FigmaMyVideoCard extends StatelessWidget {
               ),
             ),
           ),
+        ),
 
           Padding(
             padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),

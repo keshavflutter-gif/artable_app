@@ -21,12 +21,10 @@ class _WalletScreenState extends State<WalletScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final cubit = context.read<WalletCubit>();
-      if (!cubit.hasLoaded) {
-        cubit.loadWalletInfo();
-      }
-    });
+    final cubit = context.read<WalletCubit>();
+    if (!cubit.hasLoaded) {
+      cubit.loadWalletInfo();
+    }
   }
 
   @override
@@ -41,6 +39,7 @@ class _WalletScreenState extends State<WalletScreen> {
               builder: (context, state) {
                 final cubit = context.read<WalletCubit>();
                 final walletData = state.walletData;
+                final isInitialLoading = !cubit.hasLoaded && (state.isLoading || walletData == null);
 
                 final availableBalance =
                     walletData?.displayAvailableBalance ?? '₹0.00';
@@ -109,15 +108,26 @@ class _WalletScreenState extends State<WalletScreen> {
                                   ),
                                 ),
                                 const SizedBox(height: 4),
-                                Text(
-                                  availableBalance,
-                                  style: const TextStyle(
-                                    fontFamily: 'Poppins',
-                                    color: Colors.white,
-                                    fontSize: 32,
-                                    fontWeight: FontWeight.w900,
+                                if (isInitialLoading)
+                                  Container(
+                                    width: 130,
+                                    height: 38,
+                                    margin: const EdgeInsets.symmetric(vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withValues(alpha: 0.18),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                  )
+                                else
+                                  Text(
+                                    availableBalance,
+                                    style: const TextStyle(
+                                      fontFamily: 'Poppins',
+                                      color: Colors.white,
+                                      fontSize: 32,
+                                      fontWeight: FontWeight.w900,
+                                    ),
                                   ),
-                                ),
                                 const SizedBox(height: 14),
                                 const Divider(
                                   color: Colors.white24,
@@ -130,14 +140,17 @@ class _WalletScreenState extends State<WalletScreen> {
                                     _MiniStat(
                                       value: pendingRewards,
                                       label: 'PENDING',
+                                      isLoading: isInitialLoading,
                                     ),
                                     _MiniStat(
                                       value: totalWithdrawn,
                                       label: 'WITHDRAWN',
+                                      isLoading: isInitialLoading,
                                     ),
                                     _MiniStat(
                                       value: minWithdrawal,
                                       label: 'MIN. WITHDRAW',
+                                      isLoading: isInitialLoading,
                                     ),
                                   ],
                                 ),
@@ -305,21 +318,25 @@ class _WalletScreenState extends State<WalletScreen> {
                                 value: _findEarnings(walletData, 'CHALLENGE_WIN') ?? '₹0',
                                 label: 'Challenge Wins',
                                 icon: Icons.emoji_events_rounded,
+                                isLoading: isInitialLoading,
                               ),
                               _EarningStat(
                                 value: _findEarnings(walletData, 'REFERRAL') ?? '₹0',
                                 label: 'Referral Rewards',
                                 icon: Icons.person_add_outlined,
+                                isLoading: isInitialLoading,
                               ),
                               _EarningStat(
                                 value: _findEarnings(walletData, 'BONUS') ?? '₹0',
                                 label: 'Daily Bonus',
                                 icon: Icons.calendar_today_rounded,
+                                isLoading: isInitialLoading,
                               ),
                               _EarningStat(
                                 value: _findEarnings(walletData, 'WITHDRAWAL') ?? '₹0',
                                 label: 'Withdrawal Sum',
                                 icon: Icons.outbox_rounded,
+                                isLoading: isInitialLoading,
                               ),
                             ],
                           ),
@@ -417,10 +434,15 @@ class _WalletScreenState extends State<WalletScreen> {
 }
 
 class _MiniStat extends StatelessWidget {
-  const _MiniStat({required this.value, required this.label});
+  const _MiniStat({
+    required this.value,
+    required this.label,
+    this.isLoading = false,
+  });
 
   final String value;
   final String label;
+  final bool isLoading;
 
   @override
   Widget build(BuildContext context) {
@@ -428,15 +450,26 @@ class _MiniStat extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            value,
-            style: const TextStyle(
-              fontFamily: 'Poppins',
-              color: Colors.white,
-              fontWeight: FontWeight.w900,
-              fontSize: 14,
+          if (isLoading)
+            Container(
+              width: 45,
+              height: 16,
+              margin: const EdgeInsets.symmetric(vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.18),
+                borderRadius: BorderRadius.circular(4),
+              ),
+            )
+          else
+            Text(
+              value,
+              style: const TextStyle(
+                fontFamily: 'Poppins',
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+                fontSize: 14,
+              ),
             ),
-          ),
           const SizedBox(height: 2),
           Text(
             label,
@@ -459,11 +492,13 @@ class _EarningStat extends StatelessWidget {
     required this.value,
     required this.label,
     required this.icon,
+    this.isLoading = false,
   });
 
   final String value;
   final String label;
   final IconData icon;
+  final bool isLoading;
 
   @override
   Widget build(BuildContext context) {
@@ -501,15 +536,25 @@ class _EarningStat extends StatelessWidget {
             ),
           ),
           const Spacer(),
-          Text(
-            value,
-            style: const TextStyle(
-              fontFamily: 'Poppins',
-              fontSize: 16,
-              fontWeight: FontWeight.w900,
-              color: AppColors.text,
+          if (isLoading)
+            Container(
+              width: 50,
+              height: 18,
+              decoration: BoxDecoration(
+                color: const Color(0xFFF0EDF7),
+                borderRadius: BorderRadius.circular(4),
+              ),
+            )
+          else
+            Text(
+              value,
+              style: const TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 16,
+                fontWeight: FontWeight.w900,
+                color: AppColors.text,
+              ),
             ),
-          ),
           const SizedBox(height: 2),
           Text(
             label,

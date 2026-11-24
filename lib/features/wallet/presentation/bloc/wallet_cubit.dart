@@ -1,4 +1,7 @@
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:artable_app/core/storage/local_storage.dart';
 import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
 import 'package:artable_app/features/wallet/data/models/wallet_response.dart';
 import 'package:artable_app/features/wallet/data/repositories/wallet_repository.dart';
@@ -14,10 +17,33 @@ class WalletCubit extends Cubit<WalletState> {
               onTokensRefreshed: authCubit?.applyRefreshedTokens,
               onSessionRefreshFailed: authCubit?.handleSessionRefreshFailed,
             ),
-        super(const WalletState());
+        super(const WalletState()) {
+    _loadFromCache();
+  }
 
   final AuthCubit? _authCubit;
   final WalletRepository _walletRepository;
+
+  void _loadFromCache() {
+    try {
+      final jsonStr = LocalStorage.rawPrefs?.getString('cached_wallet_info');
+      if (jsonStr != null && jsonStr.isNotEmpty) {
+        final decoded = jsonDecode(jsonStr);
+        if (decoded is Map<String, dynamic>) {
+          final res = WalletResponse.fromJson(decoded);
+          if (res.data != null) {
+            emit(state.copyWith(
+              hasLoaded: true,
+              response: res,
+              walletData: res.data,
+            ));
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[WALLET_CUBIT] Cache restore error: $e');
+    }
+  }
 
   bool get hasLoaded => state.hasLoaded;
   WalletData? get walletData => state.walletData;
