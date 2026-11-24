@@ -21,9 +21,17 @@ class WinnersCubit extends Cubit<WinnersState> {
 
   bool get hasLoaded => state.hasLoaded;
 
-  Future<void> loadWinners({bool forceRefresh = false, String? tab}) async {
+  Future<void> loadWinners({
+    bool forceRefresh = false,
+    String? tab,
+    String? challengeId,
+  }) async {
     final targetTab = tab ?? state.selectedTab;
-    if (state.hasLoaded && !forceRefresh && !state.isLoading && targetTab == state.selectedTab) {
+    if (state.hasLoaded &&
+        !forceRefresh &&
+        !state.isLoading &&
+        targetTab == state.selectedTab &&
+        (challengeId == null || challengeId.isEmpty)) {
       return;
     }
 
@@ -36,6 +44,7 @@ class WinnersCubit extends Cubit<WinnersState> {
     try {
       final res = await _winnersRepository.getWinners(
         tab: targetTab,
+        challengeId: challengeId,
         sessionToken: _authCubit?.sessionToken,
         refreshToken: _authCubit?.refreshToken,
       );

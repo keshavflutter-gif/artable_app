@@ -1,9 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:artable_app/core/widgets/app_back_header.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
 import 'package:artable_app/core/widgets/gradient_switch.dart';
-import 'package:artable_app/data/datasources/mock_data.dart';
+import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
+import 'package:artable_app/features/settings/data/repositories/settings_repository.dart';
 
 class NotificationSettingsScreen extends StatefulWidget {
   const NotificationSettingsScreen({super.key});
@@ -13,15 +17,180 @@ class NotificationSettingsScreen extends StatefulWidget {
 }
 
 class _NotificationSettingsScreenState extends State<NotificationSettingsScreen> {
-  late List<Map<String, dynamic>> _settings;
+  var _settings = <Map<String, dynamic>>[];
   var _masterOn = true;
+  var _loading = true;
+  SettingsRepository? _repo;
+
+  SettingsRepository _repository() {
+    final auth = context.read<AuthCubit>();
+    return _repo ??= SettingsRepository(
+      onTokensRefreshed: auth.applyRefreshedTokens,
+      onSessionRefreshFailed: auth.handleSessionRefreshFailed,
+    );
+  }
+
+  static List<Map<String, dynamic>> _defaultCategories() => [
+        {
+          'id': 'challenges',
+          'title': 'Challenge Updates',
+          'desc': 'New challenges, deadlines, and results.',
+          'enabled': true,
+        },
+        {
+          'id': 'rewards',
+          'title': 'New Rewards',
+          'desc': 'When new rewards become available.',
+          'enabled': true,
+        },
+        {
+          'id': 'winners',
+          'title': 'Winner Announcements',
+          'desc': 'When challenge winners are announced.',
+          'enabled': true,
+        },
+        {
+          'id': 'social',
+          'title': 'Likes & Comments',
+          'desc': 'Activity on your videos and profile.',
+          'enabled': true,
+        },
+        {
+          'id': 'referrals',
+          'title': 'Referral Rewards',
+          'desc': 'Updates on friends you’ve invited.',
+          'enabled': false,
+        },
+        {
+          'id': 'dailyBonus',
+          'title': 'Daily Bonus Reminder',
+          'desc': 'A nudge to claim your daily streak bonus.',
+          'enabled': true,
+        },
+        {
+          'id': 'membership',
+          'title': 'Membership Updates',
+          'desc': 'Prime membership news and billing updates.',
+          'enabled': false,
+        },
+      ];
 
   @override
   void initState() {
     super.initState();
-    _settings = MockData.NOTIFICATION_SETTINGS
-        .map((s) => Map<String, dynamic>.from(s))
-        .toList();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_load());
+    });
+  }
+
+  /// Backend returns flat booleans; UI uses category cards.
+  static const _flatKeyAliases = <String, List<String>>{
+    'challenges': ['challenges', 'challengeUpdates'],
+    'rewards': ['rewards', 'newRewards'],
+    'winners': ['winners', 'winnerAnnouncements'],
+    'social': ['social', 'likesAndComments'],
+    'referrals': ['referrals', 'referralRewards'],
+    'dailyBonus': ['dailyBonus', 'dailyBonusReminder'],
+    'membership': ['membership', 'membershipUpdates'],
+  };
+
+  static bool _readFlag(
+    Map<String, dynamic> data,
+    List<String> keys, {
+    bool fallback = true,
+  }) {
+    for (final key in keys) {
+      if (data.containsKey(key)) return data[key] == true;
+    }
+    return fallback;
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    try {
+      final auth = context.read<AuthCubit>();
+      final data = await _repository().getNotificationSettings(
+        sessionToken: auth.sessionToken,
+        refreshToken: auth.refreshToken,
+      );
+      if (!mounted) return;
+
+      final masterOn = _readFlag(
+        data,
+        const [
+          'pushNotifications',
+          'master',
+          'pushEnabled',
+          'masterEnabled',
+          'enabled',
+        ],
+        fallback: true,
+      );
+
+      final cats = data['categories'];
+      final parsed = <Map<String, dynamic>>[];
+      if (cats is List) {
+        for (final item in cats) {
+          if (item is! Map) continue;
+          final m = Map<String, dynamic>.from(item);
+          parsed.add({
+            'id': m['id']?.toString() ?? '',
+            'title': m['title']?.toString() ?? '',
+            'desc': m['desc']?.toString() ?? m['description']?.toString() ?? '',
+            'enabled': m['enabled'] == true,
+          });
+        }
+      }
+
+      // Flat API shape → merge into default category cards.
+      final merged = _defaultCategories().map((cat) {
+        final id = cat['id'] as String;
+        final aliases = _flatKeyAliases[id] ?? [id];
+        final enabled = _readFlag(
+          data,
+          aliases,
+          fallback: cat['enabled'] == true,
+        );
+        return {...cat, 'enabled': enabled};
+      }).toList();
+
+      setState(() {
+        _masterOn = masterOn;
+        _settings = parsed.isNotEmpty ? parsed : merged;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _settings = _defaultCategories();
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _persist() async {
+    try {
+      final auth = context.read<AuthCubit>();
+      final body = <String, dynamic>{
+        'pushNotifications': _masterOn,
+        'master': _masterOn,
+        'pushEnabled': _masterOn,
+        'categories': _settings,
+      };
+      for (final item in _settings) {
+        final id = item['id']?.toString() ?? '';
+        final enabled = item['enabled'] == true;
+        final aliases = _flatKeyAliases[id] ?? [id];
+        for (final key in aliases) {
+          body[key] = enabled;
+        }
+      }
+      await _repository().updateNotificationSettings(
+        body: body,
+        sessionToken: auth.sessionToken,
+        refreshToken: auth.refreshToken,
+      );
+    } catch (_) {}
   }
 
   // Map settings ID to icon background color and icon shape
@@ -78,7 +247,9 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
         children: [
           const AppBackHeader(title: 'Notification Settings'),
           Expanded(
-            child: SingleChildScrollView(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : SingleChildScrollView(
               child: AppContent(
                 noBottomPad: true,
                 child: Column(
@@ -140,9 +311,8 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
                           GradientSwitch(
                             value: _masterOn,
                             onChanged: (val) {
-                              setState(() {
-                                _masterOn = val;
-                              });
+                              setState(() => _masterOn = val);
+                              unawaited(_persist());
                             },
                           ),
                         ],
@@ -239,9 +409,8 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
                                   enabled: _masterOn,
                                   onChanged: _masterOn
                                       ? (val) {
-                                          setState(() {
-                                            item['enabled'] = val;
-                                          });
+                                          setState(() => item['enabled'] = val);
+                                          unawaited(_persist());
                                         }
                                       : null,
                                 ),

@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
+import 'package:artable_app/core/constants/api_constants.dart';
 import 'package:artable_app/core/network/api_auth_headers.dart';
 import 'package:artable_app/core/network/api_client.dart';
+import 'package:artable_app/core/network/api_response_helpers.dart';
 import 'package:artable_app/core/network/api_session_callbacks_factory.dart';
 import 'package:artable_app/core/storage/auth_storage_service.dart';
 import '../models/wallet_response.dart';
@@ -46,7 +48,7 @@ class WalletRepository {
     debugPrint('=== GET WALLET === Requesting /app/wallet');
 
     final response = await _apiClient.get(
-      '/app/wallet',
+      ApiConstants.wallet,
       headers: headers.isNotEmpty ? headers : null,
     );
 
@@ -85,7 +87,9 @@ class WalletRepository {
         : <String, String>{};
 
     final queryString = Uri(queryParameters: queryParams).query;
-    final path = queryString.isNotEmpty ? '/app/wallet/transactions?$queryString' : '/app/wallet/transactions';
+    final path = queryString.isNotEmpty
+        ? '${ApiConstants.walletTransactions}?$queryString'
+        : ApiConstants.walletTransactions;
 
     debugPrint('=== GET WALLET TRANSACTIONS === Requesting $path');
 
@@ -97,5 +101,56 @@ class WalletRepository {
     debugPrint('=== GET WALLET TRANSACTIONS === Response status: ${response['success']}');
 
     return WalletTransactionsResponse.fromJson(response);
+  }
+
+  Future<Map<String, dynamic>> requestWithdraw({
+    required num amount,
+    String currency = 'INR',
+    String? sessionToken,
+    String? refreshToken,
+  }) async {
+    final headers = ApiResponseHelpers.authHeaders(
+      sessionToken: sessionToken,
+      refreshToken: refreshToken,
+    );
+
+    debugPrint(
+      '=== POST WALLET WITHDRAW === amount=$amount currency=$currency',
+    );
+
+    return _apiClient.post(
+      ApiConstants.walletWithdraw,
+      body: {
+        'amount': amount,
+        'currency': currency,
+      },
+      headers: headers,
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getWithdrawals({
+    int page = 1,
+    int limit = 20,
+    String? sessionToken,
+    String? refreshToken,
+  }) async {
+    final headers = ApiResponseHelpers.authHeaders(
+      sessionToken: sessionToken,
+      refreshToken: refreshToken,
+    );
+
+    final path = ApiResponseHelpers.pathWithQuery(
+      ApiConstants.walletWithdrawals,
+      {
+        'page': page.toString(),
+        'limit': limit.toString(),
+      },
+    );
+
+    final response = await _apiClient.get(path, headers: headers);
+    return ApiResponseHelpers.dataAsList(
+      response,
+      nestedKeys: const ['withdrawals', 'items', 'list'],
+    );
   }
 }

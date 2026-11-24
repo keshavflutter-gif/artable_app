@@ -1,22 +1,111 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_gradients.dart';
+import 'package:artable_app/core/network/api_response_helpers.dart';
 import 'package:artable_app/core/widgets/app_back_header.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
-import 'package:artable_app/data/datasources/mock_data.dart';
+import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
 import 'package:artable_app/features/home/presentation/bloc/home_cubit.dart';
+import 'package:artable_app/features/membership/data/repositories/membership_repository.dart';
+import 'package:artable_app/features/payment/data/models/payment_options_model.dart';
+import 'package:artable_app/features/payment/data/models/payment_result_model.dart';
+import 'package:artable_app/features/payment/data/services/razorpay_service.dart';
 import 'package:artable_app/features/trending/presentation/bloc/trending_videos_cubit.dart';
 
-class MembershipPlanScreen extends StatelessWidget {
+const _kPlanComparisonRows = [
+  {'feature': 'Ads', 'basic': 'Shown', 'prime': 'None'},
+  {'feature': 'Profile Badge', 'basic': 'Standard', 'prime': 'Diamond'},
+  {'feature': 'Challenge Access', 'basic': 'Standard', 'prime': 'Standard'},
+  {'feature': 'Support', 'basic': 'Standard', 'prime': 'Priority'},
+];
+
+class MembershipPlanScreen extends StatefulWidget {
   const MembershipPlanScreen({super.key});
 
   @override
+  State<MembershipPlanScreen> createState() => _MembershipPlanScreenState();
+}
+
+class _MembershipPlanScreenState extends State<MembershipPlanScreen> {
+  MembershipRepository? _repo;
+  var _loading = true;
+  String _currentPlan = 'basic';
+  String _primePrice = '₹299';
+  String? _primePlanId;
+
+  MembershipRepository _repository() {
+    final auth = context.read<AuthCubit>();
+    return _repo ??= MembershipRepository(
+      onTokensRefreshed: auth.applyRefreshedTokens,
+      onSessionRefreshFailed: auth.handleSessionRefreshFailed,
+    );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_load());
+    });
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    try {
+      final auth = context.read<AuthCubit>();
+      final me = await _repository().getMyMembership(
+        sessionToken: auth.sessionToken,
+        refreshToken: auth.refreshToken,
+      );
+      final plans = await _repository().getPlans(
+        sessionToken: auth.sessionToken,
+        refreshToken: auth.refreshToken,
+      );
+
+      final planName = (me['plan'] ??
+              me['currentPlan'] ??
+              me['tier'] ??
+              'basic')
+          .toString()
+          .toLowerCase();
+      Map<String, dynamic>? primePlan;
+      for (final p in plans) {
+        final slug = (p['slug'] ?? p['code'] ?? p['name'] ?? '')
+            .toString()
+            .toLowerCase();
+        if (slug.contains('prime')) {
+          primePlan = p;
+          break;
+        }
+      }
+      primePlan ??= plans.isNotEmpty ? plans.last : null;
+
+      final price = primePlan?['price'] ??
+          primePlan?['amount'] ??
+          primePlan?['priceLabel'];
+      final priceLabel = price != null ? '₹$price' : '₹299';
+
+      if (!mounted) return;
+      setState(() {
+        _currentPlan = planName.contains('prime') ? 'prime' : 'basic';
+        _primePrice = priceLabel.toString();
+        _primePlanId = primePlan?['id']?.toString();
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final m = MockData.MEMBERSHIP;
-    final isPrime = m['currentPlan'] == 'prime';
+    final isPrime = _currentPlan == 'prime';
     final currentPlanLabel = isPrime ? 'Prime' : 'Basic';
 
     return AppScreen(
@@ -25,7 +114,9 @@ class MembershipPlanScreen extends StatelessWidget {
         children: [
           const AppBackHeader(title: 'Membership'),
           Expanded(
-            child: SingleChildScrollView(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : SingleChildScrollView(
               child: AppContent(
                 noBottomPad: true,
                 child: Column(
@@ -40,8 +131,12 @@ class MembershipPlanScreen extends StatelessWidget {
 
                   // Prime Plan Card
                   _PrimePlanCard(
-                    price: '${m['primePrice']} INR',
-                    onUpgrade: () => context.push('/prime-payment'),
+                    price: '$_primePrice INR',
+                    onUpgrade: _primePlanId == null
+                        ? null
+                        : () => context.push(
+                              '/prime-payment?planId=${Uri.encodeComponent(_primePlanId!)}',
+                            ),
                   ),
 
                   const SizedBox(height: 22),
@@ -225,7 +320,7 @@ class _PrimePlanCard extends StatelessWidget {
   });
 
   final String price;
-  final VoidCallback onUpgrade;
+  final VoidCallback? onUpgrade;
 
   @override
   Widget build(BuildContext context) {
@@ -379,6 +474,7 @@ class _PrimePlanCard extends StatelessWidget {
             child: InkWell(
               onTap: onUpgrade,
               borderRadius: BorderRadius.circular(28),
+              // onUpgrade null when plan id unavailable
               child: Container(
                 height: 50,
                 decoration: BoxDecoration(
@@ -469,7 +565,7 @@ class _PlanComparisonCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final rows = MockData.MEMBERSHIP['comparison'] as List;
+    final rows = _kPlanComparisonRows;
 
     return Container(
       decoration: BoxDecoration(
@@ -548,7 +644,7 @@ class _PlanComparisonCard extends StatelessWidget {
 
           // Table Rows
           ...List.generate(rows.length, (index) {
-            final row = rows[index] as Map<String, dynamic>;
+            final row = rows[index];
             final feature = row['feature'] as String;
             final basic = row['basic'] as String;
             final prime = row['prime'] as String;
@@ -635,13 +731,192 @@ class _PlanComparisonCard extends StatelessWidget {
   }
 }
 
-class PrimePaymentScreen extends StatelessWidget {
-  const PrimePaymentScreen({super.key});
+class PrimePaymentScreen extends StatefulWidget {
+  const PrimePaymentScreen({super.key, this.planId});
+
+  final String? planId;
+
+  @override
+  State<PrimePaymentScreen> createState() => _PrimePaymentScreenState();
+}
+
+class _PrimePaymentScreenState extends State<PrimePaymentScreen> {
+  MembershipRepository? _repo;
+  final _razorpay = RazorpayService();
+  var _loading = true;
+  var _paying = false;
+  String _priceStr = '₹299';
+  String? _planId;
+  double _amount = 299;
+
+  MembershipRepository _repository() {
+    final auth = context.read<AuthCubit>();
+    return _repo ??= MembershipRepository(
+      onTokensRefreshed: auth.applyRefreshedTokens,
+      onSessionRefreshFailed: auth.handleSessionRefreshFailed,
+    );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _razorpay.init();
+    _planId = widget.planId?.trim();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_loadPlan());
+    });
+  }
+
+  @override
+  void dispose() {
+    _razorpay.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadPlan() async {
+    setState(() => _loading = true);
+    try {
+      final auth = context.read<AuthCubit>();
+      final plans = await _repository().getPlans(
+        sessionToken: auth.sessionToken,
+        refreshToken: auth.refreshToken,
+      );
+      Map<String, dynamic>? selected;
+      final id = _planId;
+      if (id != null && id.isNotEmpty) {
+        for (final p in plans) {
+          if (p['id']?.toString() == id) {
+            selected = p;
+            break;
+          }
+        }
+      }
+      if (selected == null) {
+        for (final p in plans) {
+          final slug =
+              (p['slug'] ?? p['name'] ?? '').toString().toLowerCase();
+          if (slug.contains('prime')) {
+            selected = p;
+            break;
+          }
+        }
+        selected ??= plans.isNotEmpty ? plans.first : null;
+      }
+
+      final price = selected?['price'] ?? selected?['amount'] ?? 299;
+      final amount = price is num
+          ? price.toDouble()
+          : (double.tryParse(price.toString()) ?? 299);
+
+      if (!mounted) return;
+      setState(() {
+        _planId = selected?['id']?.toString() ?? _planId;
+        _amount = amount;
+        _priceStr = '₹${amount % 1 == 0 ? amount.toInt() : amount}';
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _pay() async {
+    final planId = _planId?.trim();
+    if (planId == null || planId.isEmpty || _paying) return;
+    setState(() => _paying = true);
+
+    try {
+      final auth = context.read<AuthCubit>();
+      final subscribeRes = await _repository().subscribe(
+        planId: planId,
+        sessionToken: auth.sessionToken,
+        refreshToken: auth.refreshToken,
+      );
+
+      if (subscribeRes['success'] != true) {
+        throw Exception(
+          subscribeRes['message']?.toString() ?? 'Unable to start payment.',
+        );
+      }
+
+      final data = ApiResponseHelpers.dataAsMap(subscribeRes) ?? subscribeRes;
+      final orderId = data['razorpayOrderId']?.toString() ??
+          data['orderId']?.toString();
+      final amountRaw = data['amount'] ?? _amount;
+      final amount = amountRaw is num
+          ? amountRaw.toDouble()
+          : (double.tryParse(amountRaw.toString()) ?? _amount);
+
+      final user = auth.currentUser;
+      final email = user['email']?.toString();
+      final phone = user['phoneNumber']?.toString() ?? user['phone']?.toString();
+
+      _razorpay.openCheckout(
+        options: PaymentOptionsModel(
+          amount: amount,
+          orderId: orderId,
+          description: 'Artable Prime Membership',
+          userEmail: email,
+          userContact: phone,
+          notes: {'planId': planId},
+        ),
+        onResult: (PaymentResult result) async {
+          if (!mounted) return;
+          if (result.isSuccess &&
+              result.paymentId != null &&
+              result.orderId != null &&
+              result.signature != null) {
+            try {
+              final verify = await _repository().verifyPayment(
+                planId: planId,
+                razorpayOrderId: result.orderId!,
+                razorpayPaymentId: result.paymentId!,
+                razorpaySignature: result.signature!,
+                sessionToken: auth.sessionToken,
+                refreshToken: auth.refreshToken,
+              );
+              if (!mounted) return;
+              setState(() => _paying = false);
+              if (verify['success'] == true) {
+                context.go('/subscription-success');
+              } else {
+                _showError(verify['message']?.toString() ??
+                    'Payment verification failed.');
+              }
+            } catch (e) {
+              if (mounted) {
+                setState(() => _paying = false);
+                _showError(e.toString());
+              }
+            }
+          } else if (result.isFailed) {
+            setState(() => _paying = false);
+            _showError(result.errorMessage ?? 'Payment was not completed.');
+          } else {
+            setState(() => _paying = false);
+          }
+        },
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _paying = false);
+      _showError(e.toString());
+    }
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: const Color(0xFFFF3D77),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final m = MockData.MEMBERSHIP;
-    final priceStr = m['primePrice'] as String? ?? '₹299';
+    final priceStr = _priceStr;
 
     return AppScreen(
       child: Column(
@@ -649,7 +924,9 @@ class PrimePaymentScreen extends StatelessWidget {
         children: [
           const AppBackHeader(title: 'Prime Subscription'),
           Expanded(
-            child: SingleChildScrollView(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : SingleChildScrollView(
               child: AppContent(
                 noBottomPad: true,
                 child: Column(
@@ -961,7 +1238,7 @@ class PrimePaymentScreen extends StatelessWidget {
                               ),
                               SizedBox(height: 2),
                               Text(
-                                'UI preview only — no real payment will be processed.',
+                                'Payments are processed securely via Razorpay.',
                                 style: TextStyle(
                                   fontFamily: 'Inter',
                                   fontSize: 10.5,
@@ -994,16 +1271,7 @@ class PrimePaymentScreen extends StatelessWidget {
                     child: Material(
                       color: Colors.transparent,
                       child: InkWell(
-                        onTap: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'Prime payment is coming soon. No charge was made.',
-                              ),
-                              backgroundColor: Color(0xFF5E2EAA),
-                            ),
-                          );
-                        },
+                        onTap: _paying ? null : _pay,
                         borderRadius: BorderRadius.circular(28),
                         child: Container(
                           height: 52,
@@ -1012,15 +1280,24 @@ class PrimePaymentScreen extends StatelessWidget {
                             borderRadius: BorderRadius.circular(28),
                           ),
                           child: Center(
-                            child: Text(
-                              'Pay $priceStr',
-                              style: const TextStyle(
-                                fontFamily: 'Poppins',
-                                fontSize: 15.5,
-                                fontWeight: FontWeight.w800,
-                                color: Colors.white,
-                              ),
-                            ),
+                            child: _paying
+                                ? const SizedBox(
+                                    width: 22,
+                                    height: 22,
+                                    child: CircularProgressIndicator(
+                                      color: Colors.white,
+                                      strokeWidth: 2.2,
+                                    ),
+                                  )
+                                : Text(
+                                    'Pay $priceStr',
+                                    style: const TextStyle(
+                                      fontFamily: 'Poppins',
+                                      fontSize: 15.5,
+                                      fontWeight: FontWeight.w800,
+                                      color: Colors.white,
+                                    ),
+                                  ),
                           ),
                         ),
                       ),

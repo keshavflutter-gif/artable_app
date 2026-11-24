@@ -284,18 +284,37 @@ class MyVideoItem {
         userObj?['avatarUrl']?.toString() ??
         '').trim();
 
-    final challengeObj = json['challenge'] is Map
-        ? Map<String, dynamic>.from(json['challenge'] as Map)
-        : null;
+    Map<String, dynamic>? challengeObj;
+    if (json['challenge'] is Map) {
+      challengeObj = Map<String, dynamic>.from(json['challenge'] as Map);
+    } else {
+      final flatId = json['challengeId'] ??
+          json['challenge_id'] ??
+          (json['challenge'] != null &&
+                  json['challenge'].toString().trim().isNotEmpty
+              ? json['challenge']
+              : null);
+      final flatTitle = json['challengeTitle'] ??
+          json['challenge_title'] ??
+          json['challengeName'] ??
+          json['challenge_name'];
+      if (flatId != null || flatTitle != null) {
+        challengeObj = <String, dynamic>{
+          if (flatId != null) 'id': flatId.toString(),
+          if (flatTitle != null) 'title': flatTitle.toString(),
+        };
+      }
+    }
 
     final categoryObj = json['category'] is Map
         ? Map<String, dynamic>.from(json['category'] as Map)
         : null;
 
+    final challengeTitle = (challengeObj?['title']?.toString() ?? '').trim();
     final titleStr = (json['title']?.toString() ?? '').trim().isNotEmpty
         ? json['title'].toString().trim()
-        : (challengeObj?['title']?.toString() ?? '').trim().isNotEmpty
-            ? challengeObj!['title'].toString().trim()
+        : challengeTitle.isNotEmpty
+            ? challengeTitle
             : 'Draft Video';
 
     final videoUrlStr = MediaUrlUtils.extractVideoUrl(json) ??

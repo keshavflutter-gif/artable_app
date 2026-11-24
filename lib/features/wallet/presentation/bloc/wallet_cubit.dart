@@ -91,4 +91,35 @@ class WalletCubit extends Cubit<WalletState> {
   void selectTransactionTab(String tab) {
     loadWalletTransactions(forceRefresh: true, tab: tab);
   }
+
+  Future<String?> requestWithdraw({
+    required double amount,
+    String currency = 'INR',
+  }) async {
+    emit(state.copyWith(isLoading: true, clearError: true));
+
+    try {
+      final res = await _walletRepository.requestWithdraw(
+        amount: amount,
+        currency: currency,
+        sessionToken: _authCubit?.sessionToken,
+        refreshToken: _authCubit?.refreshToken,
+      );
+
+      if (res['success'] == true) {
+        await loadWalletInfo(forceRefresh: true);
+        emit(state.copyWith(isLoading: false));
+        return null;
+      }
+
+      final msg =
+          res['message']?.toString() ?? 'Unable to submit withdrawal request.';
+      emit(state.copyWith(isLoading: false, errorMessage: msg));
+      return msg;
+    } catch (e) {
+      final msg = 'Failed to request withdrawal: $e';
+      emit(state.copyWith(isLoading: false, errorMessage: msg));
+      return msg;
+    }
+  }
 }

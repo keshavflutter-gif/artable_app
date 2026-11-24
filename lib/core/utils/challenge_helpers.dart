@@ -56,11 +56,19 @@ String challengeDateLabel(Map<String, dynamic> challenge) {
   final remaining = daysRemaining(endDate);
   switch (status) {
     case 'completed':
-      return 'Ended ${formatDate(endDate)}';
+    case 'ended':
+    case 'closed':
+      return endDate.isNotEmpty ? 'Ended ${formatDate(endDate)}' : 'Ended';
     case 'upcoming':
       return 'Starts ${formatDate(endDate)}';
     default:
-      return remaining > 0 ? '${remaining}d left' : 'Ending today';
+      if (remaining < 0) {
+        return endDate.isNotEmpty ? 'Ended ${formatDate(endDate)}' : 'Ended';
+      }
+      if (remaining == 0) {
+        return 'Ending today';
+      }
+      return '$remaining days left';
   }
 }
 

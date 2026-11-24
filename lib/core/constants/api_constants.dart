@@ -35,4 +35,24 @@ class ApiConstants {
   static const String referralsInvite = '/app/referrals/invite';
   static const String referralsTracking = '/app/referrals/tracking';
   static const String referralsApply = '/app/referrals/apply';
+
+  static const String wallet = '/app/wallet';
+  static const String walletTransactions = '/app/wallet/transactions';
+  static const String walletWithdraw = '/app/wallet/withdraw';
+  static const String walletWithdrawals = '/app/wallet/withdrawals';
+
+  static const String membershipPlans = '/app/membership/plans';
+  static const String membershipSubscribe = '/app/membership/subscribe';
+  static const String membershipVerifyPayment = '/app/membership/verify-payment';
+  static const String membershipMe = '/app/membership/me';
+
+  static const String notifications = '/app/notifications';
+  static const String notificationsRead = '/app/notifications/read';
+  static const String activity = '/app/activity';
+  static const String search = '/app/search';
+  static const String music = '/app/music';
+  static String musicById(String id) => '/app/music/$id';
+
+  static const String settingsPrivacy = '/app/settings/privacy';
+  static const String settingsNotifications = '/app/settings/notifications';
 }

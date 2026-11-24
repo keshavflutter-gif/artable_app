@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -38,20 +40,35 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
     context.read<ChallengesCubit>().loadCategories(forceRefresh: true);
   }
 
-  void _showNoInternetIfNeeded(String? error, bool hasCategories) {
+  Future<void> _showNoInternetIfNeeded(String? error, bool hasCategories) async {
     if (hasCategories || error == null || error.isEmpty) return;
     if (!NetworkUtils.isNetworkError(error)) return;
     if (_isNoInternetDialogShowing) return;
-    _isNoInternetDialogShowing = true;
-    NoInternetDialog.show(
-      context,
-      onRetry: () {
-        _isNoInternetDialogShowing = false;
-        _retryCategories();
-      },
-    ).then((_) {
+
+    final looksOffline = NetworkUtils.isOfflineError(error);
+    final online = looksOffline ? false : await NetworkUtils.hasInternet();
+    if (!mounted) return;
+
+    if (!online) {
+      _isNoInternetDialogShowing = true;
+      await NoInternetDialog.show(
+        context,
+        onRetry: () {
+          _isNoInternetDialogShowing = false;
+          _retryCategories();
+        },
+      );
       _isNoInternetDialogShowing = false;
-    });
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          error.isNotEmpty ? error : NetworkUtils.serverUnreachableMessage,
+        ),
+      ),
+    );
   }
 
   @override
@@ -60,7 +77,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
     final categories = provider.filteredCategories;
     final summary = provider.categorySummary;
     final errorMessage = provider.categoriesErrorMessage;
-    final isNetworkError = NetworkUtils.isNetworkError(errorMessage);
+    final isOfflineError = NetworkUtils.isOfflineError(errorMessage);
     final isLoading = provider.isLoadingCategories && categories.isEmpty;
     final showError = !isLoading &&
         categories.isEmpty &&
@@ -81,9 +98,11 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
               curr.categoriesErrorMessage != null &&
               !curr.isLoadingCategories,
           listener: (context, state) {
-            _showNoInternetIfNeeded(
-              state.categoriesErrorMessage,
-              (state.categoriesResponse?.data.isNotEmpty ?? false),
+            unawaited(
+              _showNoInternetIfNeeded(
+                state.categoriesErrorMessage,
+                (state.categoriesResponse?.data.isNotEmpty ?? false),
+              ),
             );
           },
           child: Column(
@@ -133,7 +152,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                       )
                     else if (showError)
                       _CategoriesErrorState(
-                        isNetworkError: isNetworkError,
+                        isNetworkError: isOfflineError,
                         message: errorMessage ?? 'Failed to load categories.',
                         onRetry: _retryCategories,
                       )

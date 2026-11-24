@@ -22,6 +22,8 @@ class AppImage extends StatelessWidget {
     this.borderRadius,
     this.placeholderIcon,
     this.isVideo = false,
+    /// When true, allow Unsplash/Picsum stock images (used by Rewards cards).
+    this.acceptStockImages = false,
   });
 
   final String url;
@@ -33,6 +35,7 @@ class AppImage extends StatelessWidget {
   final BorderRadius? borderRadius;
   final IconData? placeholderIcon;
   final bool isVideo;
+  final bool acceptStockImages;
 
   static void cacheThumbnail(String key, Uint8List bytes) {
     if (key.trim().isEmpty || bytes.isEmpty) return;
@@ -151,7 +154,10 @@ class AppImage extends StatelessWidget {
 
     final hasVideoSource = cleanVideoUrl.isNotEmpty;
     final isUrlVideo = MediaUrlUtils.looksLikeVideoUrl(cleanUrl);
-    final isUrlDummy = MediaUrlUtils.isDummyThumbnail(cleanUrl);
+    final isUrlDummy = MediaUrlUtils.isDummyThumbnail(
+      cleanUrl,
+      allowStockImages: acceptStockImages,
+    );
     final isUrlEmpty = cleanUrl.isEmpty;
     final hasValidThumbnail = !isUrlDummy && !isUrlVideo && !isUrlEmpty;
 

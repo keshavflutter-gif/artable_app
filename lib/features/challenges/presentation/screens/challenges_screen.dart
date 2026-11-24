@@ -131,15 +131,25 @@ class _ChallengesScreenState extends State<ChallengesScreen> {
 
   Future<void> _loadCurrentTab({bool forceRefresh = false}) {
     final tabKey = _tabKeys[_selectedTab];
-    return context.read<ChallengesCubit>().loadTabChallenges(
-          tabKey,
-          forceRefresh: forceRefresh,
-        );
+    final cubit = context.read<ChallengesCubit>();
+    // Prefetch Active so expired items can be merged into Completed.
+    if (tabKey == 'COMPLETED') {
+      unawaited(cubit.loadTabChallenges('ACTIVE', forceRefresh: forceRefresh));
+    }
+    return cubit.loadTabChallenges(
+      tabKey,
+      forceRefresh: forceRefresh,
+    );
   }
 
   void _onTabSelected(int index) {
     setState(() => _selectedTab = index);
-    context.read<ChallengesCubit>().loadTabChallenges(_tabKeys[index]);
+    final tabKey = _tabKeys[index];
+    final cubit = context.read<ChallengesCubit>();
+    if (tabKey == 'COMPLETED') {
+      unawaited(cubit.loadTabChallenges('ACTIVE'));
+    }
+    cubit.loadTabChallenges(tabKey);
   }
 
   void _onSearchChanged(String value) {

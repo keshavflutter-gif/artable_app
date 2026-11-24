@@ -17,9 +17,11 @@ import 'package:artable_app/features/shell/presentation/widgets/app_shell.dart';
 import 'package:artable_app/features/shell/presentation/widgets/bottom_nav.dart';
 import 'package:artable_app/core/widgets/network_image_widget.dart';
 import 'package:artable_app/core/utils/app_filter_utils.dart';
+import 'package:artable_app/core/utils/media_url_utils.dart';
 import 'package:artable_app/core/utils/reel_helpers.dart';
 import 'package:artable_app/core/widgets/section_header.dart';
 import 'package:artable_app/features/studio/presentation/widgets/studio_header.dart';
+import 'package:artable_app/core/network/network_utils.dart';
 import 'package:artable_app/core/widgets/no_internet_dialog.dart';
 import 'package:artable_app/features/home/presentation/bloc/home_state.dart';
 import 'package:artable_app/features/home/data/models/home_ui_mapper.dart';
@@ -66,18 +68,35 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  bool _isNetworkError(String? msg) {
-    if (msg == null || msg.isEmpty) return false;
-    final lower = msg.toLowerCase();
-    return lower.contains('socketexception') ||
-        lower.contains('clientexception') ||
-        lower.contains('failed host lookup') ||
-        lower.contains('no internet') ||
-        lower.contains('network_error') ||
-        lower.contains('network is unreachable') ||
-        lower.contains('connection refused') ||
-        lower.contains('connection timed out') ||
-        lower.contains('timeoutexception');
+  Future<void> _handleHomeTransportError(String? errorMessage) async {
+    if (_isNoInternetDialogShowing) return;
+
+    final looksOffline = NetworkUtils.isOfflineError(errorMessage);
+    final online = looksOffline ? false : await NetworkUtils.hasInternet();
+    if (!mounted) return;
+
+    if (!online) {
+      _isNoInternetDialogShowing = true;
+      await NoInternetDialog.show(
+        context,
+        onRetry: () {
+          _isNoInternetDialogShowing = false;
+          context.read<HomeCubit>().loadHomeDashboard(forceRefresh: true);
+          context
+              .read<TrendingVideosCubit>()
+              .loadTrendingVideos(forceRefresh: true);
+        },
+      );
+      _isNoInternetDialogShowing = false;
+      return;
+    }
+
+    final msg = (errorMessage == null || errorMessage.isEmpty)
+        ? NetworkUtils.serverUnreachableMessage
+        : errorMessage;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg)),
+    );
   }
 
   @override
@@ -93,9 +112,28 @@ class _HomeScreenState extends State<HomeScreen> {
     final homeActiveChallenges = context.select<HomeCubit, List<Map<String, dynamic>>>(
       (vm) => vm.activeChallenges,
     );
-    final activeChallenges = apiActiveChallenges.isNotEmpty
-        ? apiActiveChallenges
-        : homeActiveChallenges;
+    final activeChallenges = () {
+      if (apiActiveChallenges.isEmpty) return homeActiveChallenges;
+      // Prefer ACTIVE tab data, but keep dashboard images when list payload
+      // ships empty banner/image fields (detail API still has them).
+      final homeById = <String, Map<String, dynamic>>{
+        for (final c in homeActiveChallenges)
+          if ((c['id']?.toString() ?? '').isNotEmpty) c['id'].toString(): c,
+      };
+      return apiActiveChallenges.map((c) {
+        final id = c['id']?.toString() ?? '';
+        final current = (c['imageUrl'] ?? c['bannerUrl'] ?? '').toString().trim();
+        if (current.isNotEmpty || id.isEmpty || !homeById.containsKey(id)) {
+          return c;
+        }
+        final homeImg =
+            (homeById[id]!['imageUrl'] ?? homeById[id]!['bannerUrl'] ?? '')
+                .toString()
+                .trim();
+        if (homeImg.isEmpty) return c;
+        return {...c, 'imageUrl': homeImg, 'bannerUrl': homeImg};
+      }).toList();
+    }();
     final trendingCubit = context.watch<TrendingVideosCubit>();
     final apiTrendingVideos = trendingCubit.videos;
     final homeCubitTrendingReels = context.select<HomeCubit, List<Map<String, dynamic>>>(
@@ -163,22 +201,12 @@ class _HomeScreenState extends State<HomeScreen> {
       body: BlocListener<HomeCubit, HomeState>(
         listenWhen: (prev, curr) =>
             curr.errorMessage != null &&
+            curr.errorMessage != prev.errorMessage &&
             curr.dashboard == null &&
             !curr.isLoading &&
-            _isNetworkError(curr.errorMessage),
+            NetworkUtils.isNetworkError(curr.errorMessage),
         listener: (context, state) {
-          if (_isNoInternetDialogShowing) return;
-          _isNoInternetDialogShowing = true;
-          NoInternetDialog.show(
-            context,
-            onRetry: () {
-              _isNoInternetDialogShowing = false;
-              context.read<HomeCubit>().loadHomeDashboard(forceRefresh: true);
-              context.read<TrendingVideosCubit>().loadTrendingVideos(forceRefresh: true);
-            },
-          ).then((_) {
-            _isNoInternetDialogShowing = false;
-          });
+          unawaited(_handleHomeTransportError(state.errorMessage));
         },
         child: Stack(
           children: [
@@ -1130,6 +1158,31 @@ class _MiniChallengeCard extends StatelessWidget {
             : 'Win $rawPrize')
         : '';
     final timeLeft = (challenge['timeLeft'] ?? challenge['daysLeftLabel'] ?? 'Active').toString();
+    final category = (challenge['category'] as String?) ??
+        (challenge['categoryName'] as String?) ??
+        '';
+    var imageUrl = MediaUrlUtils.resolve(
+      (challenge['imageUrl'] ?? challenge['bannerUrl'] ?? '').toString(),
+    );
+    if (imageUrl.isEmpty) {
+      final c = category.toLowerCase();
+      if (c.contains('sing') || c.contains('vocal') || c.contains('music')) {
+        imageUrl =
+            'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=700&h=440&q=80&fit=crop';
+      } else if (c.contains('dance')) {
+        imageUrl =
+            'https://images.unsplash.com/photo-1547153760-18fc86324498?w=700&h=440&q=80&fit=crop';
+      } else if (c.contains('comedy') || c.contains('standup')) {
+        imageUrl =
+            'https://images.unsplash.com/photo-1585699324551-f6c309eedeca?w=700&h=440&q=80&fit=crop';
+      } else if (c.contains('fit') || c.contains('sport') || c.contains('workout')) {
+        imageUrl =
+            'https://images.unsplash.com/photo-1517838277536-f5f99be501cd?w=700&h=440&q=80&fit=crop';
+      } else {
+        imageUrl =
+            'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=700&h=440&q=80&fit=crop';
+      }
+    }
 
     return Container(
       decoration: BoxDecoration(
@@ -1150,8 +1203,11 @@ class _MiniChallengeCard extends StatelessWidget {
         children: [
           AspectRatio(
             aspectRatio: 1 / 0.88,
-            child: NetworkImageWidget(
-              url: challenge['imageUrl'] as String? ?? '',
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                NetworkImageWidget(url: imageUrl),
+              ],
             ),
           ),
           Padding(

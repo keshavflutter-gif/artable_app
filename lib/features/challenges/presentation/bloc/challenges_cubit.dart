@@ -148,18 +148,30 @@ class ChallengesCubit extends Cubit<ChallengesState> {
         .replaceAll('Exception: ', '')
         .trim();
     final hasHttpStatus = apiError?.statusCode != null;
-    final looksLikeNetwork =
-        NetworkUtils.isNetworkError(error) || NetworkUtils.isNetworkError(raw);
 
     if (hasHttpStatus) {
       return raw.isNotEmpty ? raw : 'Failed to load categories.';
     }
-    if (looksLikeNetwork) {
-      return NetworkUtils.noInternetMessage;
+    if (NetworkUtils.isOfflineError(error) || NetworkUtils.isOfflineError(raw)) {
+      return NetworkUtils.offlineMessage;
+    }
+    if (NetworkUtils.isNetworkError(error) || NetworkUtils.isNetworkError(raw)) {
+      // Keep server/timeout wording from ApiClient when present.
+      if (raw.isNotEmpty &&
+          (raw == NetworkUtils.timeoutMessage ||
+              raw == NetworkUtils.serverUnreachableMessage ||
+              raw.toLowerCase().contains('unable to reach') ||
+              raw.toLowerCase().contains('taking too long'))) {
+        return raw;
+      }
+      final online = await NetworkUtils.hasInternet();
+      return online
+          ? NetworkUtils.serverUnreachableMessage
+          : NetworkUtils.offlineMessage;
     }
     final online = await NetworkUtils.hasInternet();
     if (!online) {
-      return NetworkUtils.noInternetMessage;
+      return NetworkUtils.offlineMessage;
     }
     return raw.isNotEmpty ? raw : 'Failed to load categories.';
   }

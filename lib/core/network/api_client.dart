@@ -1,10 +1,14 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:artable_app/features/auth/data/models/login_response.dart';
 import 'api_config.dart';
 import 'api_exception.dart';
 import 'api_session_callbacks.dart';
+import 'network_utils.dart';
 import 'loggers/achievements_api_debug_logger.dart';
 import 'loggers/auth_api_debug_logger.dart';
 import 'loggers/categories_api_debug_logger.dart';
@@ -274,12 +278,22 @@ class ApiClient {
       }
 
       return _decodeResponse(response);
+    } on TimeoutException catch (e) {
+      debugPrint('=== API REQUEST TIMEOUT === Path: $path === $e');
+      throw ApiException(NetworkUtils.timeoutMessage);
+    } on SocketException catch (e) {
+      debugPrint('=== API SOCKET ERROR === Path: $path === $e');
+      throw ApiException(NetworkUtils.messageForTransportError(e));
+    } on http.ClientException catch (e) {
+      debugPrint('=== API CLIENT ERROR === Path: $path === $e');
+      throw ApiException(NetworkUtils.messageForTransportError(e));
     } catch (e) {
       if (e is ApiException) rethrow;
       debugPrint('=== API REQUEST ERROR === Path: $path');
       debugPrint('=== Error Type: ${e.runtimeType} ===');
       debugPrint('=== Error Detail: $e ===');
-      throw ApiException('Unable to connect to server. Please check internet connection.');
+      // Do not always blame Wi‑Fi — server may be down while device is online.
+      throw ApiException(NetworkUtils.messageForTransportError(e));
     }
   }
 

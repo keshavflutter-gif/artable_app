@@ -1,7 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:artable_app/app/routes/app_routes.dart';
+import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
+import 'package:artable_app/features/notifications/data/mappers/notification_mappers.dart';
+import 'package:artable_app/features/notifications/data/repositories/activity_repository.dart';
+import 'package:artable_app/features/notifications/data/repositories/notifications_repository.dart';
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_text_styles.dart';
 import 'package:artable_app/core/widgets/app_back_header.dart';
@@ -19,13 +26,52 @@ class NotificationsScreen extends StatefulWidget {
 class _NotificationsScreenState extends State<NotificationsScreen> {
   static const _filters = ['All', 'Challenges', 'Rewards', 'Winners', 'Social', 'Referrals'];
   var _filter = 'All';
-  late List<Map<String, dynamic>> _items;
+  var _items = <Map<String, dynamic>>[];
+  var _loading = true;
+  String? _error;
+  NotificationsRepository? _repo;
+
+  NotificationsRepository _repository() {
+    final auth = context.read<AuthCubit>();
+    return _repo ??= NotificationsRepository(
+      onTokensRefreshed: auth.applyRefreshedTokens,
+      onSessionRefreshFailed: auth.handleSessionRefreshFailed,
+    );
+  }
 
   @override
   void initState() {
     super.initState();
-    // Inbox API not wired yet — show empty, not fake notifications.
-    _items = <Map<String, dynamic>>[];
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_loadNotifications());
+    });
+  }
+
+  Future<void> _loadNotifications() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final auth = context.read<AuthCubit>();
+      final category = searchFilterToApiCategory(_filter);
+      final rows = await _repository().getNotifications(
+        category: category == 'all' ? null : category,
+        sessionToken: auth.sessionToken,
+        refreshToken: auth.refreshToken,
+      );
+      if (!mounted) return;
+      setState(() {
+        _items = rows.map(notificationToUiMap).toList();
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = 'Unable to load notifications.';
+      });
+    }
   }
 
   List<Map<String, dynamic>> get _filtered {
@@ -37,7 +83,16 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }).toList();
   }
 
-  void _markAllRead() {
+  Future<void> _markAllRead() async {
+    try {
+      final auth = context.read<AuthCubit>();
+      await _repository().markRead(
+        markAll: true,
+        sessionToken: auth.sessionToken,
+        refreshToken: auth.refreshToken,
+      );
+    } catch (_) {}
+    if (!mounted) return;
     setState(() {
       for (final n in _items) {
         n['read'] = true;
@@ -76,15 +131,26 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               ),
             ),
           ),
-          FilterPills(items: _filters, selected: _filter, onSelected: (f) => setState(() => _filter = f)),
+          FilterPills(
+            items: _filters,
+            selected: _filter,
+            onSelected: (f) {
+              setState(() => _filter = f);
+              unawaited(_loadNotifications());
+            },
+          ),
           Expanded(
-            child: list.isEmpty
-                ? const EmptyNote(message: 'No notifications here yet.')
-                : ListView.builder(
-                    padding: const EdgeInsets.all(22),
-                    itemCount: list.length,
-                    itemBuilder: (_, i) => _NotificationTile(n: list[i]),
-                  ),
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _error != null
+                    ? Center(child: Text(_error!))
+                    : list.isEmpty
+                        ? const EmptyNote(message: 'No notifications here yet.')
+                        : ListView.builder(
+                            padding: const EdgeInsets.all(22),
+                            itemCount: list.length,
+                            itemBuilder: (_, i) => _NotificationTile(n: list[i]),
+                          ),
           ),
         ],
       ),
@@ -197,11 +263,67 @@ class _ActivityCenterScreenState extends State<ActivityCenterScreen> {
     'Rewards',
   ];
   var _filter = 'All';
+  var _items = <Map<String, dynamic>>[];
+  Map<String, dynamic> _stats = const {
+    'likes': 0,
+    'comments': 0,
+    'ratings': 0,
+    'entries': 0,
+    'rewardsEarned': '₹0',
+  };
+  var _loading = true;
+  ActivityRepository? _repo;
 
-  List<Map<String, dynamic>> get _filtered {
-    // Activity feed API not wired yet — empty, not fake log.
-    return const <Map<String, dynamic>>[];
+  ActivityRepository _repository() {
+    final auth = context.read<AuthCubit>();
+    return _repo ??= ActivityRepository(
+      onTokensRefreshed: auth.applyRefreshedTokens,
+      onSessionRefreshFailed: auth.handleSessionRefreshFailed,
+    );
   }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_loadActivity());
+    });
+  }
+
+  Future<void> _loadActivity() async {
+    setState(() => _loading = true);
+    try {
+      final auth = context.read<AuthCubit>();
+      final apiType = activityFilterToApiType(_filter);
+      final res = await _repository().getActivity(
+        type: apiType == 'all' ? null : apiType,
+        sessionToken: auth.sessionToken,
+        refreshToken: auth.refreshToken,
+      );
+      if (!mounted) return;
+      final summary = res['summary'];
+      final items = res['items'];
+      setState(() {
+        _stats = summary is Map<String, dynamic>
+            ? summary
+            : (summary is Map
+                ? Map<String, dynamic>.from(summary)
+                : _stats);
+        _items = items is List
+            ? items
+                .whereType<Map>()
+                .map((e) => activityToUiMap(Map<String, dynamic>.from(e)))
+                .toList()
+            : const [];
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
+  }
+
+  List<Map<String, dynamic>> get _filtered => _items;
 
   void _openActivity(Map<String, dynamic> item) {
     final type = (item['type'] as String? ?? '').toLowerCase();
@@ -225,13 +347,7 @@ class _ActivityCenterScreenState extends State<ActivityCenterScreen> {
 
   @override
   Widget build(BuildContext context) {
-    const s = <String, dynamic>{
-      'likes': 0,
-      'comments': 0,
-      'ratings': 0,
-      'entries': 0,
-      'rewardsEarned': '₹0',
-    };
+    final s = _stats;
     final list = _filtered;
 
     return AppScreen(
@@ -256,9 +372,7 @@ class _ActivityCenterScreenState extends State<ActivityCenterScreen> {
             ),
           Expanded(
             child: RefreshIndicator(
-              onRefresh: () async {
-                setState(() {});
-              },
+              onRefresh: _loadActivity,
               child: SingleChildScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding:
@@ -292,7 +406,7 @@ class _ActivityCenterScreenState extends State<ActivityCenterScreen> {
                             label: 'Entries',
                           ),
                           _ActivityStat(
-                            value: s['rewardsEarned'] as String,
+                            value: '${s['rewardsEarned'] ?? '₹0'}',
                             label: 'Earned',
                           ),
                         ],
@@ -301,7 +415,10 @@ class _ActivityCenterScreenState extends State<ActivityCenterScreen> {
                       FilterPills(
                         items: _filters,
                         selected: _filter,
-                        onSelected: (v) => setState(() => _filter = v),
+                        onSelected: (v) {
+                          setState(() => _filter = v);
+                          unawaited(_loadActivity());
+                        },
                       ),
                       const SizedBox(height: 16),
                       Row(
@@ -319,7 +436,12 @@ class _ActivityCenterScreenState extends State<ActivityCenterScreen> {
                           ),
                         ],
                       ),
-                      if (list.isEmpty)
+                      if (_loading)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 28),
+                          child: Center(child: CircularProgressIndicator()),
+                        )
+                      else if (list.isEmpty)
                         Padding(
                           padding: const EdgeInsets.symmetric(vertical: 28),
                           child: Center(
@@ -335,14 +457,14 @@ class _ActivityCenterScreenState extends State<ActivityCenterScreen> {
                             contentPadding: EdgeInsets.zero,
                             onTap: () => _openActivity(a),
                             title: Text(
-                              a['text'] as String,
+                              '${a['text'] ?? ''}',
                               style: AppTextStyles.body.copyWith(
                                 fontWeight: FontWeight.w700,
                                 fontSize: 13,
                               ),
                             ),
                             subtitle: Text(
-                              '${a['related']} · ${a['time']}',
+                              '${a['related'] ?? ''} · ${a['time'] ?? ''}',
                               style:
                                   AppTextStyles.bodySoft.copyWith(fontSize: 11),
                             ),

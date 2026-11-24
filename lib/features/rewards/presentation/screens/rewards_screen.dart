@@ -147,6 +147,9 @@ class _RewardsScreenState extends State<RewardsScreen> {
                                       url: featured['imageUrl'] as String? ??
                                           'https://images.unsplash.com/photo-1518834107812-67b0b7c58434?w=800&q=80',
                                       fit: BoxFit.cover,
+                                      acceptStockImages: true,
+                                      placeholderIcon:
+                                          Icons.card_giftcard_rounded,
                                     ),
                                     Container(
                                       decoration: BoxDecoration(

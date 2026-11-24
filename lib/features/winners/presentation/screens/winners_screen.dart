@@ -11,7 +11,10 @@ import 'package:artable_app/features/winners/presentation/bloc/winners_cubit.dar
 import 'package:artable_app/features/winners/presentation/bloc/winners_state.dart';
 
 class WinnersScreen extends StatefulWidget {
-  const WinnersScreen({super.key});
+  const WinnersScreen({super.key, this.challengeId});
+
+  /// Optional — when opened from challenge "View Results".
+  final String? challengeId;
 
   @override
   State<WinnersScreen> createState() => _WinnersScreenState();
@@ -22,10 +25,13 @@ class _WinnersScreenState extends State<WinnersScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       final cubit = context.read<WinnersCubit>();
-      if (!cubit.hasLoaded) {
-        cubit.loadWinners();
-      }
+      final challengeId = widget.challengeId?.trim();
+      cubit.loadWinners(
+        forceRefresh: challengeId != null && challengeId.isNotEmpty,
+        challengeId: challengeId,
+      );
     });
   }
 
@@ -42,9 +48,23 @@ class _WinnersScreenState extends State<WinnersScreen> {
                 final cubit = context.read<WinnersCubit>();
                 final tabs = state.availableTabs;
 
+                final filterChallengeId = widget.challengeId?.trim() ?? '';
+                bool matchesChallenge(WinnerItem item) {
+                  if (filterChallengeId.isEmpty) return true;
+                  final id = item.challengeId ??
+                      item.challenge?.id ??
+                      '';
+                  return id == filterChallengeId;
+                }
+
                 WinnerItem? featured = state.featuredWinner;
-                List<WinnerItem> winnerList = state.winners;
-                List<WinnerItem> moreList = state.moreWinners;
+                if (featured != null && !matchesChallenge(featured)) {
+                  featured = null;
+                }
+                List<WinnerItem> winnerList =
+                    state.winners.where(matchesChallenge).toList();
+                List<WinnerItem> moreList =
+                    state.moreWinners.where(matchesChallenge).toList();
 
                 final combined = <WinnerItem>[
                   ...winnerList,
@@ -68,7 +88,12 @@ class _WinnersScreenState extends State<WinnersScreen> {
                 nonFeaturedList.sort((a, b) => a.displayRank.compareTo(b.displayRank));
 
                 return RefreshIndicator(
-                  onRefresh: () => cubit.loadWinners(forceRefresh: true),
+                  onRefresh: () => cubit.loadWinners(
+                    forceRefresh: true,
+                    challengeId: filterChallengeId.isEmpty
+                        ? null
+                        : filterChallengeId,
+                  ),
                   color: const Color(0xFFFF5487),
                   child: SingleChildScrollView(
                     physics: const AlwaysScrollableScrollPhysics(),
@@ -151,7 +176,12 @@ class _WinnersScreenState extends State<WinnersScreen> {
                                     ),
                                   ),
                                   TextButton(
-                                    onPressed: () => cubit.loadWinners(forceRefresh: true),
+                                    onPressed: () => cubit.loadWinners(
+                                      forceRefresh: true,
+                                      challengeId: filterChallengeId.isEmpty
+                                          ? null
+                                          : filterChallengeId,
+                                    ),
                                     child: const Text(
                                       'Retry',
                                       style: TextStyle(

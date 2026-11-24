@@ -1,10 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:artable_app/app/theme/app_gradients.dart';
 import 'package:artable_app/core/widgets/app_back_header.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
 import 'package:artable_app/core/widgets/gradient_switch.dart';
-import 'package:artable_app/data/datasources/mock_data.dart';
+import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
+import 'package:artable_app/features/settings/data/repositories/settings_repository.dart';
 
 class PrivacySettingsScreen extends StatefulWidget {
   const PrivacySettingsScreen({super.key});
@@ -14,12 +18,98 @@ class PrivacySettingsScreen extends StatefulWidget {
 }
 
 class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
-  late Map<String, dynamic> _privacy;
+  var _privacy = <String, dynamic>{
+    'profileVisibility': 'public',
+    'showTalentScore': true,
+    'showRewardEarnings': false,
+    'allowComments': true,
+    'allowShares': true,
+    'allowProfileSearch': true,
+    'blockedUsersCount': 0,
+  };
+  var _loading = true;
+  SettingsRepository? _repo;
+
+  SettingsRepository _repository() {
+    final auth = context.read<AuthCubit>();
+    return _repo ??= SettingsRepository(
+      onTokensRefreshed: auth.applyRefreshedTokens,
+      onSessionRefreshFailed: auth.handleSessionRefreshFailed,
+    );
+  }
 
   @override
   void initState() {
     super.initState();
-    _privacy = Map<String, dynamic>.from(MockData.PRIVACY_SETTINGS);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_load());
+    });
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    try {
+      final auth = context.read<AuthCubit>();
+      final data = await _repository().getPrivacySettings(
+        sessionToken: auth.sessionToken,
+        refreshToken: auth.refreshToken,
+      );
+      if (!mounted) return;
+      setState(() {
+        _privacy = _normalizePrivacy({..._privacy, ...data});
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
+  }
+
+  /// API may send PUBLIC/PRIVATE — UI uses lowercase. Coerce bools safely.
+  Map<String, dynamic> _normalizePrivacy(Map<String, dynamic> raw) {
+    final out = Map<String, dynamic>.from(raw);
+    final vis = out['profileVisibility']?.toString().trim().toLowerCase();
+    if (vis == 'public' || vis == 'private') {
+      out['profileVisibility'] = vis;
+    }
+    for (final key in const [
+      'showTalentScore',
+      'showRewardEarnings',
+      'allowComments',
+      'allowShares',
+      'allowProfileSearch',
+      'showActivity',
+      'allowRating',
+      'privateAccount',
+      'showInSearch',
+    ]) {
+      if (out.containsKey(key)) {
+        out[key] = out[key] == true;
+      }
+    }
+    return out;
+  }
+
+  Future<void> _persist() async {
+    try {
+      final auth = context.read<AuthCubit>();
+      final body = Map<String, dynamic>.from(_privacy);
+      final vis = body['profileVisibility']?.toString().trim().toLowerCase();
+      if (vis == 'public' || vis == 'private') {
+        // Backend stores uppercase enum.
+        body['profileVisibility'] = vis!.toUpperCase();
+      }
+      await _repository().updatePrivacySettings(
+        body: body,
+        sessionToken: auth.sessionToken,
+        refreshToken: auth.refreshToken,
+      );
+    } catch (_) {}
+  }
+
+  void _updatePrivacy(void Function() mutate) {
+    setState(mutate);
+    unawaited(_persist());
   }
 
   @override
@@ -30,7 +120,9 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
         children: [
           const AppBackHeader(title: 'Privacy Settings'),
           Expanded(
-            child: SingleChildScrollView(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : SingleChildScrollView(
               child: AppContent(
                 noBottomPad: true,
                 child: Column(
@@ -112,7 +204,8 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
 
                         return Expanded(
                           child: GestureDetector(
-                            onTap: () => setState(() => _privacy['profileVisibility'] = v),
+                            onTap: () =>
+                                _updatePrivacy(() => _privacy['profileVisibility'] = v),
                             child: Container(
                               margin: EdgeInsets.only(
                                 left: v == 'public' ? 0 : 6,
@@ -333,7 +426,7 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
     required String desc,
     required String keyName,
   }) {
-    final value = _privacy[keyName] as bool? ?? false;
+    final value = _privacy[keyName] == true;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -383,9 +476,7 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
           GradientSwitch(
             value: value,
             onChanged: (val) {
-              setState(() {
-                _privacy[keyName] = val;
-              });
+              _updatePrivacy(() => _privacy[keyName] = val);
             },
           ),
         ],

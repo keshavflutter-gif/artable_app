@@ -23,11 +23,11 @@ class _TalentScoreScreenState extends State<TalentScoreScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      context.read<StatsCubit>().loadStats();
+      context.read<StatsCubit>().loadStats(forceRefresh: true);
       try {
         context.read<MyVideosCubit>().loadMyVideos(
               tab: 'ALL',
-              forceRefresh: false,
+              forceRefresh: true,
             );
       } catch (_) {}
     });
@@ -92,9 +92,21 @@ class _TalentScoreScreenState extends State<TalentScoreScreen> {
                     ),
                   )
                 : RefreshIndicator(
-                    onRefresh: () => context
-                        .read<StatsCubit>()
-                        .loadStats(forceRefresh: true),
+                    onRefresh: () async {
+                      await Future.wait([
+                        context
+                            .read<StatsCubit>()
+                            .loadStats(forceRefresh: true),
+                        () async {
+                          try {
+                            await context.read<MyVideosCubit>().loadMyVideos(
+                                  tab: 'ALL',
+                                  forceRefresh: true,
+                                );
+                          } catch (_) {}
+                        }(),
+                      ]);
+                    },
                     child: SingleChildScrollView(
                       physics: const AlwaysScrollableScrollPhysics(),
                       padding: const EdgeInsets.only(bottom: 40),
@@ -148,6 +160,7 @@ class _TalentScoreScreenState extends State<TalentScoreScreen> {
                             _buildRecentPerformanceList(
                               context: context,
                               data: data,
+                              videosFallback: _recentFromMyVideos(context),
                             ),
                             const SizedBox(height: 20),
 
@@ -525,25 +538,121 @@ class _TalentScoreScreenState extends State<TalentScoreScreen> {
     );
   }
 
+  /// Build recent challenge rows from the user's challenge videos when stats
+  /// API does not return `recentChallengePerformance`.
+  List<RecentChallengePerformanceItem> _recentFromMyVideos(
+    BuildContext context,
+  ) {
+    try {
+      final videos = context.watch<MyVideosCubit>().videos;
+      final byChallenge = <String, RecentChallengePerformanceItem>{};
+
+      for (final video in videos) {
+        if (video.isDraft) continue;
+        final challenge = video.challenge;
+        final challengeId = (challenge?['id'] ??
+                challenge?['_id'] ??
+                '')
+            .toString()
+            .trim();
+        if (challengeId.isEmpty) continue;
+
+        final title = challenge?['title']?.toString().trim().isNotEmpty == true
+            ? challenge!['title'].toString().trim()
+            : (challenge?['name']?.toString().trim().isNotEmpty == true
+                ? challenge!['name'].toString().trim()
+                : (video.title.isNotEmpty ? video.title : 'Challenge'));
+        final score = double.tryParse(video.talentScoreLabel.trim());
+        final date = video.dateLabel.isNotEmpty ? video.dateLabel : 'Recent';
+
+        final statusLower = (video.statusLabel ?? video.status).toLowerCase();
+        String result;
+        var isPlaced = false;
+        if (statusLower.contains('reject')) {
+          result = 'Not Placed';
+          isPlaced = false;
+        } else if (score != null && score > 0) {
+          result = 'Score ${score.toStringAsFixed(1)}';
+          isPlaced = true;
+        } else if (video.isVideoLive) {
+          result = 'Live';
+          isPlaced = true;
+        } else if (statusLower.contains('review') ||
+            statusLower.contains('pending')) {
+          result = 'Under Review';
+          isPlaced = false;
+        } else {
+          result = video.statusLabel?.isNotEmpty == true
+              ? video.statusLabel!
+              : (video.status.isNotEmpty ? video.status : 'Participated');
+          isPlaced = false;
+        }
+
+        final existing = byChallenge[challengeId];
+        final existingScore = existing?.score?.toDouble() ?? -1;
+        final nextScore = score ?? -1;
+        if (existing == null || nextScore >= existingScore) {
+          byChallenge[challengeId] = RecentChallengePerformanceItem(
+            id: video.id,
+            challengeId: challengeId,
+            title: title,
+            result: result,
+            date: date,
+            score: score,
+            isPlaced: isPlaced,
+          );
+        }
+      }
+
+      final items = byChallenge.values.toList();
+      items.sort((a, b) => b.date.compareTo(a.date));
+      return items.take(10).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
   // --- 4. Recent Challenge Performance Cards ---
   Widget _buildRecentPerformanceList({
     required BuildContext context,
     required ProfileStatsData? data,
+    List<RecentChallengePerformanceItem> videosFallback = const [],
   }) {
-    if (data != null && data.recentChallengePerformance.isNotEmpty) {
-      return Column(
-        children: data.recentChallengePerformance.map((p) {
-          final title = p.title;
-          final result = p.result;
-          final date = p.date.isNotEmpty ? p.date : 'Recent';
-          final isPlaced = p.isPlaced;
+    final items = (data != null && data.recentChallengePerformance.isNotEmpty)
+        ? data.recentChallengePerformance
+        : videosFallback;
 
-          return GestureDetector(
-            onTap: () {
-              if (p.challengeId != null && p.challengeId!.isNotEmpty) {
-                context.push('/challenge-detail?id=${p.challengeId}');
-              }
-            },
+    if (items.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 12),
+        child: Text(
+          'Join a challenge and upload a video to see performance here.',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 12.5,
+            fontWeight: FontWeight.w500,
+            color: Color(0xFF8B849C),
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      children: items.map((p) {
+        final title = p.title;
+        final result = p.result;
+        final date = p.date.isNotEmpty ? p.date : 'Recent';
+        final isPlaced = p.isPlaced;
+        final challengeId = p.challengeId?.trim() ?? '';
+
+        return Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: challengeId.isEmpty
+                ? null
+                : () => context.push('/challenge-detail?id=$challengeId'),
+            borderRadius: BorderRadius.circular(16),
             child: Container(
               margin: const EdgeInsets.only(bottom: 10),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -616,23 +725,9 @@ class _TalentScoreScreenState extends State<TalentScoreScreen> {
                 ],
               ),
             ),
-          );
-        }).toList(),
-      );
-    }
-
-    return const Padding(
-      padding: EdgeInsets.symmetric(vertical: 12),
-      child: Text(
-        'Recent challenge performance will appear when stats are available.',
-        textAlign: TextAlign.center,
-        style: TextStyle(
-          fontFamily: 'Inter',
-          fontSize: 12.5,
-          fontWeight: FontWeight.w500,
-          color: Color(0xFF8B849C),
-        ),
-      ),
+          ),
+        );
+      }).toList(),
     );
   }
 

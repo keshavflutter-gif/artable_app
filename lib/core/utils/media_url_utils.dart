@@ -121,7 +121,13 @@ class MediaUrlUtils {
   }
 
   /// Detects whether an image URL is truly a dummy placeholder, mock data, or invalid.
-  static bool isDummyThumbnail(String? url) {
+  ///
+  /// Set [allowStockImages] for Rewards / marketing images that intentionally
+  /// use Unsplash / Picsum CDNs as fallbacks.
+  static bool isDummyThumbnail(
+    String? url, {
+    bool allowStockImages = false,
+  }) {
     if (url == null) return true;
     final clean = url.trim().toLowerCase();
     if (clean.isEmpty ||
@@ -131,15 +137,25 @@ class MediaUrlUtils {
         clean.contains('example.com')) {
       return true;
     }
+    // Non-image share / chat pages — never treat as thumbnails.
+    if (clean.contains('chatgpt.com') ||
+        clean.contains('chat.openai.com') ||
+        clean.contains('1drv.ms/') ||
+        clean.contains('onedrive.live.com')) {
+      return true;
+    }
     // Check for dummy / mock thumbnail patterns
     if (clean.contains('dummy') ||
         clean.contains('placeholder') ||
         clean.contains('16x16') ||
-        clean.contains('unsplash') ||
-        clean.contains('loremflickr') ||
-        clean.contains('picsum') ||
-        clean.contains('pravatar') ||
         looksLikeVideoUrl(clean)) {
+      return true;
+    }
+    if (!allowStockImages &&
+        (clean.contains('unsplash') ||
+            clean.contains('loremflickr') ||
+            clean.contains('picsum') ||
+            clean.contains('pravatar'))) {
       return true;
     }
     return false;

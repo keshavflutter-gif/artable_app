@@ -59,8 +59,14 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
         liveDetail == null;
     final hasJoined = liveDetail?.joined == true;
     final statusKey = (liveDetail?.status ?? 'ACTIVE').toLowerCase();
+    final endDate = liveDetail?.endDate ?? '';
+    final isCompleted = statusKey == 'completed' ||
+        statusKey == 'ended' ||
+        statusKey == 'closed' ||
+        (endDate.isNotEmpty && daysRemaining(endDate) < 0);
     final canJoin = liveDetail != null &&
         !hasJoined &&
+        !isCompleted &&
         (statusKey == 'active' || statusKey == 'live');
 
     final title = liveDetail?.title ?? '';
@@ -581,12 +587,12 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                             child: GradientButton(
                               label: provider.isJoiningChallenge(challengeId)
                                   ? 'Joining...'
-                                  : hasJoined
-                                      ? 'Submit Entry'
-                                      : (statusKey == 'upcoming'
-                                          ? 'View Details'
-                                          : statusKey == 'completed'
-                                              ? 'View Results'
+                                  : isCompleted
+                                      ? 'View Results'
+                                      : hasJoined
+                                          ? 'Submit Entry'
+                                          : (statusKey == 'upcoming'
+                                              ? 'View Details'
                                               : 'Join Challenge'),
                               icon: provider.isJoiningChallenge(challengeId)
                                   ? const SizedBox(
@@ -600,20 +606,35 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                                       ),
                                     )
                                   : Icon(
-                                      hasJoined
-                                          ? Icons.videocam_rounded
-                                          : Icons.arrow_forward,
+                                      isCompleted
+                                          ? Icons.emoji_events_rounded
+                                          : hasJoined
+                                              ? Icons.videocam_rounded
+                                              : Icons.arrow_forward,
                                       size: 18,
                                       color: Colors.white,
                                     ),
                               enabled: !provider
                                       .isJoiningChallenge(challengeId) &&
-                                  (canJoin || hasJoined),
+                                  (isCompleted ||
+                                      canJoin ||
+                                      (hasJoined && !isCompleted) ||
+                                      statusKey == 'upcoming'),
                               onPressed: () async {
                                 final targetId =
-                                    liveDetail.id.isNotEmpty
-                                        ? liveDetail.id
+                                    liveDetail?.id.isNotEmpty == true
+                                        ? liveDetail!.id
                                         : challengeId;
+                                // Completed → winners / results (from Talent Score etc.)
+                                if (isCompleted) {
+                                  context.push(
+                                    '${AppRoutes.winners}?challengeId=$targetId',
+                                  );
+                                  return;
+                                }
+                                if (statusKey == 'upcoming') {
+                                  return;
+                                }
                                 if (hasJoined) {
                                   context.push(
                                     '${AppRoutes.submitEntry}?id=$targetId',

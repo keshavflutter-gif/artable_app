@@ -48,7 +48,7 @@ class _SearchScreenState extends State<SearchScreen> {
                       padding: EdgeInsets.symmetric(vertical: 48),
                       child: EmptyNote(
                         message:
-                            'Search for creators, videos, and challenges will be available soon.',
+                            'Search creators, videos, and challenges using the bar above.',
                       ),
                     ),
                   ),

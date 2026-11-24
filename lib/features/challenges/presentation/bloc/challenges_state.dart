@@ -1,3 +1,4 @@
+import 'package:artable_app/core/utils/challenge_helpers.dart';
 import 'package:artable_app/data/datasources/mock_data.dart';
 import 'package:artable_app/features/challenges/data/models/categories_response.dart';
 import 'package:artable_app/features/challenges/data/models/challenge_detail_response.dart';
@@ -152,6 +153,29 @@ class ChallengesState {
     return list;
   }
 
+  /// True when challenge end date has passed (0 days left / ended).
+  static bool _isChallengeEnded(Map<String, dynamic> c) {
+    final status = (c['status'] as String? ?? '').toLowerCase().trim();
+    if (status == 'completed' || status == 'ended' || status == 'closed') {
+      return true;
+    }
+    final endDate = c['endDate']?.toString() ?? '';
+    if (endDate.isNotEmpty) {
+      return daysRemaining(endDate) <= 0;
+    }
+    final daysLeft = c['daysLeft'];
+    if (daysLeft is num) return daysLeft <= 0;
+    final label = (c['daysLeftLabel'] ?? c['timeLeft'] ?? '')
+        .toString()
+        .toLowerCase();
+    if (label.contains('0 day') ||
+        label.contains('ended') ||
+        label.contains('0d left')) {
+      return true;
+    }
+    return false;
+  }
+
   List<Map<String, dynamic>> getChallengesForTab(
     String tab, {
     String? categoryId,
@@ -164,6 +188,26 @@ class ChallengesState {
       list = tabChallenges[normTab]!.map((c) => c.toUiMap()).toList();
     } else {
       list = const [];
+    }
+
+    // FE safeguard: expired challenges belong in Completed, not Active.
+    if (normTab == 'ACTIVE' || normTab == 'FEATURED' || normTab == 'LIVE') {
+      list = list.where((c) => !_isChallengeEnded(c)).toList();
+    } else if (normTab == 'COMPLETED') {
+      final fromActive = (tabChallenges['ACTIVE'] ?? const [])
+          .map((c) => c.toUiMap())
+          .where(_isChallengeEnded)
+          .toList();
+      if (fromActive.isNotEmpty) {
+        final ids = list.map((c) => c['id']?.toString()).toSet();
+        for (final c in fromActive) {
+          final id = c['id']?.toString();
+          if (id != null && id.isNotEmpty && !ids.contains(id)) {
+            list = [...list, {...c, 'status': 'completed'}];
+            ids.add(id);
+          }
+        }
+      }
     }
 
     if (categoryId != null && categoryId.isNotEmpty) {

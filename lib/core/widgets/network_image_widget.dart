@@ -40,31 +40,45 @@ class NetworkImageWidget extends StatelessWidget {
       return fallback;
     }
 
-    final image = CachedNetworkImage(
-      imageUrl: cleanUrl,
-      width: width,
-      height: height,
-      fit: fit,
-      alignment: alignment,
-      placeholder: (context, url) => Container(
-        width: width,
-        height: height,
-        color: AppColors.inputBg,
-        child: const Center(
-          child: SizedBox(
-            width: 20,
-            height: 20,
-            child: CircularProgressIndicator(strokeWidth: 2),
+    // Fill parent when size isn't fixed (e.g. AspectRatio / Stack.expand).
+    // Without this, CachedNetworkImage can stay blank until a later rebuild.
+    final image = LayoutBuilder(
+      builder: (context, constraints) {
+        final w = width ??
+            (constraints.hasBoundedWidth && constraints.maxWidth.isFinite
+                ? constraints.maxWidth
+                : null);
+        final h = height ??
+            (constraints.hasBoundedHeight && constraints.maxHeight.isFinite
+                ? constraints.maxHeight
+                : null);
+        return CachedNetworkImage(
+          imageUrl: cleanUrl,
+          width: w,
+          height: h,
+          fit: fit,
+          alignment: alignment,
+          placeholder: (context, url) => Container(
+            width: w,
+            height: h,
+            color: AppColors.inputBg,
+            child: const Center(
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
           ),
-        ),
-      ),
-      errorWidget: (context, url, error) => Container(
-        width: width,
-        height: height,
-        color: AppColors.inputBg,
-        alignment: Alignment.center,
-        child: Icon(Icons.image_outlined, color: AppColors.textFaint, size: 24),
-      ),
+          errorWidget: (context, url, error) => Container(
+            width: w,
+            height: h,
+            color: AppColors.inputBg,
+            alignment: Alignment.center,
+            child: Icon(Icons.image_outlined, color: AppColors.textFaint, size: 24),
+          ),
+        );
+      },
     );
 
     if (borderRadius != null) {

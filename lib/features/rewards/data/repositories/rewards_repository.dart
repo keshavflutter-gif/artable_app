@@ -27,8 +27,10 @@ class RewardsRepository {
   late final ApiClient _apiClient;
   final AuthStorageService _storageService;
 
+  /// [type] — reward category: cash | voucher | product | sponsor
   Future<RewardsDashboardResponse> getRewards({
     String? tab,
+    String? type,
     int page = 1,
     int limit = 20,
     String? sessionToken,
@@ -39,6 +41,10 @@ class RewardsRepository {
           tab.trim().isNotEmpty &&
           tab.trim().toLowerCase() != 'all')
         'tab': tab.trim().toUpperCase(),
+      if (type != null &&
+          type.trim().isNotEmpty &&
+          type.trim().toLowerCase() != 'all')
+        'type': type.trim().toLowerCase(),
       'page': page.toString(),
       'limit': limit.toString(),
     };

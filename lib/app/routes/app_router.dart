@@ -454,7 +454,10 @@ abstract final class AppRouter {
         ),
         GoRoute(
           path: AppRoutes.winners,
-          builder: (context, state) => const WinnersScreen(),
+          builder: (context, state) => WinnersScreen(
+            challengeId: state.uri.queryParameters['challengeId'] ??
+                state.uri.queryParameters['id'],
+          ),
         ),
         GoRoute(
           path: AppRoutes.winnerDetail,
@@ -506,7 +509,9 @@ abstract final class AppRouter {
         ),
         GoRoute(
           path: AppRoutes.primePayment,
-          builder: (context, state) => const PrimePaymentScreen(),
+          builder: (context, state) => PrimePaymentScreen(
+            planId: state.uri.queryParameters['planId'],
+          ),
         ),
         GoRoute(
           path: AppRoutes.settings,

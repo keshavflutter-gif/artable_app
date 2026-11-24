@@ -272,10 +272,9 @@ class RewardItem {
   final String? code;
 
   String get displayImageUrl {
-    if (imageUrl != null &&
-        imageUrl!.trim().isNotEmpty &&
-        imageUrl!.startsWith('http')) {
-      return imageUrl!.trim();
+    final raw = imageUrl?.trim() ?? '';
+    if (_isUsableRewardImage(raw)) {
+      return raw;
     }
     switch (type.toLowerCase()) {
       case 'voucher':
@@ -290,6 +289,23 @@ class RewardItem {
       default:
         return 'https://images.unsplash.com/photo-1553729459-efe14ef6055d?w=600&q=80';
     }
+  }
+
+  /// Reject share/chat pages that are not real image files.
+  static bool _isUsableRewardImage(String url) {
+    if (url.isEmpty) return false;
+    final lower = url.toLowerCase();
+    if (!(lower.startsWith('http://') || lower.startsWith('https://'))) {
+      return false;
+    }
+    if (lower.contains('chatgpt.com') ||
+        lower.contains('chat.openai.com') ||
+        lower.contains('1drv.ms/') ||
+        lower.contains('onedrive.live.com') ||
+        lower.contains('example.com')) {
+      return false;
+    }
+    return true;
   }
 
   String _resolveStatus() {

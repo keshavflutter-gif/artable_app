@@ -1,7 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:artable_app/app/theme/app_colors.dart';
+import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
+import 'package:artable_app/features/notifications/data/mappers/notification_mappers.dart';
+import 'package:artable_app/features/trending/data/repositories/search_repository.dart';
 import 'package:artable_app/app/theme/app_text_styles.dart';
 import 'package:artable_app/core/widgets/app_back_header.dart';
 import 'package:artable_app/core/widgets/app_image.dart';
@@ -23,12 +29,82 @@ class _SearchResultsScreenState extends State<SearchResultsScreen>
     with SingleTickerProviderStateMixin {
   late final TextEditingController _controller;
   late final TabController _tabController;
+  SearchRepository? _repo;
+  var _loading = false;
+  var _activeQuery = '';
+  List<Map<String, dynamic>> _videos = const [];
+  List<Map<String, dynamic>> _creators = const [];
+  List<Map<String, dynamic>> _challenges = const [];
+
+  SearchRepository _repository() {
+    final auth = context.read<AuthCubit>();
+    return _repo ??= SearchRepository(
+      onTokensRefreshed: auth.applyRefreshedTokens,
+      onSessionRefreshFailed: auth.handleSessionRefreshFailed,
+    );
+  }
+
+  static const _tabKeys = ['top', 'videos', 'creators', 'challenges'];
 
   @override
   void initState() {
     super.initState();
     _controller = TextEditingController(text: widget.query);
     _tabController = TabController(length: 4, vsync: this);
+    _tabController.addListener(() {
+      if (!_tabController.indexIsChanging) {
+        unawaited(_runSearch(_activeQuery));
+      }
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && widget.query.trim().isNotEmpty) {
+        unawaited(_runSearch(widget.query.trim()));
+      }
+    });
+  }
+
+  Future<void> _runSearch(String query) async {
+    final q = query.trim();
+    _activeQuery = q;
+    if (q.isEmpty) {
+      setState(() {
+        _videos = const [];
+        _creators = const [];
+        _challenges = const [];
+      });
+      return;
+    }
+
+    setState(() => _loading = true);
+    try {
+      final auth = context.read<AuthCubit>();
+      final tab = _tabKeys[_tabController.index];
+      final res = await _repository().search(
+        query: q,
+        tab: tab,
+        sessionToken: auth.sessionToken,
+        refreshToken: auth.refreshToken,
+      );
+      if (!mounted || _activeQuery != q) return;
+      setState(() {
+        _videos = (res['videos'] as List)
+            .whereType<Map>()
+            .map((e) => searchVideoToUi(Map<String, dynamic>.from(e)))
+            .toList();
+        _creators = (res['creators'] as List)
+            .whereType<Map>()
+            .map((e) => searchCreatorToUi(Map<String, dynamic>.from(e)))
+            .toList();
+        _challenges = (res['challenges'] as List)
+            .whereType<Map>()
+            .map((e) => searchChallengeToUi(Map<String, dynamic>.from(e)))
+            .toList();
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
   }
 
   @override
@@ -40,10 +116,9 @@ class _SearchResultsScreenState extends State<SearchResultsScreen>
 
   @override
   Widget build(BuildContext context) {
-    // Search API not wired yet — never show mock creators/videos/challenges.
-    const matchingVideos = <Map<String, dynamic>>[];
-    const matchingCreators = <Map<String, dynamic>>[];
-    const matchingChallenges = <Map<String, dynamic>>[];
+    final matchingVideos = _videos;
+    final matchingCreators = _creators;
+    final matchingChallenges = _challenges;
 
     return AppScreen(
       child: Column(
@@ -62,7 +137,7 @@ class _SearchResultsScreenState extends State<SearchResultsScreen>
               ),
               child: TextField(
                 controller: _controller,
-                onSubmitted: (val) => setState(() {}),
+                onSubmitted: (val) => unawaited(_runSearch(val)),
                 decoration: InputDecoration(
                   hintText: 'Search artworks, creators, challenges...',
                   hintStyle: AppTextStyles.body.copyWith(
@@ -95,7 +170,9 @@ class _SearchResultsScreenState extends State<SearchResultsScreen>
             ],
           ),
           Expanded(
-            child: TabBarView(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : TabBarView(
               controller: _tabController,
               children: [
                 _buildTopTab(
@@ -386,7 +463,7 @@ class _SearchResultsScreenState extends State<SearchResultsScreen>
           ),
           const SizedBox(height: 12),
           Text(
-            'Search will be available soon',
+            'No results found',
             style: AppTextStyles.displaySemiBold14.copyWith(
               color: AppColors.textSoft,
             ),

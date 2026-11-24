@@ -81,7 +81,12 @@ class ProfileStatsData {
     }
 
     final rawRecent = json['recentChallengePerformance'] ??
-        json['recent_challenge_performance'];
+        json['recent_challenge_performance'] ??
+        json['recentChallenges'] ??
+        json['recent_challenges'] ??
+        json['challengePerformance'] ??
+        json['challenge_performance'] ??
+        json['performances'];
     final recentList = <RecentChallengePerformanceItem>[];
     if (rawRecent is List) {
       for (final item in rawRecent) {
@@ -254,23 +259,102 @@ class RecentChallengePerformanceItem {
   final bool isPlaced;
 
   factory RecentChallengePerformanceItem.fromJson(Map<String, dynamic> json) {
-    final res = json['result']?.toString() ?? 'Participated';
-    final hasScore = json['score'] != null;
-    final isPlaced = json['isPlaced'] == true ||
-        hasScore ||
-        res.toLowerCase().contains('top') ||
-        res.toLowerCase().contains('winner') ||
-        res.toLowerCase().contains('place');
+    final challengeObj = json['challenge'] is Map
+        ? Map<String, dynamic>.from(json['challenge'] as Map)
+        : null;
+
+    final rankRaw = json['rank'] ?? json['position'] ?? json['place'];
+    String? rankLabel;
+    if (rankRaw is num && rankRaw > 0) {
+      final n = rankRaw.toInt();
+      if (n <= 3) {
+        rankLabel = n == 1 ? 'Winner' : 'Top $n';
+      } else if (n <= 10) {
+        rankLabel = 'Top 10';
+      } else if (n <= 25) {
+        rankLabel = 'Top 25';
+      } else {
+        rankLabel = '#$n';
+      }
+    } else if (rankRaw != null && rankRaw.toString().trim().isNotEmpty) {
+      rankLabel = rankRaw.toString().trim();
+    }
+
+    final res = (json['result']?.toString() ??
+            json['placement']?.toString() ??
+            json['rankLabel']?.toString() ??
+            json['rank_label']?.toString() ??
+            json['placementLabel']?.toString() ??
+            json['statusLabel']?.toString() ??
+            rankLabel ??
+            json['status']?.toString() ??
+            'Participated')
+        .trim();
+
+    final scoreRaw = json['score'] ??
+        json['talentScore'] ??
+        json['talent_score'] ??
+        json['averageRating'] ??
+        json['avgRating'];
+    num? score;
+    if (scoreRaw is num) {
+      score = scoreRaw;
+    } else if (scoreRaw != null) {
+      score = num.tryParse(scoreRaw.toString());
+    }
+
+    final lowerRes = res.toLowerCase();
+    final notPlaced = lowerRes.contains('not placed') ||
+        lowerRes.contains('unplaced') ||
+        lowerRes == 'rejected';
+    final isPlaced = !notPlaced &&
+        (json['isPlaced'] == true ||
+            json['is_placed'] == true ||
+            (score != null && score > 0) ||
+            lowerRes.contains('top') ||
+            lowerRes.contains('winner') ||
+            (lowerRes.contains('place') && !notPlaced) ||
+            lowerRes.startsWith('#'));
+
+    final challengeId = json['challengeId']?.toString() ??
+        json['challenge_id']?.toString() ??
+        challengeObj?['id']?.toString() ??
+        challengeObj?['_id']?.toString();
+
+    final title = (json['title']?.toString() ??
+            json['challengeTitle']?.toString() ??
+            json['challenge_title']?.toString() ??
+            json['challengeName']?.toString() ??
+            json['name']?.toString() ??
+            challengeObj?['title']?.toString() ??
+            challengeObj?['name']?.toString() ??
+            'Challenge')
+        .trim();
+
+    var date = json['date']?.toString() ??
+        json['dateLabel']?.toString() ??
+        json['date_label']?.toString() ??
+        json['endedAt']?.toString() ??
+        json['ended_at']?.toString() ??
+        json['completedAt']?.toString() ??
+        json['createdAt']?.toString() ??
+        json['created_at']?.toString() ??
+        '';
+    final parsedDate = DateTime.tryParse(date);
+    if (parsedDate != null) {
+      final y = parsedDate.year.toString().padLeft(4, '0');
+      final m = parsedDate.month.toString().padLeft(2, '0');
+      final d = parsedDate.day.toString().padLeft(2, '0');
+      date = '$y-$m-$d';
+    }
 
     return RecentChallengePerformanceItem(
       id: json['id']?.toString() ?? json['_id']?.toString(),
-      challengeId: json['challengeId']?.toString() ??
-          json['challenge_id']?.toString() ??
-          json['id']?.toString(),
-      title: json['title']?.toString() ?? json['challengeTitle']?.toString() ?? 'Challenge',
-      result: res,
-      date: json['date']?.toString() ?? json['createdAt']?.toString() ?? '',
-      score: json['score'] as num?,
+      challengeId: challengeId,
+      title: title.isEmpty ? 'Challenge' : title,
+      result: res.isEmpty ? 'Participated' : res,
+      date: date,
+      score: score,
       isPlaced: isPlaced,
     );
   }

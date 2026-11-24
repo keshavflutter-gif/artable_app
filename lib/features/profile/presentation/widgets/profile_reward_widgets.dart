@@ -497,6 +497,8 @@ class RewardCard extends StatelessWidget {
                   height: 105,
                   width: double.infinity,
                   fit: BoxFit.cover,
+                  acceptStockImages: true,
+                  placeholderIcon: Icons.card_giftcard_rounded,
                 ),
                 Positioned(
                   top: 8,

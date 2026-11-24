@@ -18,6 +18,7 @@ class WithdrawalRequestScreen extends StatefulWidget {
 class _WithdrawalRequestScreenState extends State<WithdrawalRequestScreen> {
   final _amountController = TextEditingController();
   var _success = false;
+  var _submitting = false;
 
   @override
   void initState() {
@@ -443,42 +444,60 @@ class _WithdrawalRequestScreenState extends State<WithdrawalRequestScreen> {
                       child: Material(
                         color: Colors.transparent,
                         child: InkWell(
-                          onTap: () {
-                            final parsed =
-                                double.tryParse(_amountController.text) ?? 0.0;
-                            if (parsed < 50.0) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text(
-                                    'Minimum withdrawal amount is ₹50.',
-                                  ),
-                                  backgroundColor: Color(0xFFFF3D77),
-                                ),
-                              );
-                              return;
-                            }
-                            // Withdraw API / Razorpay payout not wired yet —
-                            // do not show a fake success state.
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'Withdrawal is coming soon. Your balance is safe in the wallet.',
-                                ),
-                                backgroundColor: Color(0xFF5E2EAA),
-                              ),
-                            );
-                          },
+                          onTap: _submitting
+                              ? null
+                              : () async {
+                                  final parsed =
+                                      double.tryParse(_amountController.text) ??
+                                          0.0;
+                                  if (parsed < 50.0) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'Minimum withdrawal amount is ₹50.',
+                                        ),
+                                        backgroundColor: Color(0xFFFF3D77),
+                                      ),
+                                    );
+                                    return;
+                                  }
+                                  setState(() => _submitting = true);
+                                  final err = await context
+                                      .read<WalletCubit>()
+                                      .requestWithdraw(amount: parsed);
+                                  if (!mounted) return;
+                                  setState(() => _submitting = false);
+                                  if (err == null) {
+                                    setState(() => _success = true);
+                                  } else {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(err),
+                                        backgroundColor: const Color(0xFFFF3D77),
+                                      ),
+                                    );
+                                  }
+                                },
                           borderRadius: BorderRadius.circular(27),
-                          child: const Center(
-                            child: Text(
-                              'Request Withdrawal',
-                              style: TextStyle(
-                                fontFamily: 'Poppins',
-                                color: Colors.white,
-                                fontWeight: FontWeight.w800,
-                                fontSize: 15,
-                              ),
-                            ),
+                          child: Center(
+                            child: _submitting
+                                ? const SizedBox(
+                                    width: 22,
+                                    height: 22,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2.2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const Text(
+                                    'Request Withdrawal',
+                                    style: TextStyle(
+                                      fontFamily: 'Poppins',
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 15,
+                                    ),
+                                  ),
                           ),
                         ),
                       ),

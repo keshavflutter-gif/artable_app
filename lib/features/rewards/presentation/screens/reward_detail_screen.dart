@@ -129,8 +129,10 @@ class _RewardDetailScreenState extends State<RewardDetailScreen> {
                 fit: StackFit.expand,
                 children: [
                   AppImage(
-                    url: r['imageUrl'] as String,
+                    url: r['imageUrl'] as String? ?? '',
                     fit: BoxFit.cover,
+                    acceptStockImages: true,
+                    placeholderIcon: Icons.card_giftcard_rounded,
                   ),
                   DecoratedBox(
                     decoration: BoxDecoration(

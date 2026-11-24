@@ -1,3 +1,5 @@
+import 'package:artable_app/core/utils/media_url_utils.dart';
+
 import 'categories_response.dart';
 
 class ChallengesListResponse {
@@ -147,9 +149,7 @@ class ChallengeDetailData {
       rewardPool: json['rewardPool']?.toString() ?? '',
       prizePoolLabel: json['prizePoolLabel']?.toString() ?? '',
       participationFee: json['participationFee']?.toString() ?? '0',
-      bannerUrl: json['bannerUrl']?.toString() ??
-          json['imageUrl']?.toString() ??
-          '',
+      bannerUrl: _extractBannerUrl(json),
       category: json['category'] is Map
           ? CategoryDetailItem.fromJson(
               Map<String, dynamic>.from(json['category'] as Map))
@@ -258,6 +258,58 @@ class ChallengeDetailData {
     if (value is num) return value.toInt();
     if (value is String) return int.tryParse(value) ?? fallback;
     return fallback;
+  }
+
+  /// Picks the first usable challenge image from list/detail payloads.
+  /// Empty `bannerUrl: ""` must not block `imageUrl` / `coverUrl` fallbacks.
+  static String _extractBannerUrl(Map<String, dynamic> json) {
+    String? fromValue(dynamic value) {
+      if (value == null) return null;
+      if (value is String) {
+        final resolved = MediaUrlUtils.resolve(value);
+        return resolved.isNotEmpty ? resolved : null;
+      }
+      if (value is Map) {
+        final map = Map<String, dynamic>.from(value);
+        for (final key in [
+          'url',
+          'src',
+          'imageUrl',
+          'bannerUrl',
+          'path',
+          'uri',
+        ]) {
+          final nested = fromValue(map[key]);
+          if (nested != null) return nested;
+        }
+      }
+      return null;
+    }
+
+    for (final key in [
+      'bannerUrl',
+      'imageUrl',
+      'coverUrl',
+      'cover_url',
+      'banner',
+      'image',
+      'thumbnailUrl',
+      'posterUrl',
+    ]) {
+      final picked = fromValue(json[key]);
+      if (picked != null) return picked;
+    }
+
+    final category = json['category'];
+    if (category is Map) {
+      final cat = Map<String, dynamic>.from(category);
+      for (final key in ['imageUrl', 'bannerUrl', 'coverUrl', 'image']) {
+        final picked = fromValue(cat[key]);
+        if (picked != null) return picked;
+      }
+    }
+
+    return '';
   }
 
   String get formattedPrizePool {

@@ -30,12 +30,16 @@ class WinnersRepository {
 
   Future<WinnersResponse> getWinners({
     String? tab,
+    String? challengeId,
     String? sessionToken,
     String? refreshToken,
   }) async {
     final queryParams = <String, String>{};
     if (tab != null && tab.trim().isNotEmpty) {
       queryParams['tab'] = tab.trim();
+    }
+    if (challengeId != null && challengeId.trim().isNotEmpty) {
+      queryParams['challengeId'] = challengeId.trim();
     }
 
     final headers = (sessionToken != null &&
