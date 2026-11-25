@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:just_audio/just_audio.dart';
 
+import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_text_styles.dart';
 import 'package:artable_app/features/studio/presentation/bloc/studio_cubit.dart';
@@ -255,6 +256,20 @@ class _SongTrimmerSheetState extends State<SongTrimmerSheet> {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ],
+                ),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  context.push(AppRoutes.studioMusic);
+                },
+                child: const Text(
+                  'Change',
+                  style: TextStyle(
+                    color: AppColors.purple,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
                 ),
               ),
               IconButton(

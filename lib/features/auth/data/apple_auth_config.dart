@@ -1,21 +1,22 @@
 /// Apple Sign-In config.
-/// Fill [clientId] and [redirectUri] when the client provides Apple Developer details.
 ///
-/// Required from Apple Developer / Firebase later:
-/// 1. Enable "Sign In with Apple" capability for App ID `com.artable`
-/// 2. Create a Services ID (used as [clientId] on Android)
-/// 3. Configure return URL / redirect URI (used as [redirectUri] on Android)
-/// 4. Enable Apple provider in Firebase Authentication
-/// 5. Add Team ID, Key ID, and .p8 private key in Firebase (Apple provider settings)
+/// For iOS:
+/// - Sign in with Apple uses native authorization (capabilities enabled in `Runner.entitlements`).
+///
+/// For Android (Web-based OAuth redirect flow):
+/// 1. Create a Services ID in Apple Developer Portal (e.g. `com.artable.signin`).
+/// 2. Configure return URL / redirect URI in Apple Developer Portal.
+/// 3. Set [clientId] and [redirectUri] below.
 class AppleAuthConfig {
   AppleAuthConfig._();
 
-  /// Apple Services ID (e.g. `com.artable.signin`). Leave empty until provided.
-  static const String clientId = '';
+  /// Apple Services ID (e.g. `com.artable.signin`).
+  static const String clientId = 'com.artable.signin';
 
-  /// OAuth redirect URI registered with Apple / Firebase handler URL.
-  /// Example: `https://coffee-spark-ai-barista-5e2cd.firebaseapp.com/__/auth/handler`
-  static const String redirectUri = '';
+  /// OAuth redirect URI registered with Apple / Firebase auth handler.
+  /// Example: `https://<firebase-project>.firebaseapp.com/__/auth/handler`
+  static const String redirectUri =
+      'https://artable.app/auth/apple/callback';
 
   static bool get isAndroidConfigured =>
       clientId.isNotEmpty && redirectUri.isNotEmpty;

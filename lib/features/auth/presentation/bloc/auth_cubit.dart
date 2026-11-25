@@ -523,14 +523,18 @@ class AuthCubit extends Cubit<AuthState> {
             : null,
       );
 
-      final OAuthCredential credential = OAuthProvider('apple.com').credential(
-        idToken: appleCredential.identityToken,
-        rawNonce: rawNonce,
-      );
-
-      final UserCredential userCredential =
-          await FirebaseAuth.instance.signInWithCredential(credential);
-      final User? firebaseUser = userCredential.user;
+      User? firebaseUser;
+      try {
+        final OAuthCredential credential = OAuthProvider('apple.com').credential(
+          idToken: appleCredential.identityToken,
+          rawNonce: rawNonce,
+        );
+        final UserCredential userCredential =
+            await FirebaseAuth.instance.signInWithCredential(credential);
+        firebaseUser = userCredential.user;
+      } catch (e) {
+        debugPrint('FirebaseAuth Apple signInWithCredential note: $e');
+      }
 
       final firstName = appleCredential.givenName?.trim() ?? '';
       final lastName = appleCredential.familyName?.trim() ?? '';
@@ -540,11 +544,20 @@ class AuthCubit extends Cubit<AuthState> {
 
       final name = firebaseUser?.displayName ??
           (appleName.isNotEmpty ? appleName : 'Apple User');
-      final email = (firebaseUser?.email ?? appleCredential.email ?? '').trim();
+
+      var email = (firebaseUser?.email ?? appleCredential.email ?? '').trim();
+      if (email.isEmpty) {
+        email = _extractEmailFromJwt(appleCredential.identityToken) ?? '';
+      }
       final photoUrl = firebaseUser?.photoURL;
+
       final providerId = (appleCredential.userIdentifier?.isNotEmpty == true)
           ? appleCredential.userIdentifier!
           : (firebaseUser?.uid ?? '');
+
+      if (email.isEmpty && providerId.isNotEmpty) {
+        email = '$providerId@appleid.artable.app';
+      }
 
       if (email.isEmpty || providerId.isEmpty) {
         emit(state.copyWith(
@@ -654,6 +667,21 @@ class AuthCubit extends Cubit<AuthState> {
       length,
       (_) => charset[random.nextInt(charset.length)],
     ).join();
+  }
+
+  String? _extractEmailFromJwt(String? token) {
+    if (token == null || token.isEmpty) return null;
+    try {
+      final parts = token.split('.');
+      if (parts.length < 2) return null;
+      final normalized = base64Url.normalize(parts[1]);
+      final payloadString = utf8.decode(base64Url.decode(normalized));
+      final payloadMap = jsonDecode(payloadString);
+      if (payloadMap is Map) {
+        return payloadMap['email']?.toString();
+      }
+    } catch (_) {}
+    return null;
   }
 
   Future<RegisterResponse?> register({

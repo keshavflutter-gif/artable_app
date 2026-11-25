@@ -105,6 +105,7 @@ class _MusicLibraryScreenState extends State<MusicLibraryScreen> {
                               return GestureDetector(
                                 onTap: () => context.push(
                                   '/music-preview?id=${Uri.encodeComponent(t.id)}',
+                                  extra: t,
                                 ),
                                 child: Container(
                                   margin: const EdgeInsets.only(bottom: 10),

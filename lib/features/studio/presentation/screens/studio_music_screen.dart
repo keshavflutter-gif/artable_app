@@ -10,6 +10,8 @@ import 'package:artable_app/app/theme/app_text_styles.dart';
 import 'package:artable_app/features/studio/presentation/bloc/studio_cubit.dart';
 import 'package:artable_app/features/studio/data/services/studio_music_playback_service.dart';
 import 'package:artable_app/data/datasources/music_api_service.dart';
+import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
+import 'package:artable_app/features/music/data/repositories/music_repository.dart';
 import 'package:artable_app/core/widgets/app_network_image.dart';
 import 'package:artable_app/core/widgets/app_screen_header.dart';
 import 'package:artable_app/core/widgets/gradient_button.dart';
@@ -35,6 +37,11 @@ class _StudioMusicScreenState extends State<StudioMusicScreen>
   String? _playingTrackId;
   final _likedIds = <String>{};
 
+  List<FreeToUseTrack> _libraryTracks = [];
+  bool _isLoadingLibrary = false;
+  String? _libraryError;
+  MusicRepository? _musicRepo;
+
   AudioPlayer? _audioPlayer;
   StreamSubscription<PlayerState>? _playerStateSub;
 
@@ -49,6 +56,7 @@ class _StudioMusicScreenState extends State<StudioMusicScreen>
         : MusicApiService.fallbackTracks;
     _isInitialLoad = false;
     _loadTracks();
+    unawaited(_loadLibraryTracks());
   }
 
   void _initAudioPlayer() {
@@ -90,6 +98,73 @@ class _StudioMusicScreenState extends State<StudioMusicScreen>
     super.dispose();
   }
 
+  MusicRepository _repository() {
+    if (_musicRepo != null) return _musicRepo!;
+    try {
+      final auth = context.read<AuthCubit>();
+      return _musicRepo = MusicRepository(
+        onTokensRefreshed: auth.applyRefreshedTokens,
+        onSessionRefreshFailed: auth.handleSessionRefreshFailed,
+      );
+    } catch (_) {
+      return _musicRepo = MusicRepository();
+    }
+  }
+
+  Future<void> _loadLibraryTracks({bool forceRefresh = false}) async {
+    if (_isLoadingLibrary) return;
+    if (_libraryTracks.isNotEmpty && !forceRefresh) return;
+
+    if (mounted) {
+      setState(() {
+        _isLoadingLibrary = true;
+        _libraryError = null;
+      });
+    }
+
+    try {
+      String? sessionToken;
+      String? refreshToken;
+      try {
+        final auth = context.read<AuthCubit>();
+        sessionToken = auth.sessionToken;
+        refreshToken = auth.refreshToken;
+      } catch (_) {}
+
+      final items = await _repository().getMusic(
+        sessionToken: sessionToken,
+        refreshToken: refreshToken,
+      );
+
+      final converted = items.map((m) {
+        return FreeToUseTrack(
+          id: m.id,
+          title: m.title,
+          artist: m.artist,
+          duration: m.duration,
+          coverUrl: m.coverUrl,
+          audioUrl: m.audioUrl,
+          waveform: m.waveform,
+          category: 'Music Library',
+        );
+      }).toList();
+
+      if (mounted) {
+        setState(() {
+          _libraryTracks = converted;
+          _isLoadingLibrary = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoadingLibrary = false;
+          _libraryError = 'Failed to load music library.';
+        });
+      }
+    }
+  }
+
   Future<void> _loadTracks({bool forceRefresh = false}) async {
     final hasVisibleTracks = _tracks.isNotEmpty;
     if (mounted) {
@@ -97,6 +172,10 @@ class _StudioMusicScreenState extends State<StudioMusicScreen>
         _isRefreshing = !hasVisibleTracks;
         _loadError = null;
       });
+    }
+
+    if (forceRefresh) {
+      unawaited(_loadLibraryTracks(forceRefresh: true));
     }
 
     try {
@@ -120,9 +199,11 @@ class _StudioMusicScreenState extends State<StudioMusicScreen>
   }
 
   List<String> get _categories {
-    final cats = {'All', 'Ambient', 'Chill', 'Easy Listening', 'Pop'};
+    final cats = {'All', 'Music Library', 'Ambient', 'Chill', 'Easy Listening', 'Pop'};
     for (final t in _tracks) {
-      if (t.category.isNotEmpty && t.category != 'All') {
+      if (t.category.isNotEmpty &&
+          t.category != 'All' &&
+          t.category.toLowerCase() != 'music library') {
         cats.add(t.category);
       }
     }
@@ -130,13 +211,16 @@ class _StudioMusicScreenState extends State<StudioMusicScreen>
   }
 
   List<FreeToUseTrack> get _filtered {
-    return _tracks.where((t) {
+    final isLibrary = _activeCategory.toLowerCase() == 'music library';
+    final source = isLibrary ? _libraryTracks : _tracks;
+    return source.where((t) {
       final matchesQuery = _query.isEmpty ||
           t.title.toLowerCase().contains(_query.toLowerCase()) ||
           t.artist.toLowerCase().contains(_query.toLowerCase()) ||
           t.category.toLowerCase().contains(_query.toLowerCase());
-      final matchesCategory =
-          _activeCategory == 'All' || t.category.toLowerCase() == _activeCategory.toLowerCase();
+      final matchesCategory = _activeCategory == 'All' ||
+          isLibrary ||
+          t.category.toLowerCase() == _activeCategory.toLowerCase();
       return matchesQuery && matchesCategory;
     }).toList();
   }
@@ -224,7 +308,9 @@ class _StudioMusicScreenState extends State<StudioMusicScreen>
     );
 
     final filtered = _filtered;
-    final showSkeleton = _isInitialLoad && _tracks.isEmpty;
+    final isLibraryActive = _activeCategory.toLowerCase() == 'music library';
+    final showSkeleton = (_isInitialLoad && _tracks.isEmpty) ||
+        (isLibraryActive && _isLoadingLibrary && _libraryTracks.isEmpty);
 
     return Scaffold(
       backgroundColor: AppColors.bg,
@@ -238,7 +324,12 @@ class _StudioMusicScreenState extends State<StudioMusicScreen>
                 ),
                 Expanded(
                   child: RefreshIndicator(
-                    onRefresh: () => _loadTracks(forceRefresh: true),
+                    onRefresh: () async {
+                      await Future.wait([
+                        _loadTracks(forceRefresh: true),
+                        _loadLibraryTracks(forceRefresh: true),
+                      ]);
+                    },
                     child: CustomScrollView(
                       physics: const AlwaysScrollableScrollPhysics(),
                       slivers: [
@@ -299,8 +390,13 @@ class _StudioMusicScreenState extends State<StudioMusicScreen>
                                     return Padding(
                                       padding: const EdgeInsets.only(right: 8),
                                       child: GestureDetector(
-                                        onTap: () =>
-                                            setState(() => _activeCategory = cat),
+                                        onTap: () {
+                                          setState(() => _activeCategory = cat);
+                                          if (cat.toLowerCase() == 'music library' &&
+                                              _libraryTracks.isEmpty) {
+                                            unawaited(_loadLibraryTracks());
+                                          }
+                                        },
                                         child: Container(
                                           padding: const EdgeInsets.symmetric(
                                             horizontal: 18,
@@ -340,11 +436,11 @@ class _StudioMusicScreenState extends State<StudioMusicScreen>
                                 ),
                               ),
                               const SizedBox(height: 16),
-                              if (_loadError != null) ...[
+                              if ((isLibraryActive ? _libraryError : _loadError) != null) ...[
                                 Padding(
                                   padding: const EdgeInsets.only(bottom: 12),
                                   child: Text(
-                                    _loadError!,
+                                    (isLibraryActive ? _libraryError : _loadError)!,
                                     style: AppTextStyles.hint12.copyWith(
                                       color: AppColors.pink,
                                     ),
@@ -370,9 +466,17 @@ class _StudioMusicScreenState extends State<StudioMusicScreen>
                             child: Padding(
                               padding: const EdgeInsets.all(32),
                               child: Text(
-                                _isRefreshing
-                                    ? 'Loading tracks...'
-                                    : 'No tracks found for "$_query".',
+                                isLibraryActive
+                                    ? (_isLoadingLibrary
+                                        ? 'Loading library tracks...'
+                                        : (_query.isNotEmpty
+                                            ? 'No library tracks found for "$_query".'
+                                            : 'No tracks in Music Library yet.'))
+                                    : (_isRefreshing
+                                        ? 'Loading tracks...'
+                                        : (_query.isNotEmpty
+                                            ? 'No tracks found for "$_query".'
+                                            : 'No tracks found.')),
                                 style: AppTextStyles.hint12,
                                 textAlign: TextAlign.center,
                               ),

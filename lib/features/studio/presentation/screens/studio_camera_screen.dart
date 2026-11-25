@@ -113,7 +113,11 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
     final studio = _studioCubit;
     if (studio == null) return;
     final trackId = studio.selectedTrack?.id;
-    if (trackId == null || trackId == _lastPreloadedTrackId) return;
+    if (trackId == null) {
+      _lastPreloadedTrackId = null;
+      return;
+    }
+    if (trackId == _lastPreloadedTrackId) return;
     _lastPreloadedTrackId = trackId;
     unawaited(StudioMusicPlaybackService.preloadForStudio(studio));
   }
@@ -560,6 +564,7 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
         await StudioVideoPlayerUtils.prepareLocalRecordingForPlayback(savedPath) ??
             savedPath;
     savedPath = playablePath;
+    if (!mounted) return;
     context.read<StudioCubit>().setRecordedVideoPath(
           savedPath,
           clearMergedClips: true,
@@ -1671,23 +1676,11 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
                       final cropDuration = musicData.$3;
 
                       return GestureDetector(
-                        onTap: () {
-                          if (selectedTrack != null) {
-                            final studio = context.read<StudioCubit>();
-                            SongTrimmerSheet.show(
-                              context,
-                              track: selectedTrack,
-                              initialStart: studio.musicStartSeconds,
-                              initialDuration: studio.musicCropDuration,
-                              popParentOnApply: false,
-                              onApplied: () {
-                                final s = context.read<StudioCubit>();
-                                StudioMusicPlaybackService.invalidateLoadedTrack();
-                                unawaited(StudioMusicPlaybackService.preloadForStudio(s));
-                              },
-                            );
-                          } else {
-                            context.push('${AppRoutes.studioMusic}?id=${challenge['id']}');
+                        onTap: () async {
+                          await context.push('${AppRoutes.studioMusic}?id=${challenge['id']}');
+                          if (mounted) {
+                            _lastPreloadedTrackId = null;
+                            _preloadSelectedMusic();
                           }
                         },
                         child: Container(
@@ -1717,18 +1710,36 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
                               ),
                               if (selectedTrack != null) ...[
                                 const SizedBox(width: 6),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.purple,
-                                    borderRadius: BorderRadius.circular(6),
-                                  ),
-                                  child: Text(
-                                    '${cropDuration}s',
-                                    style: const TextStyle(
-                                      fontSize: 9,
-                                      fontWeight: FontWeight.w800,
-                                      color: Colors.white,
+                                GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: () {
+                                    final studio = context.read<StudioCubit>();
+                                    SongTrimmerSheet.show(
+                                      context,
+                                      track: selectedTrack,
+                                      initialStart: studio.musicStartSeconds,
+                                      initialDuration: studio.musicCropDuration,
+                                      popParentOnApply: false,
+                                      onApplied: () {
+                                        final s = context.read<StudioCubit>();
+                                        StudioMusicPlaybackService.invalidateLoadedTrack();
+                                        unawaited(StudioMusicPlaybackService.preloadForStudio(s));
+                                      },
+                                    );
+                                  },
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.purple,
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Text(
+                                      '${cropDuration}s',
+                                      style: const TextStyle(
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.w800,
+                                        color: Colors.white,
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -1738,6 +1749,7 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
                                   onTap: () {
                                     final studio = context.read<StudioCubit>();
                                     studio.setSelectedTrack(null);
+                                    _lastPreloadedTrackId = null;
                                     unawaited(StudioMusicPlaybackService.stop());
                                   },
                                   child: const Icon(
@@ -1874,9 +1886,15 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
                               disabled: _state == _CameraState.recording,
                               onTap: _state == _CameraState.recording
                                   ? null
-                                  : () => context.push(
-                                    '${AppRoutes.studioMusic}?id=${challenge['id']}',
-                                  ),
+                                  : () async {
+                                      await context.push(
+                                        '${AppRoutes.studioMusic}?id=${challenge['id']}',
+                                      );
+                                      if (mounted) {
+                                        _lastPreloadedTrackId = null;
+                                        _preloadSelectedMusic();
+                                      }
+                                    },
                             ),
                           ],
                         ),

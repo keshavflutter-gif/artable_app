@@ -117,6 +117,20 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/artable_file_paths" />
         </provider>
+
+        <!-- Sign in with Apple callback activity for Android web authentication -->
+        <activity
+            android:name="com.aboutyou.dart_packages.sign_in_with_apple.SignInWithAppleCallbackActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="signinwithapple"
+                    android:path="/sign_in_with_apple_callback" />
+            </intent-filter>
+        </activity>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

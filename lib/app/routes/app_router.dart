@@ -18,6 +18,7 @@ import 'package:artable_app/features/challenges/presentation/screens/categories_
 import 'package:artable_app/features/challenges/presentation/screens/challenge_detail_screen.dart';
 import 'package:artable_app/features/challenges/presentation/screens/submit_entry_screen.dart';
 import 'package:artable_app/features/membership/presentation/screens/membership_plan_screen.dart';
+import 'package:artable_app/features/music/data/models/music_track.dart';
 import 'package:artable_app/features/music/presentation/screens/music_library_screen.dart';
 import 'package:artable_app/features/music/presentation/screens/music_preview_screen.dart';
 import 'package:artable_app/features/notifications/presentation/screens/notifications_screen.dart';
@@ -285,6 +286,7 @@ abstract final class AppRouter {
           ),
         ),
         GoRoute(
+          name: AppRoutes.studioCamera,
           path: AppRoutes.studioCamera,
           builder: (context, state) => StudioCameraScreen(
             challengeId: state.uri.queryParameters['id'],
@@ -487,6 +489,8 @@ abstract final class AppRouter {
           path: AppRoutes.musicPreview,
           builder: (context, state) => MusicPreviewScreen(
             trackId: state.uri.queryParameters['id'],
+            initialTrack:
+                state.extra is MusicTrack ? state.extra as MusicTrack : null,
           ),
         ),
         GoRoute(
