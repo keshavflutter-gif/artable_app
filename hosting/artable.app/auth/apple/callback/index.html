@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Apple Sign-In</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      font-family: system-ui, -apple-system, Segoe UI, sans-serif;
+      background: #0f0a1a;
+      color: #f5f2ff;
+      text-align: center;
+      padding: 24px;
+    }
+    p { opacity: 0.8; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <div>
+    <h1>Signing you in…</h1>
+    <p>Return to the Artable app to finish Apple Sign-In.</p>
+  </div>
+  <script>
+    (function () {
+      var qs = window.location.search || '';
+      // Bridge Apple HTTPS callback → Android custom scheme used by sign_in_with_apple.
+      var intent =
+        'intent://callback' + qs +
+        '#Intent;package=com.artable;scheme=signinwithapple;end';
+      var fallback = 'signinwithapple://callback' + qs;
+      try {
+        window.location.replace(intent);
+        setTimeout(function () {
+          window.location.replace(fallback);
+        }, 800);
+      } catch (e) {
+        window.location.href = fallback;
+      }
+    })();
+  </script>
+</body>
+</html>

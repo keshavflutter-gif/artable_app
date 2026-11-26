@@ -1137,6 +1137,10 @@ class StudioCubit extends Cubit<StudioState> {
     return effectiveVideoDuration / speed;
   }
 
+  bool get hasBackgroundMusic =>
+      state.selectedTrack != null ||
+      (state.selectedMusic != null && state.selectedMusic!.trim().isNotEmpty);
+
   void setSelectedTrack(
     FreeToUseTrack? track, {
     double start = 0.0,
@@ -1149,17 +1153,23 @@ class StudioCubit extends Cubit<StudioState> {
       final validStart = start.clamp(0.0, track.duration);
       final maxRemain = (track.duration - validStart).clamp(1.0, track.duration);
       final validDuration = targetDuration.clamp(1.0, maxRemain);
+      // Mute *clip* audio for edit preview by default (avoids double music when
+      // the recording also captured speaker bleed). Do NOT flip camera mic mute
+      // (`isMuted`) — BGM must still play while recording.
       emit(state.copyWith(
         selectedTrack: track,
         selectedMusic: '${track.title} — ${track.artist}',
         musicStartSeconds: validStart,
         musicCropDuration: validDuration,
+        originalAudioVolume: 0.0,
+        musicVolume: state.musicVolume <= 0.001 ? 1.0 : state.musicVolume,
       ));
     } else {
       emit(state.copyWith(
         clearSelectedMusic: true,
         musicStartSeconds: 0.0,
         musicCropDuration: playbackDurationSeconds,
+        originalAudioVolume: 1.0,
       ));
     }
   }
@@ -1167,32 +1177,24 @@ class StudioCubit extends Cubit<StudioState> {
   String get recordingFilter => state.recordingFilter;
   bool get recordingBeautyOn => state.recordingBeautyOn;
   double get recordingBeautyIntensity => state.recordingBeautyIntensity;
-  bool get isMuted => state.isMuted || state.originalAudioVolume <= 0.001;
+  /// Camera mic mute only — independent from edit original-audio volume.
+  bool get isMuted => state.isMuted;
   double get originalAudioVolume => state.originalAudioVolume.clamp(0.0, 1.0);
   double get musicVolume => state.musicVolume.clamp(0.0, 1.0);
   List<Map<String, dynamic>> get drafts => state.drafts;
   Map<String, dynamic> get recordingEffectsPayload => state.recordingEffectsPayload;
 
   void toggleMute() {
-    final nextMuted = !isMuted;
-    setMuted(nextMuted);
+    setMuted(!isMuted);
   }
 
   void setMuted(bool value) {
-    emit(state.copyWith(
-      isMuted: value,
-      originalAudioVolume: value ? 0.0 : (state.originalAudioVolume > 0.001
-          ? state.originalAudioVolume
-          : 1.0),
-    ));
+    // Camera mic mute only — never touch edit clip volume / BGM mix.
+    emit(state.copyWith(isMuted: value));
   }
 
   void setOriginalAudioVolume(double volume) {
-    final v = volume.clamp(0.0, 1.0);
-    emit(state.copyWith(
-      originalAudioVolume: v,
-      isMuted: v <= 0.001,
-    ));
+    emit(state.copyWith(originalAudioVolume: volume.clamp(0.0, 1.0)));
   }
 
   void setMusicVolume(double volume) {
@@ -1208,7 +1210,6 @@ class StudioCubit extends Cubit<StudioState> {
     emit(state.copyWith(
       originalAudioVolume: original,
       musicVolume: music,
-      isMuted: original <= 0.001,
     ));
   }
 
@@ -1319,13 +1320,30 @@ class StudioCubit extends Cubit<StudioState> {
         }
       }
     }
+    final trimStart = (draft['videoTrimStartSeconds'] as num?)?.toDouble() ??
+        (draft['video_trim_start_seconds'] as num?)?.toDouble();
+    final trimEnd = (draft['videoTrimEndSeconds'] as num?)?.toDouble() ??
+        (draft['video_trim_end_seconds'] as num?)?.toDouble();
+    final speed = draft['selectedSpeed']?.toString() ??
+        draft['playbackSpeed']?.toString();
     restoreRecordingEffects(
       filterId: resolvedFilter,
       beautyOn: meta?.beautyOn ?? false,
       beautyIntensity: meta?.beautyIntensity ?? 0,
       cropAspectRatio: draft['videoCropAspectRatio']?.toString() ??
           draft['video_crop_aspect_ratio']?.toString(),
+      trimStart: trimStart,
+      trimEnd: trimEnd,
+      speed: (speed != null && speed.trim().isNotEmpty) ? speed.trim() : null,
     );
+    final originalVol = (draft['originalAudioVolume'] as num?)?.toDouble();
+    final musicVol = (draft['musicVolume'] as num?)?.toDouble();
+    if (originalVol != null || musicVol != null) {
+      setAudioVolumes(
+        originalAudioVolume: originalVol,
+        musicVolume: musicVol,
+      );
+    }
     // Never overwrite a track the user just picked in the editor. Opening
     // Details with a draftId used to restore the draft's first music and
     // that wrong track was what got uploaded / played after submit.
@@ -1924,6 +1942,8 @@ class StudioCubit extends Cubit<StudioState> {
       recordingBeautyOn: false,
       recordingBeautyIntensity: 50,
       isMuted: false,
+      originalAudioVolume: 1.0,
+      musicVolume: 1.0,
       clearMergedClipPaths: true,
       clearActiveDraftId: true,
       videoTitle: '',

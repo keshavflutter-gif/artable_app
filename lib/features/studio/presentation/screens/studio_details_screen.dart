@@ -284,7 +284,12 @@ class _StudioDetailsScreenState extends State<StudioDetailsScreen> {
         loop: true,
       );
       if (mounted && controller != null && controller.value.isInitialized) {
-        controller.setVolume(studio.originalAudioVolume.clamp(0.0, 1.0));
+        final hasBgm =
+            studio.selectedMusic != null || studio.selectedTrack != null;
+        final originalVol = (hasBgm && studio.originalAudioVolume <= 0.001)
+            ? 0.0
+            : studio.originalAudioVolume.clamp(0.0, 1.0);
+        controller.setVolume(originalVol);
         try {
           await controller.setPlaybackSpeed(studio.speedMultiplier);
         } catch (_) {}

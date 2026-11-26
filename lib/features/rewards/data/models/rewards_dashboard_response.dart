@@ -1,3 +1,5 @@
+import 'package:artable_app/core/utils/media_url_utils.dart';
+
 class RewardsDashboardResponse {
   const RewardsDashboardResponse({
     required this.success,
@@ -272,9 +274,9 @@ class RewardItem {
   final String? code;
 
   String get displayImageUrl {
-    final raw = imageUrl?.trim() ?? '';
-    if (_isUsableRewardImage(raw)) {
-      return raw;
+    final resolved = MediaUrlUtils.resolve(imageUrl);
+    if (_isUsableRewardImage(resolved)) {
+      return resolved;
     }
     switch (type.toLowerCase()) {
       case 'voucher':
@@ -291,11 +293,14 @@ class RewardItem {
     }
   }
 
-  /// Reject share/chat pages that are not real image files.
+  /// Accept real CDN / upload image URLs; reject share/chat pages.
   static bool _isUsableRewardImage(String url) {
     if (url.isEmpty) return false;
     final lower = url.toLowerCase();
     if (!(lower.startsWith('http://') || lower.startsWith('https://'))) {
+      return false;
+    }
+    if (MediaUrlUtils.isDummyThumbnail(url, allowStockImages: true)) {
       return false;
     }
     if (lower.contains('chatgpt.com') ||
@@ -306,6 +311,39 @@ class RewardItem {
       return false;
     }
     return true;
+  }
+
+  static String? _extractImageUrl(Map<String, dynamic> json) {
+    String? fromValue(dynamic value) {
+      if (value == null) return null;
+      if (value is String) {
+        final resolved = MediaUrlUtils.resolve(value);
+        return _isUsableRewardImage(resolved) ? resolved : null;
+      }
+      if (value is Map) {
+        final map = Map<String, dynamic>.from(value);
+        for (final key in ['url', 'src', 'imageUrl', 'path', 'uri']) {
+          final nested = fromValue(map[key]);
+          if (nested != null) return nested;
+        }
+      }
+      return null;
+    }
+
+    for (final key in [
+      'imageUrl',
+      'bannerUrl',
+      'thumbnailUrl',
+      'coverUrl',
+      'posterUrl',
+      'image',
+      'banner',
+      'thumbnail',
+    ]) {
+      final picked = fromValue(json[key]);
+      if (picked != null) return picked;
+    }
+    return null;
   }
 
   String _resolveStatus() {
@@ -378,7 +416,7 @@ class RewardItem {
           ? (json['stock'] as num).toInt()
           : (int.tryParse(json['stock']?.toString() ?? '')),
       sponsorName: json['sponsorName']?.toString() ?? json['brand']?.toString(),
-      imageUrl: json['imageUrl']?.toString() ?? json['bannerUrl']?.toString(),
+      imageUrl: _extractImageUrl(json),
       isActive: json['isActive'] != false,
       status: claimed ? 'claimed' : (available ? 'available' : 'locked'),
       statusLabel: json['statusLabel']?.toString(),

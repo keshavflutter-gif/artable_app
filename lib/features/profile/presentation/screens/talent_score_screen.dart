@@ -538,8 +538,8 @@ class _TalentScoreScreenState extends State<TalentScoreScreen> {
     );
   }
 
-  /// Build recent challenge rows from the user's challenge videos when stats
-  /// API does not return `recentChallengePerformance`.
+  /// Fallback when `/app/profile/stats` has no `recentChallengePerformance`.
+  /// Prefer API list when backend populates it.
   List<RecentChallengePerformanceItem> _recentFromMyVideos(
     BuildContext context,
   ) {
@@ -618,9 +618,8 @@ class _TalentScoreScreenState extends State<TalentScoreScreen> {
     required ProfileStatsData? data,
     List<RecentChallengePerformanceItem> videosFallback = const [],
   }) {
-    final items = (data != null && data.recentChallengePerformance.isNotEmpty)
-        ? data.recentChallengePerformance
-        : videosFallback;
+    final apiItems = data?.recentChallengePerformance ?? const [];
+    final items = apiItems.isNotEmpty ? apiItems : videosFallback;
 
     if (items.isEmpty) {
       return const Padding(
@@ -641,10 +640,26 @@ class _TalentScoreScreenState extends State<TalentScoreScreen> {
     return Column(
       children: items.map((p) {
         final title = p.title;
-        final result = p.result;
         final date = p.date.isNotEmpty ? p.date : 'Recent';
         final isPlaced = p.isPlaced;
         final challengeId = p.challengeId?.trim() ?? '';
+        // Prefer explicit API result; otherwise show score when present.
+        final result = () {
+          final raw = p.result.trim();
+          if (raw.isNotEmpty &&
+              raw.toLowerCase() != 'participated' &&
+              !raw.toLowerCase().startsWith('score ')) {
+            return raw;
+          }
+          if (p.score != null && p.score! > 0) {
+            final s = p.score!;
+            final label = s % 1 == 0
+                ? s.toInt().toString()
+                : s.toStringAsFixed(1);
+            return 'Score $label';
+          }
+          return raw.isNotEmpty ? raw : 'Participated';
+        }();
 
         return Material(
           color: Colors.transparent,

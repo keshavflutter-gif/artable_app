@@ -155,7 +155,20 @@ class _SubmitEntryScreenState extends State<SubmitEntryScreen> {
                         const SizedBox(height: 10),
                         OutlinedButton.icon(
                           onPressed: () {
-                            final cId = widget.challengeId ?? challenge['id']?.toString() ?? 'c1';
+                            final cId = (widget.challengeId ??
+                                    challenge['id']?.toString() ??
+                                    '')
+                                .trim();
+                            if (cId.isEmpty) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Challenge not found. Please reopen and try again.',
+                                  ),
+                                ),
+                              );
+                              return;
+                            }
                             context.push('${AppRoutes.studioDrafts}?id=$cId');
                           },
                           style: OutlinedButton.styleFrom(

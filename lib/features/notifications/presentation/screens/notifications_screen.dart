@@ -100,6 +100,137 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     });
   }
 
+  Future<void> _markOneRead(Map<String, dynamic> n) async {
+    final id = n['id']?.toString() ?? '';
+    if (id.isEmpty || n['read'] == true) return;
+    setState(() => n['read'] = true);
+    try {
+      final auth = context.read<AuthCubit>();
+      await _repository().markRead(
+        ids: [id],
+        sessionToken: auth.sessionToken,
+        refreshToken: auth.refreshToken,
+      );
+    } catch (_) {}
+  }
+
+  void _openNotification(Map<String, dynamic> n) {
+    unawaited(_markOneRead(n));
+
+    final route = (n['route'] as String? ?? '').trim();
+    if (route.isNotEmpty) {
+      if (route.startsWith('/')) {
+        context.push(route);
+      }
+      return;
+    }
+
+    final screen = (n['screen'] as String? ?? '').trim().toLowerCase();
+    final id = (n['targetId'] as String? ?? '').trim();
+    final category = (n['category'] as String? ?? '').toLowerCase();
+    final type = (n['type'] as String? ?? '').toLowerCase();
+
+    if (screen.isNotEmpty) {
+      switch (screen) {
+        case 'home':
+          context.go(AppRoutes.home);
+          return;
+        case 'reels':
+        case 'reelsfeed':
+          context.go(
+            id.isNotEmpty ? '${AppRoutes.reelsFeed}?id=$id' : AppRoutes.reelsFeed,
+          );
+          return;
+        case 'challengedetail':
+        case 'challenge_detail':
+          if (id.isNotEmpty) {
+            context.push('${AppRoutes.challengeDetail}?id=$id');
+          } else {
+            context.go('${AppRoutes.challenges}?tab=active');
+          }
+          return;
+        case 'videodetail':
+        case 'video_detail':
+          if (id.isNotEmpty) {
+            context.push('${AppRoutes.videoDetail}?id=$id');
+          } else {
+            context.go(AppRoutes.reelsFeed);
+          }
+          return;
+        case 'rewarddetail':
+        case 'reward_detail':
+          if (id.isNotEmpty) {
+            context.push('${AppRoutes.rewardDetail}?id=$id');
+          } else {
+            context.push(AppRoutes.rewards);
+          }
+          return;
+        case 'rewards':
+          context.push(AppRoutes.rewards);
+          return;
+        case 'winners':
+          context.push(
+            id.isNotEmpty ? '${AppRoutes.winners}?challengeId=$id' : AppRoutes.winners,
+          );
+          return;
+        case 'profile':
+          if (id.isNotEmpty) {
+            context.push('${AppRoutes.publicProfile}?id=$id');
+          } else {
+            context.go(AppRoutes.myProfile);
+          }
+          return;
+        case 'wallet':
+          context.push(AppRoutes.wallet);
+          return;
+        case 'trending':
+        case 'trendingvideos':
+          context.push(AppRoutes.trendingVideos);
+          return;
+      }
+    }
+
+    if (category == 'challenges' || type.contains('challenge')) {
+      if (id.isNotEmpty) {
+        context.push('${AppRoutes.challengeDetail}?id=$id');
+      } else {
+        context.go('${AppRoutes.challenges}?tab=active');
+      }
+      return;
+    }
+    if (category == 'rewards' || type.contains('reward')) {
+      if (id.isNotEmpty) {
+        context.push('${AppRoutes.rewardDetail}?id=$id');
+      } else {
+        context.push(AppRoutes.rewards);
+      }
+      return;
+    }
+    if (category == 'winners' || type.contains('winner')) {
+      context.push(
+        id.isNotEmpty ? '${AppRoutes.winners}?challengeId=$id' : AppRoutes.winners,
+      );
+      return;
+    }
+    if (category == 'social' ||
+        type.contains('like') ||
+        type.contains('comment') ||
+        type.contains('follow')) {
+      if (id.isNotEmpty && (type.contains('video') || type.contains('like') || type.contains('comment'))) {
+        context.go('${AppRoutes.reelsFeed}?id=$id');
+      } else if (id.isNotEmpty) {
+        context.push('${AppRoutes.publicProfile}?id=$id');
+      } else {
+        context.push(AppRoutes.myVideos);
+      }
+      return;
+    }
+    if (category == 'referrals' || type.contains('referral')) {
+      context.push(AppRoutes.inviteFriends);
+      return;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final list = _filtered;
@@ -149,7 +280,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                         : ListView.builder(
                             padding: const EdgeInsets.all(22),
                             itemCount: list.length,
-                            itemBuilder: (_, i) => _NotificationTile(n: list[i]),
+                            itemBuilder: (_, i) => _NotificationTile(
+                              n: list[i],
+                              onTap: () => _openNotification(list[i]),
+                            ),
                           ),
           ),
         ],
@@ -159,9 +293,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 }
 
 class _NotificationTile extends StatelessWidget {
-  const _NotificationTile({required this.n});
+  const _NotificationTile({required this.n, required this.onTap});
 
   final Map<String, dynamic> n;
+  final VoidCallback onTap;
 
   IconData _getIcon(String? iconKey, String? category) {
     switch (iconKey) {
@@ -193,52 +328,59 @@ class _NotificationTile extends StatelessWidget {
     final read = n['read'] as bool? ?? true;
     final avatarUrl = n['avatarUrl']?.toString();
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: read ? Colors.white : AppColors.inputBg,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.inputBorder),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (avatarUrl != null && avatarUrl.isNotEmpty)
-            AppImage(
-              url: avatarUrl,
-              width: 40,
-              height: 40,
-              borderRadius: BorderRadius.circular(20),
-            )
-          else
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: AppColors.purple.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(
-                _getIcon(n['icon'] as String?, n['category'] as String?),
-                color: AppColors.purple,
-                size: 20,
-              ),
-            ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(n['title'] as String, style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w700, fontSize: 13)),
-                Text(n['description'] as String, style: AppTextStyles.bodySoft.copyWith(fontSize: 12)),
-                Text(n['time'] as String, style: AppTextStyles.bodySoft.copyWith(fontSize: 10)),
-              ],
-            ),
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 10),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: read ? Colors.white : AppColors.inputBg,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AppColors.inputBorder),
           ),
-          if (!read)
-            Container(width: 8, height: 8, decoration: const BoxDecoration(color: AppColors.pink, shape: BoxShape.circle)),
-        ],
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (avatarUrl != null && avatarUrl.isNotEmpty)
+                AppImage(
+                  url: avatarUrl,
+                  width: 40,
+                  height: 40,
+                  borderRadius: BorderRadius.circular(20),
+                )
+              else
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: AppColors.purple.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    _getIcon(n['icon'] as String?, n['category'] as String?),
+                    color: AppColors.purple,
+                    size: 20,
+                  ),
+                ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(n['title'] as String, style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w700, fontSize: 13)),
+                    Text(n['description'] as String, style: AppTextStyles.bodySoft.copyWith(fontSize: 12)),
+                    Text(n['time'] as String, style: AppTextStyles.bodySoft.copyWith(fontSize: 10)),
+                  ],
+                ),
+              ),
+              if (!read)
+                Container(width: 8, height: 8, decoration: const BoxDecoration(color: AppColors.pink, shape: BoxShape.circle)),
+            ],
+          ),
+        ),
       ),
     );
   }

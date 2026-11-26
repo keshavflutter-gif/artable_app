@@ -500,6 +500,16 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
                                               .map((e) => (e as num).toDouble())
                                               .toList()
                                           : null;
+                                      final trimStarts = draft['mergedClipTrimStarts'] is List
+                                          ? (draft['mergedClipTrimStarts'] as List)
+                                              .map((e) => (e as num).toDouble())
+                                              .toList()
+                                          : null;
+                                      final trimEnds = draft['mergedClipTrimEnds'] is List
+                                          ? (draft['mergedClipTrimEnds'] as List)
+                                              .map((e) => (e as num).toDouble())
+                                              .toList()
+                                          : null;
                                       if (clips != null && clips.isNotEmpty) {
                                         studio.setMergedClipPaths(
                                           clips,
@@ -508,12 +518,16 @@ class _StudioDraftsScreenState extends State<StudioDraftsScreen> {
                                             draft,
                                             pathCount: clips.length,
                                           ),
+                                          trimStarts,
+                                          trimEnds,
                                         );
                                       }
+                                      // Keep draft trims — do not reset to full clip.
                                       studio.setRecordedVideoPath(
                                         path,
                                         mergedClipPaths: clips,
                                         clearMergedClips: clips == null || clips.isEmpty,
+                                        resetTrim: false,
                                       );
                                     }
                                     context.push(

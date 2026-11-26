@@ -486,10 +486,12 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
     _seconds = 0;
     _secondsNotifier.value = 0;
 
-    if (mounted && !context.read<StudioCubit>().isMuted) {
-      unawaited(
-        StudioMusicPlaybackService.playForRecording(context.read<StudioCubit>()),
-      );
+    // BGM plays whenever a track is selected — independent of mic mute.
+    if (mounted) {
+      final studio = context.read<StudioCubit>();
+      if (studio.selectedTrack != null || studio.selectedMusic != null) {
+        unawaited(StudioMusicPlaybackService.playForRecording(studio));
+      }
     }
 
     if (mounted) {
@@ -575,6 +577,8 @@ class _StudioCameraScreenState extends State<StudioCameraScreen>
     final studio = context.read<StudioCubit>();
     if (studio.selectedTrack != null || studio.selectedMusic != null) {
       studio.updateMusicCrop(studio.musicStartSeconds, durationSecs);
+      // Keep clip audio muted for edit (speaker bleed); leave mic mute alone.
+      studio.setOriginalAudioVolume(0.0);
     }
 
     // Release music playback so preview screen audio starts fresh without conflict

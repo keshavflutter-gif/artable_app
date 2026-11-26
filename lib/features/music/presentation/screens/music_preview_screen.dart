@@ -242,39 +242,20 @@ class _MusicPreviewScreenState extends State<MusicPreviewScreen>
   }
 
   Future<void> _useInStudio() async {
+    // Fully stop preview player so it cannot overlap studio BGM later.
     try {
       await _player.pause();
       await _player.stop();
     } catch (_) {}
+    StudioMusicPlaybackService.directPause();
+    await StudioMusicPlaybackService.stop();
 
     final track = _track;
-    if (track != null && mounted) {
-      final freeTrack = FreeToUseTrack(
-        id: track.id,
-        title: track.title,
-        artist: track.artist,
-        duration: track.duration > 0 ? track.duration : 30.0,
-        coverUrl: track.coverUrl,
-        audioUrl: track.audioUrl,
-        waveform: track.waveform,
-        category: track.category.isNotEmpty ? track.category : 'Music Library',
-      );
-      final studio = context.read<StudioCubit>();
-      studio.setSelectedTrack(
-        freeTrack,
-        start: 0.0,
-        duration: freeTrack.duration > 0
-            ? freeTrack.duration.clamp(1.0, 60.0)
-            : 30.0,
-      );
-      StudioMusicPlaybackService.directPause();
-      StudioMusicPlaybackService.invalidateLoadedTrack();
-      unawaited(StudioMusicPlaybackService.preloadForStudio(studio));
-    }
-
     if (!mounted) return;
+    final studio = context.read<StudioCubit>();
 
-    // Check if StudioCameraScreen is already in the navigation stack below us
+    // Fresh session so leftover draft/challenge/clips don't pollute upload.
+    // Keep challenge only if we came from a challenge camera stack.
     bool foundCamera = false;
     Navigator.of(context).popUntil((route) {
       final name = route.settings.name;
@@ -286,6 +267,32 @@ class _MusicPreviewScreenState extends State<MusicPreviewScreen>
       }
       return route.isFirst;
     });
+
+    if (!foundCamera) {
+      studio.prepareFreshRecording(clearChallenge: true);
+    }
+
+    if (track != null && mounted) {
+      final freeTrack = FreeToUseTrack(
+        id: track.id,
+        title: track.title,
+        artist: track.artist,
+        duration: track.duration > 0 ? track.duration : 30.0,
+        coverUrl: track.coverUrl,
+        audioUrl: track.audioUrl,
+        waveform: track.waveform,
+        category: track.category.isNotEmpty ? track.category : 'Music Library',
+      );
+      studio.setSelectedTrack(
+        freeTrack,
+        start: 0.0,
+        duration: freeTrack.duration > 0
+            ? freeTrack.duration.clamp(1.0, 60.0)
+            : 30.0,
+      );
+      // Preload only — do not play until camera/editor starts recording/preview.
+      unawaited(StudioMusicPlaybackService.preloadForStudio(studio));
+    }
 
     if (!foundCamera && mounted) {
       context.push(AppRoutes.studioCamera);

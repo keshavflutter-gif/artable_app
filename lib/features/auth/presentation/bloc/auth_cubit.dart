@@ -425,6 +425,7 @@ class AuthCubit extends Cubit<AuthState> {
           provider: 'GOOGLE',
           providerId: providerId,
           email: email,
+          idToken: googleAuth.idToken,
           fullName: name,
           firstName: firstName,
           middleName: middleName,
@@ -523,11 +524,22 @@ class AuthCubit extends Cubit<AuthState> {
             : null,
       );
 
+      final identityToken = appleCredential.identityToken?.trim() ?? '';
+      if (identityToken.isEmpty) {
+        emit(state.copyWith(
+          isLoading: false,
+          errorMessage:
+              'Apple Sign-In did not return an identity token. Please try again.',
+        ));
+        return false;
+      }
+
       User? firebaseUser;
       try {
         final OAuthCredential credential = OAuthProvider('apple.com').credential(
-          idToken: appleCredential.identityToken,
+          idToken: identityToken,
           rawNonce: rawNonce,
+          accessToken: appleCredential.authorizationCode,
         );
         final UserCredential userCredential =
             await FirebaseAuth.instance.signInWithCredential(credential);
@@ -547,7 +559,7 @@ class AuthCubit extends Cubit<AuthState> {
 
       var email = (firebaseUser?.email ?? appleCredential.email ?? '').trim();
       if (email.isEmpty) {
-        email = _extractEmailFromJwt(appleCredential.identityToken) ?? '';
+        email = _extractEmailFromJwt(identityToken) ?? '';
       }
       final photoUrl = firebaseUser?.photoURL;
 
@@ -589,6 +601,7 @@ class AuthCubit extends Cubit<AuthState> {
           provider: 'APPLE',
           providerId: providerId,
           email: email,
+          idToken: identityToken,
           fullName: name,
           firstName: resolvedFirst,
           middleName: resolvedMiddle,

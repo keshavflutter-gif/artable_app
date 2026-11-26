@@ -8,6 +8,7 @@ class SocialLoginRequest {
     this.middleName,
     this.lastName,
     this.profilePhotoUrl,
+    this.idToken,
     this.fcmToken,
     this.deviceType,
     this.deviceVersion,
@@ -21,6 +22,8 @@ class SocialLoginRequest {
   final String? middleName;
   final String? lastName;
   final String? profilePhotoUrl;
+  /// Optional Google/Apple ID token for backend verification.
+  final String? idToken;
   final String? fcmToken;
   final String? deviceType;
   final String? deviceVersion;
@@ -43,6 +46,7 @@ class SocialLoginRequest {
     putIfPresent('middleName', middleName);
     putIfPresent('lastName', lastName);
     putIfPresent('profilePhotoUrl', profilePhotoUrl);
+    putIfPresent('idToken', idToken);
     map['fcmToken'] = (fcmToken != null && fcmToken!.trim().isNotEmpty)
         ? fcmToken!.trim()
         : 'optional-fcm-token';

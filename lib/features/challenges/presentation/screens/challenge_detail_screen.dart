@@ -592,7 +592,7 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                                       : hasJoined
                                           ? 'Submit Entry'
                                           : (statusKey == 'upcoming'
-                                              ? 'View Details'
+                                              ? 'Coming Soon'
                                               : 'Join Challenge'),
                               icon: provider.isJoiningChallenge(challengeId)
                                   ? const SizedBox(
@@ -618,8 +618,7 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                                       .isJoiningChallenge(challengeId) &&
                                   (isCompleted ||
                                       canJoin ||
-                                      (hasJoined && !isCompleted) ||
-                                      statusKey == 'upcoming'),
+                                      (hasJoined && !isCompleted)),
                               onPressed: () async {
                                 final targetId =
                                     liveDetail?.id.isNotEmpty == true

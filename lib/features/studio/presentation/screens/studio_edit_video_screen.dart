@@ -442,16 +442,26 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen>
       final realDur = firstController.value.duration;
       final durMs = realDur.inMilliseconds > 0 ? realDur.inMilliseconds : firstClip.originalDuration.inMilliseconds;
 
-      // Restore trim for first clip if valid
-      final startMs = (studio.state.videoTrimStartSeconds * 1000).round();
-      final endMs = studio.state.videoTrimEndSeconds != null
+      // Prefer clip trim (from draft mergedClipTrim*) when cubit trim was
+      // wiped (e.g. old Continue path). Avoid overwriting a real draft trim.
+      final clipStartMs = firstClip.trimStart.inMilliseconds;
+      final clipEndMs = firstClip.trimEnd.inMilliseconds;
+      final clipHasCustomTrim = clipEndMs > clipStartMs + 400 &&
+          (clipStartMs > 0 || clipEndMs < durMs - 250);
+
+      final cubitStartMs = (studio.state.videoTrimStartSeconds * 1000).round();
+      final cubitEndMs = studio.state.videoTrimEndSeconds != null
           ? (studio.state.videoTrimEndSeconds! * 1000).round()
           : durMs;
-      final trimLooksValid = durMs > 500 &&
-          endMs > startMs + 400 &&
-          endMs <= durMs + 250 &&
-          startMs >= 0 &&
-          startMs < durMs;
+      final cubitTrimLooksValid = durMs > 500 &&
+          cubitEndMs > cubitStartMs + 400 &&
+          cubitEndMs <= durMs + 250 &&
+          cubitStartMs >= 0 &&
+          cubitStartMs < durMs;
+
+      final startMs = clipHasCustomTrim ? clipStartMs : cubitStartMs;
+      final endMs = clipHasCustomTrim ? clipEndMs : cubitEndMs;
+      final trimLooksValid = clipHasCustomTrim || cubitTrimLooksValid;
 
       final safeStart = trimLooksValid ? startMs.clamp(0, durMs > 400 ? durMs - 400 : 0) : 0;
       final safeEnd = trimLooksValid ? endMs.clamp(1, durMs) : durMs;
@@ -771,7 +781,12 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen>
           try {
             await controller.setPlaybackSpeed(studio.speedMultiplier.clamp(0.4, 4.0));
           } catch (_) {}
-          await controller.setVolume(studio.originalAudioVolume.clamp(0.0, 1.0));
+          final hasBgm =
+              studio.selectedMusic != null || studio.selectedTrack != null;
+          final originalVol = (hasBgm && studio.originalAudioVolume <= 0.001)
+              ? 0.0
+              : studio.originalAudioVolume.clamp(0.0, 1.0);
+          await controller.setVolume(originalVol);
           return controller;
         }
         await controller.dispose();
@@ -1942,9 +1957,22 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen>
   }) async {
     if (!mounted) return;
     final studio = context.read<StudioCubit>();
-    final original =
+    final hasBgm =
+        studio.selectedMusic != null || studio.selectedTrack != null;
+    // Prefer explicit mixer values; with BGM keep original at stored level
+    // (defaults to 0 when a track is selected) to avoid double music.
+    var original =
         (originalVolume ?? studio.originalAudioVolume).clamp(0.0, 1.0);
     final music = (musicVolume ?? studio.musicVolume).clamp(0.0, 1.0);
+    if (hasBgm && originalVolume == null && original <= 0.001) {
+      original = 0.0;
+    }
+    if (originalVolume != null || musicVolume != null) {
+      studio.setAudioVolumes(
+        originalAudioVolume: original,
+        musicVolume: music,
+      );
+    }
     for (final ctrl in _controllers.values) {
       if (!ctrl.value.isInitialized) continue;
       try {
@@ -1952,7 +1980,11 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen>
       } catch (_) {}
     }
     try {
-      await StudioMusicPlaybackService.setVolume(music);
+      if (hasBgm) {
+        await StudioMusicPlaybackService.setVolume(music);
+      } else {
+        await StudioMusicPlaybackService.setVolume(0);
+      }
     } catch (_) {}
   }
 
@@ -2366,7 +2398,8 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen>
 
   // ─── Video Preview ─────────────────────────────────────────────────────────
   Widget _buildVideoPreview(StudioCubit studio) {
-    final isMuted = studio.isMuted;
+    final isMuted =
+        studio.isMuted || studio.originalAudioVolume <= 0.001;
     final c = _activeController;
     final isInit = c != null && c.value.isInitialized;
     final activeClip = _clipNotifier.clips.isNotEmpty
@@ -2597,7 +2630,7 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen>
   // ─── Bottom Toolbar ────────────────────────────────────────────────────────
   Widget _buildBottomBar() {
     final studio = context.watch<StudioCubit>();
-    final isMuted = studio.isMuted;
+    final originalMuted = studio.originalAudioVolume <= 0.001;
     final currentSpeed = studio.state.selectedSpeed;
     final isCustomSpeed = currentSpeed != '1x' && currentSpeed != '1.0x';
 
@@ -2612,9 +2645,9 @@ class _StudioEditVideoScreenState extends State<StudioEditVideoScreen>
       ),
       _BarItem(
         id: 'volume',
-        icon: isMuted ? Icons.volume_off_rounded : Icons.volume_up_rounded,
+        icon: originalMuted ? Icons.volume_off_rounded : Icons.volume_up_rounded,
         label: 'Volume',
-        isActive: isMuted || studio.musicVolume < 0.999,
+        isActive: originalMuted || studio.musicVolume < 0.999,
       ),
       const _BarItem(id: 'music', icon: Icons.music_note_rounded, label: 'Music'),
       const _BarItem(id: 'retake', icon: Icons.refresh_rounded, label: 'Retake'),

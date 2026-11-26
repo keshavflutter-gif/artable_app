@@ -15,6 +15,7 @@ import 'package:artable_app/features/trending/presentation/bloc/trending_videos_
 import 'package:artable_app/features/trending/data/repositories/videos_repository.dart';
 import 'package:artable_app/core/utils/validators.dart';
 import 'package:artable_app/data/datasources/music_api_service.dart';
+import 'package:artable_app/core/utils/reel_helpers.dart';
 import 'package:artable_app/features/profile/presentation/bloc/profile_cubit.dart';
 import 'package:artable_app/features/profile/presentation/bloc/my_videos_cubit.dart';
 import 'package:artable_app/features/reels/presentation/bloc/reels_cubit.dart';
@@ -240,7 +241,18 @@ class _StudioUploadScreenState extends State<StudioUploadScreen> {
         avatarUrl: realAvatar,
         userId: realUserId,
         musicName: resolvedMusicName,
-        musicUrl: selectedTrack?.audioUrl,
+        musicUrl: () {
+          final fromTrack = selectedTrack?.audioUrl.trim() ?? '';
+          if (fromTrack.isNotEmpty) return fromTrack;
+          // Fallback: draft / session may keep URL under music meta.
+          final draftId = studioCubit.state.activeDraftId;
+          if (draftId != null && draftId.isNotEmpty) {
+            final cached = ReelHelpers.resolveMusic(videoId: draftId);
+            final url = cached?.url.trim() ?? '';
+            if (url.isNotEmpty) return url;
+          }
+          return null;
+        }(),
         musicStartSeconds: selectedTrack != null ? studioCubit.musicStartSeconds : null,
         musicCropDuration: selectedTrack != null ? studioCubit.musicCropDuration : null,
         filterId: studioCubit.effectiveRecordingFilter,
@@ -248,7 +260,10 @@ class _StudioUploadScreenState extends State<StudioUploadScreen> {
         beautyIntensity: studioCubit.recordingBeautyIntensity,
         videoCropAspectRatio: studioCubit.videoCropAspectRatio,
         playbackSpeed: studioCubit.selectedSpeed,
-        muteOriginalAudio: studioCubit.isMuted,
+        // Match edit preview: BGM defaults original volume to 0 even when
+        // camera mic mute (`isMuted`) is false.
+        muteOriginalAudio: studioCubit.isMuted ||
+            studioCubit.originalAudioVolume <= 0.001,
       );
 
       // Step 3: Submitting Entry & Feed Refresh

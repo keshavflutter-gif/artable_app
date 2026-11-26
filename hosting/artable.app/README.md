@@ -13,6 +13,7 @@ Serve the contents of this folder at the site root:
 | `https://artable.app/.well-known/assetlinks.json` | `.well-known/assetlinks.json` |
 | `https://artable.app/.well-known/apple-app-site-association` | `.well-known/apple-app-site-association` (no `.json` extension; `Content-Type: application/json`) |
 | `https://artable.app/video/*` | rewrite to `video/index.html` (landing that opens the app) |
+| `https://artable.app/auth/apple/callback` | `auth/apple/callback/index.html` (Android Apple Sign-In bridge) |
 
 ## Android fingerprint
 `assetlinks.json` currently includes the **debug** keystore SHA-256.  

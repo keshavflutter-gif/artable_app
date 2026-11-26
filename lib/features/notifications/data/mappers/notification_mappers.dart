@@ -6,6 +6,12 @@ Map<String, dynamic> notificationToUiMap(Map<String, dynamic> json) {
       .toString()
       .toLowerCase();
 
+  final data = json['data'] is Map
+      ? Map<String, dynamic>.from(json['data'] as Map)
+      : json['payload'] is Map
+          ? Map<String, dynamic>.from(json['payload'] as Map)
+          : const <String, dynamic>{};
+
   return {
     'id': json['id']?.toString() ?? '',
     'title': json['title']?.toString() ??
@@ -23,6 +29,22 @@ Map<String, dynamic> notificationToUiMap(Map<String, dynamic> json) {
     'category': category,
     'avatarUrl': json['avatarUrl']?.toString() ?? json['imageUrl']?.toString(),
     'icon': json['icon']?.toString(),
+    'route': (json['route'] ?? data['route'])?.toString() ?? '',
+    'screen': (json['screen'] ?? data['screen'])?.toString() ?? '',
+    'targetId': (json['targetId'] ??
+            json['entityId'] ??
+            json['challengeId'] ??
+            json['videoId'] ??
+            json['rewardId'] ??
+            json['userId'] ??
+            data['id'] ??
+            data['challengeId'] ??
+            data['videoId'] ??
+            data['rewardId'] ??
+            data['userId'] ??
+            '')
+        .toString(),
+    'type': (json['type'] ?? data['type'] ?? category).toString().toLowerCase(),
   };
 }
 

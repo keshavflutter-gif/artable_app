@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_text_styles.dart';
 import 'package:artable_app/core/utils/mock_helpers.dart';
@@ -742,7 +743,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
         child: InkWell(
           onTap: () {
             if (isCurrentUser) {
-              context.push('/my-profile');
+              context.go(AppRoutes.myProfile);
             } else if (item.user?.id != null && item.user!.id.isNotEmpty) {
               context.push('/public-profile?id=${item.user!.id}');
             }
@@ -905,7 +906,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
         child: InkWell(
           onTap: () {
             if (isCurrentUser) {
-              context.push('/my-profile');
+              context.go(AppRoutes.myProfile);
             } else {
               context.push('/public-profile?id=${user['id']}');
             }

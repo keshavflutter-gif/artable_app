@@ -1,23 +1,23 @@
 /// Apple Sign-In config.
 ///
-/// For iOS:
-/// - Sign in with Apple uses native authorization (capabilities enabled in `Runner.entitlements`).
+/// iOS: native Sign in with Apple (`Runner.entitlements`).
 ///
-/// For Android (Web-based OAuth redirect flow):
-/// 1. Create a Services ID in Apple Developer Portal (e.g. `com.artable.signin`).
-/// 2. Configure return URL / redirect URI in Apple Developer Portal.
-/// 3. Set [clientId] and [redirectUri] below.
+/// Android (web OAuth):
+/// 1. Apple Developer → Services ID = [clientId]
+/// 2. Return URL must exactly match [redirectUri]
+/// 3. Host `hosting/artable.app/auth/apple/callback/index.html` at that URL
+///    (bridges HTTPS → `signinwithapple://callback` for the app)
+/// 4. Enable Apple provider in Firebase Auth for the same Services ID
 class AppleAuthConfig {
   AppleAuthConfig._();
 
-  /// Apple Services ID (e.g. `com.artable.signin`).
+  /// Apple Services ID (must match Apple Developer Portal).
   static const String clientId = 'com.artable.signin';
 
-  /// OAuth redirect URI registered with Apple / Firebase auth handler.
-  /// Example: `https://<firebase-project>.firebaseapp.com/__/auth/handler`
+  /// Must match the Return URL registered for [clientId].
   static const String redirectUri =
       'https://artable.app/auth/apple/callback';
 
   static bool get isAndroidConfigured =>
-      clientId.isNotEmpty && redirectUri.isNotEmpty;
+      clientId.trim().isNotEmpty && redirectUri.trim().isNotEmpty;
 }

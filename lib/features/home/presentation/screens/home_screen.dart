@@ -110,9 +110,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final megaPromoBanners = context.select<HomeCubit, List<Map<String, dynamic>>>(
-      (vm) => vm.megaPromoBanners,
-    );
     final heroBannerSlides = context.select<HomeCubit, List<Map<String, dynamic>>>(
       (vm) => vm.heroBannerSlides,
     );
@@ -143,6 +140,11 @@ class _HomeScreenState extends State<HomeScreen> {
         return {...c, 'imageUrl': homeImg, 'bannerUrl': homeImg};
       }).toList();
     }();
+    // Same Active list as Challenges tab — not dashboard promo banners.
+    final megaPromoBanners = activeChallenges
+        .map(_activeChallengeToMegaPromo)
+        .where((b) => (b['title'] as String?)?.trim().isNotEmpty == true)
+        .toList();
     final trendingCubit = context.watch<TrendingVideosCubit>();
     final apiTrendingVideos = trendingCubit.videos;
     final homeCubitTrendingReels = context.select<HomeCubit, List<Map<String, dynamic>>>(
@@ -848,6 +850,48 @@ class _HeroSecondarySlide extends StatelessWidget {
       ],
     );
   }
+}
+
+/// Maps an Active challenge into the home horizontal promo card shape.
+Map<String, dynamic> _activeChallengeToMegaPromo(Map<String, dynamic> c) {
+  final id = (c['id'] ?? '').toString().trim();
+  final prize = (c['prize'] ?? c['prizePoolLabel'] ?? '').toString().trim();
+  final timeLeft =
+      (c['timeLeft'] ?? c['daysLeftLabel'] ?? 'Active').toString().trim();
+  final daysRaw = c['daysLeft'];
+  String countdown;
+  if (daysRaw is num) {
+    countdown = daysRaw.toInt().toString();
+  } else {
+    final match = RegExp(r'(\d+)').firstMatch(timeLeft);
+    countdown = match?.group(1) ?? '0';
+  }
+
+  return {
+    'tag': 'ACTIVE',
+    'countdown': countdown,
+    'title': (c['title'] ?? '').toString(),
+    'subtitle': prize.isNotEmpty
+        ? (prize.toLowerCase().contains('prize') ? prize : '$prize Prize Pool')
+        : timeLeft,
+    'ctaLabel': 'Join Now',
+    'imageUrl': (c['imageUrl'] ?? c['bannerUrl'] ?? '').toString(),
+    'challengeId': id,
+    'linkUrl': id.isNotEmpty ? '${AppRoutes.challengeDetail}?id=$id' : '',
+    'id': id,
+  };
+}
+
+/// Home horizontal promo under Trending Reels = Active challenges only.
+void _openMegaPromoBanner(BuildContext context, Map<String, dynamic> banner) {
+  final challengeId = (banner['challengeId'] ?? banner['id'] ?? '')
+      .toString()
+      .trim();
+  if (challengeId.isNotEmpty) {
+    context.push('${AppRoutes.challengeDetail}?id=$challengeId');
+    return;
+  }
+  context.go('${AppRoutes.challenges}?tab=active');
 }
 
 /// Home quick-strip destinations — keep labels + routes in one place.
@@ -1621,14 +1665,7 @@ class _MegaPromoScroll extends StatelessWidget {
         itemBuilder: (context, index) {
           final banner = banners[index];
           return GestureDetector(
-            onTap: () {
-              final id = banner['id'] as String?;
-              if (id != null && id.isNotEmpty) {
-                context.push('${AppRoutes.challengeDetail}?id=$id');
-              } else {
-                context.push('${AppRoutes.challenges}?tab=active');
-              }
-            },
+            onTap: () => _openMegaPromoBanner(context, banner),
             child: Container(
             width: 286,
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),

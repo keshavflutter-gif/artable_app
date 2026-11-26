@@ -80,27 +80,7 @@ class ProfileStatsData {
       }
     }
 
-    final rawRecent = json['recentChallengePerformance'] ??
-        json['recent_challenge_performance'] ??
-        json['recentChallenges'] ??
-        json['recent_challenges'] ??
-        json['challengePerformance'] ??
-        json['challenge_performance'] ??
-        json['performances'];
-    final recentList = <RecentChallengePerformanceItem>[];
-    if (rawRecent is List) {
-      for (final item in rawRecent) {
-        if (item is Map<String, dynamic>) {
-          recentList.add(RecentChallengePerformanceItem.fromJson(item));
-        } else if (item is Map) {
-          recentList.add(
-            RecentChallengePerformanceItem.fromJson(
-              Map<String, dynamic>.from(item),
-            ),
-          );
-        }
-      }
-    }
+    final recentList = _parseRecentChallengePerformance(json);
 
     final overallRaw = json['overallTalentScore'] ??
         json['overall_talent_score'] ??
@@ -152,6 +132,58 @@ class ProfileStatsData {
       winRate: 0,
       stats: UserCoreStats.empty(),
     );
+  }
+
+  static List<RecentChallengePerformanceItem> _parseRecentChallengePerformance(
+    Map<String, dynamic> json,
+  ) {
+    dynamic rawRecent = json['recentChallengePerformance'] ??
+        json['recent_challenge_performance'] ??
+        json['recentChallenges'] ??
+        json['recent_challenges'] ??
+        json['challengePerformance'] ??
+        json['challenge_performance'] ??
+        json['performances'];
+
+    // Nested under stats / screenConfig when backend wraps the list.
+    if (rawRecent == null && json['stats'] is Map) {
+      final stats = Map<String, dynamic>.from(json['stats'] as Map);
+      rawRecent = stats['recentChallengePerformance'] ??
+          stats['recent_challenge_performance'] ??
+          stats['recentChallenges'] ??
+          stats['challengePerformance'];
+    }
+    if (rawRecent == null && json['screenConfig'] is Map) {
+      final cfg = Map<String, dynamic>.from(json['screenConfig'] as Map);
+      rawRecent = cfg['recentChallengePerformance'] ??
+          cfg['recentChallenges'] ??
+          cfg['challengePerformance'];
+    }
+
+    final recentList = <RecentChallengePerformanceItem>[];
+    if (rawRecent is! List) return recentList;
+
+    for (final item in rawRecent) {
+      Map<String, dynamic>? map;
+      if (item is Map<String, dynamic>) {
+        map = item;
+      } else if (item is Map) {
+        map = Map<String, dynamic>.from(item);
+      }
+      if (map == null) continue;
+
+      final parsed = RecentChallengePerformanceItem.fromJson(map);
+      // Drop completely empty placeholder rows.
+      if (parsed.title.trim().isEmpty || parsed.title == 'Challenge') {
+        final hasId = (parsed.challengeId?.trim().isNotEmpty ?? false) ||
+            (parsed.id?.trim().isNotEmpty ?? false);
+        final hasResult = parsed.result.trim().isNotEmpty &&
+            parsed.result.trim().toLowerCase() != 'participated';
+        if (!hasId && !hasResult && parsed.score == null) continue;
+      }
+      recentList.add(parsed);
+    }
+    return recentList;
   }
 }
 

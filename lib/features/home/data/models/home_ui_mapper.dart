@@ -20,6 +20,8 @@ class HomeUiMapper {
       'imageUrl': banner.imageUrl ?? '',
       'linkUrl': banner.linkUrl,
       'id': banner.id,
+      // Banner id ≠ challenge id. Only set when API links a real challenge.
+      'challengeId': banner.challengeId ?? '',
     };
   }
 

@@ -648,7 +648,9 @@ class _StudioMusicScreenState extends State<StudioMusicScreen>
                           } catch (_) {}
                           _audioPlayer = null;
                           // Leave editor free to force-reload the chosen track.
+                          // Do not start playback here — edit screen owns BGM.
                           StudioMusicPlaybackService.directPause();
+                          await StudioMusicPlaybackService.stop();
                           StudioMusicPlaybackService.invalidateLoadedTrack();
                           if (context.mounted) {
                             context.pop();
