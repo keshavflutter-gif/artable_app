@@ -36,6 +36,7 @@ class ShareReportScreen extends StatefulWidget {
     this.musicName,
     this.musicStartSeconds,
     this.musicCropDuration,
+    this.shareAlreadyRecorded = false,
   });
 
   final String? reelId;
@@ -47,6 +48,7 @@ class ShareReportScreen extends StatefulWidget {
   final String? musicName;
   final double? musicStartSeconds;
   final double? musicCropDuration;
+  final bool shareAlreadyRecorded;
 
   @override
   State<ShareReportScreen> createState() => _ShareReportScreenState();
@@ -175,7 +177,8 @@ class _ShareReportScreenState extends State<ShareReportScreen> {
                                     String? shareCaption = resolvedCaption;
                                     Map<String, dynamic>? shareApiData;
 
-                                    if (effectiveVideoId.isNotEmpty) {
+                                    if (effectiveVideoId.isNotEmpty &&
+                                        !widget.shareAlreadyRecorded) {
                                       try {
                                         final shareRes = await reelsCubit.recordShare(effectiveVideoId);
                                         if (shareRes['success'] == true && shareRes['data'] is Map<String, dynamic>) {

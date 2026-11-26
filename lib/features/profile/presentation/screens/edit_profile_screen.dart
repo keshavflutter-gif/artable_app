@@ -497,6 +497,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         child: AppImage(
                           url: coverUrl,
                           fit: BoxFit.cover,
+                          fullResolution: true,
                         ),
                       ),
                     Positioned(

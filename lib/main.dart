@@ -68,8 +68,9 @@ void main() async {
   // 8. Background warm-up after first frame (does not block Home)
   unawaited(_warmAfterFirstFrame());
 
-  // 9. Remove native splash once critical fonts are ready
-  FlutterNativeSplash.remove();
+  // 9. SplashScreen removes native splash once its assets are precached and first frame paints.
+  // Safety timeout in case app starts on a non-splash route.
+  Future<void>.delayed(const Duration(seconds: 3), FlutterNativeSplash.remove);
 }
 
 Future<void> _warmAfterFirstFrame() async {

@@ -24,6 +24,8 @@ class AppImage extends StatelessWidget {
     this.isVideo = false,
     /// When true, allow Unsplash/Picsum stock images (used by Rewards cards).
     this.acceptStockImages = false,
+    /// When true, decode and cache at full original resolution without 300px downscaling.
+    this.fullResolution = false,
   });
 
   final String url;
@@ -36,6 +38,7 @@ class AppImage extends StatelessWidget {
   final IconData? placeholderIcon;
   final bool isVideo;
   final bool acceptStockImages;
+  final bool fullResolution;
 
   static void cacheThumbnail(String key, Uint8List bytes) {
     if (key.trim().isEmpty || bytes.isEmpty) return;
@@ -173,8 +176,10 @@ class AppImage extends StatelessWidget {
       return (v * 2).toInt();
     }
 
-    final memW = _safeCacheInt(width) ?? 300;
-    final memH = _safeCacheInt(height) ?? _safeCacheInt(width) ?? 300;
+    final int? memW = fullResolution ? null : (_safeCacheInt(width) ?? 300);
+    final int? memH = fullResolution
+        ? null
+        : (_safeCacheInt(height) ?? _safeCacheInt(width) ?? 300);
 
     // 1. If we already have a real valid image thumbnail URL (remote or local), load it directly
     if (hasValidThumbnail && (cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://'))) {
@@ -183,10 +188,11 @@ class AppImage extends StatelessWidget {
         width: width,
         height: height,
         fit: fit,
+        filterQuality: fullResolution ? FilterQuality.high : FilterQuality.low,
         memCacheWidth: memW,
         memCacheHeight: memH,
-        maxWidthDiskCache: 600,
-        maxHeightDiskCache: 800,
+        maxWidthDiskCache: fullResolution ? null : 600,
+        maxHeightDiskCache: fullResolution ? null : 800,
         fadeInDuration: const Duration(milliseconds: 150),
         fadeOutDuration: const Duration(milliseconds: 100),
         placeholder: (context, url) => _buildLoadingPlaceholder(),

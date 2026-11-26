@@ -24,6 +24,7 @@ import 'package:artable_app/core/utils/video_cache_manager.dart';
 import 'package:artable_app/core/utils/media_url_utils.dart';
 import 'package:artable_app/data/datasources/music_api_service.dart';
 import 'package:artable_app/features/reels/data/services/reel_bgm_playback_service.dart';
+import 'package:artable_app/features/reels/presentation/screens/talent_rating_screen.dart';
 import 'package:artable_app/features/trending/data/repositories/videos_repository.dart';
 
 class VideoDetailScreen extends StatefulWidget {
@@ -664,33 +665,57 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
         refreshToken: authCubit.refreshToken != 'design_preview' ? authCubit.refreshToken : null,
       );
       if (item != null && mounted) {
-        // Prefer the map we already opened with (profile/list) so a partial
-        // API detail payload cannot wipe a working videoUrl / clips / music.
-        final uiMap = ReelHelpers.mergeReelMaps(
-          widget.initialReelData ?? _apiReel ?? item.toUiMap(),
-          item.toUiMap(),
-        );
-        // Re-apply API fields that are authoritative when present.
         final apiMap = item.toUiMap();
-        for (final key in ['title', 'description', 'caption']) {
-          final v = apiMap[key]?.toString().trim() ?? '';
-          if (v.isNotEmpty && v != 'null') uiMap[key] = apiMap[key];
+        final fallbackMap = widget.initialReelData ?? _apiReel;
+        // Detail endpoint GET /app/videos/:id is authoritative for engagement,
+        // like/save flags, and ratings; keep fallback media if detail lacks it.
+        final uiMap = ReelHelpers.mergeReelMaps(apiMap, fallbackMap);
+        for (final key in [
+          'views',
+          'viewsCount',
+          'viewCount',
+          'viewsLabel',
+          'likes',
+          'likesCount',
+          'likeCount',
+          'likesLabel',
+          'comments',
+          'commentsCount',
+          'commentCount',
+          'shares',
+          'sharesCount',
+          'shareCount',
+          'sharesLabel',
+          'saves',
+          'savesCount',
+          'saveCount',
+          'savesLabel',
+          'isLiked',
+          'liked',
+          'isSaved',
+          'saved',
+          'isBookmarked',
+          'averageRating',
+          'talentScore',
+          'talentScoreLabel',
+          'ratingCount',
+          'ratings',
+        ]) {
+          if (apiMap.containsKey(key)) {
+            uiMap[key] = apiMap[key];
+          }
         }
-        // Never let a sparse detail payload wipe list/home counts with 0.
-        _mergeBestEngagementCount(uiMap, apiMap, labelKey: 'views', countKey: 'viewsCount');
-        _mergeBestEngagementCount(uiMap, apiMap, labelKey: 'likes', countKey: 'likesCount');
-        _mergeBestEngagementCount(uiMap, apiMap, labelKey: 'comments', countKey: 'commentsCount');
-        _mergeBestEngagementCount(uiMap, apiMap, labelKey: 'shares', countKey: 'sharesCount');
-        _mergeBestEngagementCount(uiMap, apiMap, labelKey: 'saves', countKey: 'savesCount');
-        final existingVideo = uiMap['videoUrl']?.toString().trim() ?? '';
+        final fallbackVideo = fallbackMap?['videoUrl']?.toString().trim() ?? '';
         final apiVideo = apiMap['videoUrl']?.toString().trim() ?? '';
-        final existingPlayable = existingVideo.isNotEmpty &&
-            existingVideo != 'null' &&
-            !MediaUrlUtils.looksLikeImageUrl(existingVideo);
-        if (!existingPlayable &&
-            apiVideo.isNotEmpty &&
+        final apiPlayable = apiVideo.isNotEmpty &&
             apiVideo != 'null' &&
-            !MediaUrlUtils.looksLikeImageUrl(apiVideo)) {
+            !MediaUrlUtils.looksLikeImageUrl(apiVideo);
+        final fallbackPlayable = fallbackVideo.isNotEmpty &&
+            fallbackVideo != 'null' &&
+            !MediaUrlUtils.looksLikeImageUrl(fallbackVideo);
+        if (!apiPlayable && fallbackPlayable) {
+          uiMap['videoUrl'] = MediaUrlUtils.resolve(fallbackVideo);
+        } else if (apiPlayable) {
           uiMap['videoUrl'] = MediaUrlUtils.resolve(apiVideo);
         }
         final music = ReelHelpers.resolveMusic(
@@ -708,7 +733,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
           if (music.name.isNotEmpty) uiMap['musicName'] = music.name;
           ReelHelpers.cacheMusic(uiMap['id']?.toString(), music);
         }
-        context.read<ReelsCubit>().syncVideos([uiMap]);
+        context.read<ReelsCubit>().syncVideos([uiMap], authoritative: true);
         setState(() {
           _apiReel = uiMap;
         });
@@ -742,40 +767,25 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     return lower != 'null' && lower != 'undefined' && lower != 'nan';
   }
 
-  void _mergeBestEngagementCount(
-    Map<String, dynamic> target,
-    Map<String, dynamic> apiMap, {
-    required String labelKey,
-    required String countKey,
-  }) {
-    final existing = TrendingVideoItem.parseCount(
-      target[countKey] ?? target[labelKey],
-    );
-    final incoming = TrendingVideoItem.parseCount(
-      apiMap[countKey] ?? apiMap[labelKey],
-    );
-    final best = incoming > existing ? incoming : existing;
-    target[countKey] = best;
-    target[labelKey] = TrendingVideoItem.formatCount(best);
-  }
-
   String _getFormattedCount(dynamic rawCount, dynamic rawLabel) {
+    if (rawCount != null) {
+      if (rawCount is String &&
+          _isUsableCountLabel(rawCount) &&
+          RegExp(r'[a-zA-Z]').hasMatch(rawCount) &&
+          RegExp(r'\d').hasMatch(rawCount)) {
+        return rawCount.trim();
+      }
+      final int parsed = TrendingVideoItem.parseCount(rawCount);
+      if (parsed > 0 || rawLabel == null) {
+        return TrendingVideoItem.formatCount(parsed);
+      }
+    }
     if (rawLabel is String &&
         _isUsableCountLabel(rawLabel) &&
         TrendingVideoItem.parseCount(rawLabel) > 0) {
       return rawLabel.trim();
     }
-    if (rawCount is String && _isUsableCountLabel(rawCount)) {
-      // Prefixed labels like "1.2K" — not plain digits.
-      if (RegExp(r'[a-zA-Z]').hasMatch(rawCount) &&
-          RegExp(r'\d').hasMatch(rawCount)) {
-        return rawCount.trim();
-      }
-    }
-    final int fromCount = TrendingVideoItem.parseCount(rawCount);
-    final int fromLabel = TrendingVideoItem.parseCount(rawLabel);
-    final int count = fromCount > fromLabel ? fromCount : fromLabel;
-    return TrendingVideoItem.formatCount(count);
+    return TrendingVideoItem.formatCount(0);
   }
 
   Color _categoryBadgeColor(String category) {
@@ -1456,12 +1466,11 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
 
   // --- 4-Column Engagement Stats Row ---
   Widget _buildEngagementStats(Map<String, dynamic> reel) {
-    final reelId = reel['id']?.toString() ?? '';
+    final reelId = reel['id']?.toString() ?? reel['_id']?.toString() ?? widget.reelId ?? '';
     final reelsProvider = context.watch<ReelsCubit>();
-    final isLiked = reelsProvider.isLiked(reelId, fallbackVideo: reel);
-    final isSaved = reelsProvider.isBookmarked(reelId);
-
     final currentVideo = reelsProvider.getVideo(reelId) ?? reel;
+    final isLiked = reelsProvider.isLiked(reelId, fallbackVideo: currentVideo);
+    final isSaved = reelsProvider.isBookmarked(reelId);
 
     final views = _getFormattedCount(
       currentVideo['viewsCount'] ?? currentVideo['viewCount'] ?? currentVideo['views'],
@@ -1527,6 +1536,12 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
           value: shares,
           label: 'Shares',
           onTap: () {
+            unawaited(
+              context.read<ReelsCubit>().recordShare(
+                    reelId,
+                    fallbackVideo: currentVideo,
+                  ),
+            );
             final vUrl = _reel['videoUrl']?.toString() ?? _reel['video_url']?.toString() ?? '';
             unawaited(VideoShareHelper.precacheVideo(vUrl, videoId: reelId));
             final shareMusic = _resolveReelMusic(_reel);
@@ -1545,6 +1560,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                 'musicName': shareMusic?.name,
                 'musicStartSeconds': shareMusic?.startSeconds,
                 'musicCropDuration': shareMusic?.durationSeconds,
+                'shareAlreadyRecorded': true,
               },
             ));
           },
@@ -1614,23 +1630,25 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
 
   // --- Avg. Talent Score Banner ---
   Widget _buildTalentScoreBanner(Map<String, dynamic> reel) {
-    final reelId = reel['id']?.toString() ?? '';
-    final userRating = context.watch<ReelsCubit>().getUserRating(reelId);
+    final reelId = reel['id']?.toString() ?? reel['_id']?.toString() ?? '';
+    final reelsCubit = context.watch<ReelsCubit>();
+    final currentVideo = reelsCubit.getVideo(reelId) ?? reel;
+    final userRating = reelsCubit.getUserRating(reelId);
 
     double score = userRating ?? 0.0;
     if (score == 0.0) {
-      if (reel['userRating'] != null && (double.tryParse(reel['userRating'].toString()) ?? 0.0) > 0) {
-        score = double.tryParse(reel['userRating'].toString()) ?? 0.0;
-      } else if (reel['talentScore'] is num && (reel['talentScore'] as num) > 0) {
-        score = (reel['talentScore'] as num).toDouble();
-      } else if (reel['averageRating'] != null && (double.tryParse(reel['averageRating'].toString()) ?? 0.0) > 0) {
-        score = double.tryParse(reel['averageRating'].toString()) ?? 0.0;
-      } else if (reel['score'] != null && (double.tryParse(reel['score'].toString()) ?? 0.0) > 0) {
-        score = double.tryParse(reel['score'].toString()) ?? 0.0;
-      } else if (reel['rating'] != null && (double.tryParse(reel['rating'].toString()) ?? 0.0) > 0) {
-        score = double.tryParse(reel['rating'].toString()) ?? 0.0;
-      } else if (reel['ratings'] is List && (reel['ratings'] as List).isNotEmpty) {
-        for (final item in (reel['ratings'] as List)) {
+      if (currentVideo['userRating'] != null && (double.tryParse(currentVideo['userRating'].toString()) ?? 0.0) > 0) {
+        score = double.tryParse(currentVideo['userRating'].toString()) ?? 0.0;
+      } else if (currentVideo['talentScore'] is num && (currentVideo['talentScore'] as num) > 0) {
+        score = (currentVideo['talentScore'] as num).toDouble();
+      } else if (currentVideo['averageRating'] != null && (double.tryParse(currentVideo['averageRating'].toString()) ?? 0.0) > 0) {
+        score = double.tryParse(currentVideo['averageRating'].toString()) ?? 0.0;
+      } else if (currentVideo['score'] != null && (double.tryParse(currentVideo['score'].toString()) ?? 0.0) > 0) {
+        score = double.tryParse(currentVideo['score'].toString()) ?? 0.0;
+      } else if (currentVideo['rating'] != null && (double.tryParse(currentVideo['rating'].toString()) ?? 0.0) > 0) {
+        score = double.tryParse(currentVideo['rating'].toString()) ?? 0.0;
+      } else if (currentVideo['ratings'] is List && (currentVideo['ratings'] as List).isNotEmpty) {
+        for (final item in (currentVideo['ratings'] as List)) {
           if (item is Map && item['score'] != null) {
             final s = double.tryParse(item['score'].toString()) ?? 0.0;
             if (s > 0) {
@@ -1697,14 +1715,19 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
 
   // --- Rate This Talent Action Button ---
   Widget _buildRateButton(Map<String, dynamic> reel) {
+    final reelId = reel['id']?.toString() ?? reel['_id']?.toString() ?? '';
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: () => unawaited(
-              _pushWhileCovered(
-                '${AppRoutes.talentRating}?id=${reel['id']}',
-              ),
+        onTap: () {
+          final latest = context.read<ReelsCubit>().getVideo(reelId) ?? reel;
+          unawaited(
+            TalentRatingScreen.showBottomSheet(
+              context,
+              reel: latest,
             ),
+          );
+        },
         borderRadius: BorderRadius.circular(22),
         child: Container(
           height: 52,

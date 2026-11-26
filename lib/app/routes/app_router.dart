@@ -349,6 +349,9 @@ abstract final class AppRouter {
           path: AppRoutes.talentRating,
           builder: (context, state) => TalentRatingScreen(
             reelId: state.uri.queryParameters['id'],
+            initialReelData: state.extra is Map
+                ? Map<String, dynamic>.from(state.extra as Map)
+                : null,
           ),
         ),
         GoRoute(
@@ -382,6 +385,7 @@ abstract final class AppRouter {
                   (extraMap?['musicStartSeconds'] as num?)?.toDouble(),
               musicCropDuration:
                   (extraMap?['musicCropDuration'] as num?)?.toDouble(),
+              shareAlreadyRecorded: extraMap?['shareAlreadyRecorded'] == true,
             );
           },
         ),

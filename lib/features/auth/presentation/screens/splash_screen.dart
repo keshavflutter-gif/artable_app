@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -23,12 +24,37 @@ class SplashScreen extends StatefulWidget {
 class _SplashScreenState extends State<SplashScreen> {
   Timer? _timer;
   var _navigated = false;
+  var _assetsReady = false;
+  var _precachingStarted = false;
   final _onboardingStorage = OnboardingStorageService();
 
   @override
   void initState() {
     super.initState();
-    _timer = Timer(SplashScreen._splashDelay, _navigateFromSplash);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_precachingStarted) {
+      _precachingStarted = true;
+      unawaited(_precacheSplashAssets());
+    }
+  }
+
+  Future<void> _precacheSplashAssets() async {
+    try {
+      await Future.wait([
+        precacheImage(const AssetImage('assets/bg-frame-1.png'), context),
+        precacheImage(const AssetImage('assets/logo1.png'), context),
+      ]);
+    } catch (_) {}
+    if (!mounted) return;
+    setState(() => _assetsReady = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      FlutterNativeSplash.remove();
+    });
+    _timer ??= Timer(SplashScreen._splashDelay, _navigateFromSplash);
   }
 
   @override
@@ -62,6 +88,12 @@ class _SplashScreenState extends State<SplashScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (!_assetsReady) {
+      return const Scaffold(
+        backgroundColor: Colors.white,
+      );
+    }
+
     return Scaffold(
       backgroundColor: Colors.white,
       body: GestureDetector(
@@ -77,6 +109,7 @@ class _SplashScreenState extends State<SplashScreen> {
               width: double.infinity,
               height: double.infinity,
               alignment: Alignment.topCenter,
+              gaplessPlayback: true,
             ),
 
             // 2. Centered Logo + ARTABLE + Tagline matching Figma layout
@@ -91,6 +124,7 @@ class _SplashScreenState extends State<SplashScreen> {
                     width: 170,
                     height: 170,
                     fit: BoxFit.contain,
+                    gaplessPlayback: true,
                   ),
                   const SizedBox(height: 22),
                   // Title ARTABLE

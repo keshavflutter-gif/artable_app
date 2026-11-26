@@ -804,6 +804,8 @@ class TrendingVideoItem {
 
   static bool _extractIsSaved(Map<String, dynamic> json) {
     final keys = [
+      'isSave',
+      'is_save',
       'isSaved',
       'is_saved',
       'saved',

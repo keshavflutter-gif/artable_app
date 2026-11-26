@@ -151,16 +151,20 @@ class VideosRepository {
         : <String, String>{};
 
     try {
+      debugPrint('=== VIDEO DETAIL API REQUEST: GET /app/videos/$cleanId ===');
       final res = await _apiClient.get(
         '/app/videos/$cleanId',
         headers: headers.isNotEmpty ? headers : null,
       );
+      debugPrint('=== VIDEO DETAIL API RESPONSE (/app/videos/$cleanId): $res ===');
       if (res['success'] == true && res['data'] is Map) {
         return TrendingVideoItem.fromJson(
           Map<String, dynamic>.from(res['data'] as Map),
         );
       }
-    } catch (_) {}
+    } catch (e, st) {
+      debugPrint('=== VIDEO DETAIL API ERROR (/app/videos/$cleanId): $e\n$st ===');
+    }
 
     // Do not fall back to the full trending list — that download/parse is
     // expensive and often runs while opening a single video detail.
@@ -794,10 +798,13 @@ class VideosRepository {
           )
         : <String, String>{};
 
-    return _apiClient.post(
+    debugPrint('=== VIDEO SHARE API REQUEST: POST /app/videos/$cleanId/share ===');
+    final res = await _apiClient.post(
       '/app/videos/$cleanId/share',
       headers: headers.isNotEmpty ? headers : null,
     );
+    debugPrint('=== VIDEO SHARE API RESPONSE (/app/videos/$cleanId/share): $res ===');
+    return res;
   }
 
   /// POST `/app/videos/:id/view` — record a watch / impression.
@@ -857,10 +864,13 @@ class VideosRepository {
           )
         : <String, String>{};
 
-    return _apiClient.post(
+    debugPrint('=== VIDEO SAVE API REQUEST: POST /app/videos/$cleanId/save ===');
+    final res = await _apiClient.post(
       '/app/videos/$cleanId/save',
       headers: headers.isNotEmpty ? headers : null,
     );
+    debugPrint('=== VIDEO SAVE API RESPONSE (/app/videos/$cleanId/save): $res ===');
+    return res;
   }
 
   Future<Map<String, dynamic>> rateVideo({

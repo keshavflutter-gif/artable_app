@@ -7,8 +7,10 @@ import 'package:go_router/go_router.dart';
 import 'package:video_player/video_player.dart';
 
 import 'package:artable_app/app/theme/app_gradients.dart';
+import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
 import 'package:artable_app/features/reels/presentation/bloc/reels_cubit.dart';
 import 'package:artable_app/features/trending/data/models/trending_videos_response.dart';
+import 'package:artable_app/features/trending/data/repositories/videos_repository.dart';
 import 'package:artable_app/features/trending/presentation/bloc/trending_videos_cubit.dart';
 import 'package:artable_app/features/home/presentation/bloc/home_cubit.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
@@ -47,6 +49,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
   double _ratingValue = 5;
   double _playbackSpeed = 1.0;
   final Set<String> _pausedReelIds = {};
+  final Set<String> _fetchedDetailIds = {};
   bool _appInBackground = false;
   /// True while a pushed route / sheet covers the feed — keeps video muted+BGM off.
   bool _routeCovered = false;
@@ -230,6 +233,39 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
     }
   }
 
+  void _fetchDetailForPage(int page) {
+    final items = _getItems(context, listen: false);
+    if (page < 0 || page >= items.length) return;
+    final item = items[page];
+    if (item.isAd || item.reel == null) return;
+    final rId = item.reel!['id']?.toString() ?? item.reel!['_id']?.toString() ?? '';
+    if (rId.isEmpty || _fetchedDetailIds.contains(rId)) return;
+    _fetchedDetailIds.add(rId);
+
+    unawaited(() async {
+      try {
+        final authCubit = context.read<AuthCubit>();
+        final reelsCubit = context.read<ReelsCubit>();
+        final repo = VideosRepository(
+          onTokensRefreshed: authCubit.applyRefreshedTokens,
+          onSessionRefreshFailed: authCubit.handleSessionRefreshFailed,
+        );
+        final detail = await repo.getVideoById(
+          rId,
+          sessionToken: authCubit.sessionToken != 'design_preview'
+              ? authCubit.sessionToken
+              : null,
+          refreshToken: authCubit.refreshToken != 'design_preview'
+              ? authCubit.refreshToken
+              : null,
+        );
+        if (detail != null && mounted) {
+          reelsCubit.syncVideos([detail.toUiMap()], authoritative: true);
+        }
+      } catch (_) {}
+    }());
+  }
+
   /// Count a view after a short dwell so fast swipes don't inflate counts.
   void _scheduleViewForPage(int page) {
     _viewRecordTimer?.cancel();
@@ -278,6 +314,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
     if (targetId == null || targetId.isEmpty) {
       _hasScrolledToInitial = true;
       _fetchCommentsForPage(_currentPage);
+      _fetchDetailForPage(_currentPage);
       _scheduleViewForPage(_currentPage);
       _precacheUpcomingReels(_currentPage, items);
       return;
@@ -291,6 +328,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
     if (found != -1) {
       _hasScrolledToInitial = true;
       _fetchCommentsForPage(found);
+      _fetchDetailForPage(found);
       _scheduleViewForPage(found);
       _precacheUpcomingReels(found, items);
       if (found != _currentPage) {
@@ -319,6 +357,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
           trendingCubit.loadTrendingVideos();
         }
         _fetchCommentsForPage(_currentPage);
+        _fetchDetailForPage(_currentPage);
         _scheduleViewForPage(_currentPage);
         _precacheUpcomingReels(_currentPage, _getItems(context, listen: false));
       }
@@ -881,6 +920,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
                 _pausedReelIds.clear();
               });
               _fetchCommentsForPage(page);
+              _fetchDetailForPage(page);
               _scheduleViewForPage(page);
               _precacheUpcomingReels(page, items);
             },
@@ -899,14 +939,16 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
               // Cubit may hold a stub (likes/comments) without videoUrl — fill
               // blanks from the feed/raw map so Full Reel can actually play.
               final fromCubit = reelsProvider.getVideo(reelId);
-              // Max-merge so Home-opened counts (rawReel) are not wiped by a
-              // stub/zero cubit entry after comments fetch.
               final reel = fromCubit == null
                   ? Map<String, dynamic>.from(rawReel)
-                  : ReelHelpers.mergeReelMaps(fromCubit, rawReel);
+                  : ReelHelpers.withLiveEngagement(rawReel, fromCubit);
               final challenge = ReelHelpers.challengeForReel(reel);
               final liked = reelsProvider.isLiked(reelId, fallbackVideo: reel);
-              final saved = reelsProvider.isBookmarked(reelId);
+              final saved = reelsProvider.isBookmarked(reelId) ||
+                  (fromCubit == null &&
+                      (reel['isSaved'] == true ||
+                          reel['isSave'] == true ||
+                          reel['saved'] == true));
               String videoUrl = (reel['videoUrl'] as String?)?.isNotEmpty == true &&
                       reel['videoUrl'] != 'null' &&
                       !MediaUrlUtils.looksLikeImageUrl(reel['videoUrl'].toString())
@@ -973,6 +1015,15 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
                       int.tryParse(sharesRaw) == null
                   ? sharesRaw
                   : _formatCount(rawShares);
+
+              final int rawSaves = TrendingVideoItem.parseCount(
+                reel['savesCount'] ?? reel['saveCount'] ?? reel['saves'],
+              );
+              final savesRaw = reel['saves']?.toString().trim() ?? '';
+              final String savesText = savesRaw.isNotEmpty &&
+                      int.tryParse(savesRaw) == null
+                  ? savesRaw
+                  : _formatCount(rawSaves);
 
               final int rawViews = reel['viewsCount'] is int
                   ? reel['viewsCount'] as int
@@ -1276,11 +1327,15 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
                         const SizedBox(height: 14),
                         _ActionBtn(
                           icon: saved ? Icons.bookmark : Icons.bookmark_border,
-                          count: saved ? 'Saved' : 'Save',
+                          count: savesText,
                           active: saved,
-                          onTap: () => context
-                              .read<ReelsCubit>()
-                              .toggleBookmark(reelId),
+                          onTap: () {
+                            final cubit = context.read<ReelsCubit>();
+                            if (cubit.getVideo(reelId) == null) {
+                              cubit.syncVideos([Map<String, dynamic>.from(reel)]);
+                            }
+                            unawaited(cubit.toggleBookmark(reelId));
+                          },
                         ),
                       ],
                     ),
@@ -2348,7 +2403,11 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
       _syncBgm(play: true, forceSeek: true);
     }
     updateKeepAlive();
-    _publishSeekController();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _publishSeekController();
+      }
+    });
   }
 
   Future<void> _applyPlaybackSpeed(double speed) async {

@@ -496,6 +496,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
                 AppImage(
                   url: coverUrl,
                   fit: BoxFit.cover,
+                  fullResolution: true,
                   placeholderIcon: Icons.panorama_outlined,
                 ),
                 DecoratedBox(

@@ -610,7 +610,7 @@ class ApiClient {
       );
       return;
     }
-    if (path.startsWith('/app/videos')) {
+    if (path == '/app/videos' && method.toUpperCase() == 'POST') {
       CreateVideoApiDebugLogger.logRequest(
         method: method,
         url: fullUrl,
@@ -1014,7 +1014,7 @@ class ApiClient {
         responseBody: response.body,
         url: fullUrl,
       );
-    } else if (path.startsWith('/app/videos')) {
+    } else if (path == '/app/videos') {
       CreateVideoApiDebugLogger.logResponse(
         statusCode: response.statusCode,
         responseBody: response.body,

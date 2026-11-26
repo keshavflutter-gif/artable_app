@@ -40,6 +40,15 @@ class _TalentRatingSliderState extends State<TalentRatingSlider> {
   }
 
   @override
+  void didUpdateWidget(covariant TalentRatingSlider oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialValue != oldWidget.initialValue &&
+        widget.initialValue != _value) {
+      _value = widget.initialValue;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {

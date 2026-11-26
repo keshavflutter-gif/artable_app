@@ -56,14 +56,20 @@ class ReelsCubit extends Cubit<ReelsState> {
     return null;
   }
 
-  void syncVideos(List<Map<String, dynamic>> newVideos) {
+  void syncVideos(List<Map<String, dynamic>> newVideos, {bool authoritative = false}) {
     if (newVideos.isEmpty) return;
     final currentVideos = List<Map<String, dynamic>>.from(
       state.videos.map((v) => Map<String, dynamic>.from(v)),
     );
     final bookmarked = Set<String>.from(state.bookmarkedVideoIds);
+    final userReactions = Map<String, Map<String, String>>.from(
+      state.userReactions.map((k, v) => MapEntry(k, Map<String, String>.from(v))),
+    );
+    final uid = currentUserId;
+    final currentUserReactions = Map<String, String>.from(userReactions[uid] ?? {});
     bool changed = false;
     bool bookmarkChanged = false;
+    bool reactionChanged = false;
 
     for (final nv in newVideos) {
       final nid = nv['id']?.toString() ?? nv['_id']?.toString() ?? '';
@@ -95,12 +101,33 @@ class ReelsCubit extends Cubit<ReelsState> {
         continue;
       }
 
-      final isSavedVal = nv['isSaved'] == true ||
+      final hasSavedFlag = nv.containsKey('isSave') ||
+          nv.containsKey('isSaved') ||
+          nv.containsKey('saved') ||
+          nv.containsKey('isBookmarked');
+      final isSavedVal = nv['isSave'] == true ||
+          nv['isSaved'] == true ||
           nv['saved'] == true ||
           nv['isBookmarked'] == true;
       if (isSavedVal && !bookmarked.contains(nid)) {
         bookmarked.add(nid);
         bookmarkChanged = true;
+      } else if (authoritative && hasSavedFlag && !isSavedVal && bookmarked.contains(nid)) {
+        bookmarked.remove(nid);
+        bookmarkChanged = true;
+      }
+
+      if (authoritative &&
+          !_pendingLikeCalls.contains(nid) &&
+          (nv.containsKey('isLiked') || nv.containsKey('liked'))) {
+        final likedVal = nv['isLiked'] == true || nv['liked'] == true;
+        if (likedVal && currentUserReactions[nid] != 'like') {
+          currentUserReactions[nid] = 'like';
+          reactionChanged = true;
+        } else if (!likedVal && currentUserReactions[nid] == 'like') {
+          currentUserReactions.remove(nid);
+          reactionChanged = true;
+        }
       }
 
       final idx = currentVideos.indexWhere((v) =>
@@ -236,7 +263,8 @@ class ReelsCubit extends Cubit<ReelsState> {
           existing['liked'] = nv['liked'] ?? nv['isLiked'];
           changed = true;
         }
-        // Prefer the higher engagement totals so sparse API payloads don't wipe UI.
+        // Prefer the higher engagement totals for list merges, or exact API
+        // totals when syncing an authoritative detail response.
         void mergeEngagement(String labelKey, String countKey, [String? alt]) {
           final a = TrendingVideoItem.parseCount(
             existing[countKey] ??
@@ -246,13 +274,14 @@ class ReelsCubit extends Cubit<ReelsState> {
           final b = TrendingVideoItem.parseCount(
             nv[countKey] ?? (alt != null ? nv[alt] : null) ?? nv[labelKey],
           );
-          final best = a > b ? a : b;
+          final best = authoritative ? b : (a > b ? a : b);
           final formatted = TrendingVideoItem.formatCount(best);
           if (existing[countKey] != best ||
               existing[labelKey]?.toString() != formatted) {
             existing[countKey] = best;
             if (alt != null) existing[alt] = best;
             existing[labelKey] = formatted;
+            existing['${labelKey}Label'] = formatted;
             changed = true;
           }
         }
@@ -268,6 +297,12 @@ class ReelsCubit extends Cubit<ReelsState> {
             existing['isBookmarked'] = nv['isSaved'];
           }
           changed = true;
+        }
+        for (final key in ['averageRating', 'talentScore', 'talentScoreLabel', 'ratingCount', 'ratings', 'userRating']) {
+          if (nv.containsKey(key) && nv[key] != null && existing[key] != nv[key]) {
+            existing[key] = nv[key];
+            changed = true;
+          }
         }
         if (nv['handle'] != null && nv['handle'] != '@user' && (existing['handle'] == null || existing['handle'] == '@user')) {
           existing['handle'] = nv['handle'];
@@ -292,10 +327,14 @@ class ReelsCubit extends Cubit<ReelsState> {
       }
     }
 
-    if (changed || bookmarkChanged) {
+    if (changed || bookmarkChanged || reactionChanged) {
+      if (reactionChanged) {
+        userReactions[uid] = currentUserReactions;
+      }
       emit(state.copyWith(
         videos: currentVideos,
         bookmarkedVideoIds: bookmarked,
+        userReactions: reactionChanged ? userReactions : null,
       ));
     }
   }
@@ -601,9 +640,12 @@ class ReelsCubit extends Cubit<ReelsState> {
     }
   }
 
+  final Set<String> _pendingBookmarkCalls = {};
+
   Future<void> toggleBookmark(String videoId) async {
     final vId = videoId.trim();
-    if (vId.isEmpty) return;
+    if (vId.isEmpty || _pendingBookmarkCalls.contains(vId)) return;
+    _pendingBookmarkCalls.add(vId);
 
     final bookmarked = Set<String>.from(state.bookmarkedVideoIds);
     final isNowBookmarked = !bookmarked.contains(vId);
@@ -613,21 +655,24 @@ class ReelsCubit extends Cubit<ReelsState> {
       bookmarked.remove(vId);
     }
 
+    int prevSavesCount = 0;
     final videos = List<Map<String, dynamic>>.from(
       state.videos.map((v) => Map<String, dynamic>.from(v)),
     );
     for (final v in videos) {
       final curId = v['id']?.toString() ?? v['_id']?.toString() ?? '';
       if (curId == vId) {
-        final int currentSaves = TrendingVideoItem.parseCount(
+        prevSavesCount = TrendingVideoItem.parseCount(
           v['savesCount'] ?? v['saveCount'] ?? v['saves'],
         );
         final int newSaves = isNowBookmarked
-            ? currentSaves + 1
-            : (currentSaves > 0 ? currentSaves - 1 : 0);
+            ? prevSavesCount + 1
+            : (prevSavesCount > 0 ? prevSavesCount - 1 : 0);
         v['saves'] = TrendingVideoItem.formatCount(newSaves);
+        v['savesLabel'] = v['saves'];
         v['savesCount'] = newSaves;
         v['saveCount'] = newSaves;
+        v['isSave'] = isNowBookmarked;
         v['isSaved'] = isNowBookmarked;
         v['saved'] = isNowBookmarked;
         v['isBookmarked'] = isNowBookmarked;
@@ -646,39 +691,101 @@ class ReelsCubit extends Cubit<ReelsState> {
         refreshToken: (refresh != null && refresh != 'design_preview') ? refresh : null,
       );
 
-      final data = res['data'];
-      if (data is Map<String, dynamic>) {
+      final rawData = res['data'];
+      final Map<String, dynamic>? data = rawData is Map
+          ? Map<String, dynamic>.from(rawData)
+          : (res.containsKey('isSave') ||
+                  res.containsKey('isSaved') ||
+                  res.containsKey('saves') ||
+                  res.containsKey('savesCount')
+              ? res
+              : null);
+
+      if (data != null) {
+        bool? serverIsSaved;
+        for (final key in ['isSave', 'is_save', 'isSaved', 'is_saved', 'saved', 'isBookmarked']) {
+          if (data.containsKey(key) && data[key] != null) {
+            final val = data[key];
+            serverIsSaved = val == true ||
+                val == 1 ||
+                val.toString().toLowerCase() == 'true' ||
+                val.toString() == '1';
+            break;
+          }
+        }
+
+        int? serverSavesCount;
+        for (final key in ['saves', 'savesCount', 'saveCount', 'totalSaves']) {
+          if (data.containsKey(key) && data[key] != null) {
+            serverSavesCount = TrendingVideoItem.parseCount(data[key]);
+            break;
+          }
+        }
+
+        if (serverIsSaved == null) {
+          final msg = res['message']?.toString().toLowerCase() ?? '';
+          if (msg.contains('unsave') || msg.contains('unsaved') || msg.contains('removed')) {
+            serverIsSaved = false;
+          } else if (serverSavesCount != null) {
+            if (serverSavesCount > prevSavesCount) {
+              serverIsSaved = true;
+            } else if (serverSavesCount < prevSavesCount) {
+              serverIsSaved = false;
+            } else if (msg.contains('save recorded') || msg.contains('saved')) {
+              serverIsSaved = true;
+            }
+          } else if (msg.contains('save recorded') || msg.contains('saved')) {
+            serverIsSaved = true;
+          }
+        }
+
+        final updatedBookmarked = Set<String>.from(state.bookmarkedVideoIds);
+        if (serverIsSaved != null) {
+          if (serverIsSaved) {
+            updatedBookmarked.add(vId);
+          } else {
+            updatedBookmarked.remove(vId);
+          }
+        }
+
         final updatedVideos = List<Map<String, dynamic>>.from(
           state.videos.map((v) => Map<String, dynamic>.from(v)),
         );
         for (final v in updatedVideos) {
           final curId = v['id']?.toString() ?? v['_id']?.toString() ?? '';
           if (curId == vId) {
-            if (data.containsKey('saves')) {
-              final sCount = TrendingVideoItem.parseCount(data['saves']);
-              v['saves'] = TrendingVideoItem.formatCount(sCount);
-              v['savesCount'] = sCount;
-              v['saveCount'] = sCount;
-            } else if (data.containsKey('savesCount')) {
-              final sCount = TrendingVideoItem.parseCount(data['savesCount']);
-              v['saves'] = TrendingVideoItem.formatCount(sCount);
-              v['savesCount'] = sCount;
-              v['saveCount'] = sCount;
+            if (serverSavesCount != null) {
+              v['saves'] = TrendingVideoItem.formatCount(serverSavesCount);
+              v['savesLabel'] = v['saves'];
+              v['savesCount'] = serverSavesCount;
+              v['saveCount'] = serverSavesCount;
+            } else if (serverIsSaved != null && serverIsSaved != isNowBookmarked) {
+              final corrected = serverIsSaved
+                  ? prevSavesCount + 1
+                  : (prevSavesCount > 0 ? prevSavesCount - 1 : 0);
+              v['saves'] = TrendingVideoItem.formatCount(corrected);
+              v['savesLabel'] = v['saves'];
+              v['savesCount'] = corrected;
+              v['saveCount'] = corrected;
             }
-            if (data.containsKey('isSaved')) {
-              final isS = data['isSaved'] == true ||
-                  data['isSaved']?.toString().toLowerCase() == 'true';
-              v['isSaved'] = isS;
-              v['saved'] = isS;
-              v['isBookmarked'] = isS;
+            if (serverIsSaved != null) {
+              v['isSave'] = serverIsSaved;
+              v['isSaved'] = serverIsSaved;
+              v['saved'] = serverIsSaved;
+              v['isBookmarked'] = serverIsSaved;
             }
             break;
           }
         }
-        emit(state.copyWith(videos: updatedVideos));
+        emit(state.copyWith(
+          bookmarkedVideoIds: updatedBookmarked,
+          videos: updatedVideos,
+        ));
       }
     } catch (e) {
       debugPrint('saveVideo API error: $e');
+    } finally {
+      _pendingBookmarkCalls.remove(vId);
     }
   }
 
@@ -794,8 +901,10 @@ class ReelsCubit extends Cubit<ReelsState> {
       );
       final int newShares = currentShares + 1;
       v['shares'] = TrendingVideoItem.formatCount(newShares);
+      v['sharesLabel'] = v['shares'];
       v['sharesCount'] = newShares;
       v['shareCount'] = newShares;
+      v['isShared'] = true;
     }
     emit(state.copyWith(videos: videos));
 
@@ -809,8 +918,9 @@ class ReelsCubit extends Cubit<ReelsState> {
       );
       debugPrint('Share Video API response: $res');
 
-      final data = res['data'];
-      if (data is Map<String, dynamic>) {
+      final rawData = res['data'];
+      if (rawData is Map) {
+        final data = Map<String, dynamic>.from(rawData);
         final updatedVideos = List<Map<String, dynamic>>.from(
           state.videos.map((v) => Map<String, dynamic>.from(v)),
         );
@@ -855,9 +965,11 @@ class ReelsCubit extends Cubit<ReelsState> {
         if (rawS != null) {
           final int sCount = TrendingVideoItem.parseCount(rawS);
           v['shares'] = TrendingVideoItem.formatCount(sCount);
+          v['sharesLabel'] = v['shares'];
           v['sharesCount'] = sCount;
           v['shareCount'] = sCount;
         }
+        v['isShared'] = true;
         emit(state.copyWith(videos: updatedVideos));
       }
       return res;
