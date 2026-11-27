@@ -7,6 +7,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:artable_app/firebase_options.dart';
 import 'package:artable_app/app/routes/app_router.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
+import 'package:artable_app/core/storage/local_storage.dart';
 
 /// Top-level background message handler required by Firebase Messaging.
 /// Must be annotated with @pragma('vm:entry-point') so it can run in background isolate.
@@ -28,8 +29,10 @@ class NotificationService {
   NotificationService._();
   static final NotificationService instance = NotificationService._();
 
-  final FirebaseMessaging _fcm = FirebaseMessaging.instance;
-  final FlutterLocalNotificationsPlugin _localNotifications = FlutterLocalNotificationsPlugin();
+  /// Lazy — accessing FirebaseMessaging before Firebase.initializeApp throws.
+  FirebaseMessaging get _fcm => FirebaseMessaging.instance;
+  final FlutterLocalNotificationsPlugin _localNotifications =
+      FlutterLocalNotificationsPlugin();
 
   static const String _androidChannelId = 'high_importance_channel';
   static const String _androidChannelName = 'High Importance Notifications';
@@ -37,6 +40,7 @@ class NotificationService {
 
   bool _isInitialized = false;
   String? _currentToken;
+  static const String _pendingNavKey = 'pending_fcm_navigation';
 
   /// Returns current cached or freshly fetched FCM token.
   String? get currentToken => _currentToken;
@@ -83,14 +87,11 @@ class NotificationService {
       // 8. Listen for Background Notification Taps (when app in background)
       FirebaseMessaging.onMessageOpenedApp.listen(_handleNotificationTapMessage);
 
-      // 9. Check for Initial Message (when app launched from terminated state via notification tap)
+      // 9. Cold-start tap: persist payload so splash/login can consume after auth.
       final initialMessage = await _fcm.getInitialMessage();
       if (initialMessage != null) {
         debugPrint('=== FCM Initial Message Received (Terminated state tap) ===');
-        // Defer slightly to allow router initialization to complete
-        Future.delayed(const Duration(milliseconds: 500), () {
-          _handleNotificationTapMessage(initialMessage);
-        });
+        await savePendingNavigation(initialMessage.data);
       }
 
       _isInitialized = true;
@@ -255,6 +256,32 @@ class NotificationService {
     handleNotificationNavigation(message.data);
   }
 
+  /// Persist FCM tap payload until splash/login finishes navigating.
+  Future<void> savePendingNavigation(Map<String, dynamic> data) async {
+    if (data.isEmpty) return;
+    try {
+      await LocalStorage.setString(_pendingNavKey, jsonEncode(data));
+    } catch (e) {
+      debugPrint('savePendingNavigation error: $e');
+    }
+  }
+
+  /// Consume a cold-start FCM navigation after splash/login is ready.
+  Future<bool> consumePendingNavigation() async {
+    try {
+      final raw = await LocalStorage.getString(_pendingNavKey);
+      if (raw == null || raw.trim().isEmpty) return false;
+      await LocalStorage.remove(_pendingNavKey);
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return false;
+      handleNotificationNavigation(Map<String, dynamic>.from(decoded));
+      return true;
+    } catch (e) {
+      debugPrint('consumePendingNavigation error: $e');
+      return false;
+    }
+  }
+
   /// Parses payload data and routes user to appropriate screen cleanly.
   void handleNotificationNavigation(Map<String, dynamic> data) {
     if (data.isEmpty) return;
@@ -262,9 +289,20 @@ class NotificationService {
     try {
       final route = data['route']?.toString().trim();
       final screen = data['screen']?.toString().trim();
-      final id = data['id']?.toString().trim();
+      final id = (data['id'] ??
+              data['targetId'] ??
+              data['challengeId'] ??
+              data['videoId'] ??
+              data['rewardId'] ??
+              '')
+          .toString()
+          .trim();
+      final challengeId =
+          (data['challengeId'] ?? data['id'] ?? '').toString().trim();
+      final videoId = (data['videoId'] ?? data['id'] ?? '').toString().trim();
 
-      debugPrint('Handling notification navigation -> route: $route, screen: $screen, id: $id');
+      debugPrint(
+          'Handling notification navigation -> route: $route, screen: $screen, id: $id');
 
       if (route != null && route.isNotEmpty) {
         appRouter.push(route);
@@ -285,19 +323,22 @@ class NotificationService {
             break;
           case 'challengeDetail':
           case 'challenge_detail':
-            if (id != null && id.isNotEmpty) {
-              appRouter.push('${AppRoutes.challengeDetail}?id=$id');
+            if (challengeId.isNotEmpty) {
+              appRouter.push('${AppRoutes.challengeDetail}?id=$challengeId');
             } else {
               appRouter.push(AppRoutes.categories);
             }
             break;
           case 'videoDetail':
           case 'video_detail':
-            if (id != null && id.isNotEmpty) {
-              appRouter.push('${AppRoutes.videoDetail}?id=$id');
+            if (videoId.isNotEmpty) {
+              appRouter.push('${AppRoutes.videoDetail}?id=$videoId');
             } else {
               appRouter.go(AppRoutes.reelsFeed);
             }
+            break;
+          case 'wallet':
+            appRouter.go(AppRoutes.wallet);
             break;
           case 'profile':
             appRouter.go(AppRoutes.profile);
@@ -307,21 +348,26 @@ class NotificationService {
             break;
           case 'rewardDetail':
           case 'reward_detail':
-            if (id != null && id.isNotEmpty) {
+            if (id.isNotEmpty) {
               appRouter.push('${AppRoutes.rewardDetail}?id=$id');
             } else {
               appRouter.go(AppRoutes.rewards);
             }
             break;
           case 'winners':
-            appRouter.go(AppRoutes.winners);
+            if (challengeId.isNotEmpty) {
+              appRouter.push('${AppRoutes.winners}?challengeId=$challengeId');
+            } else {
+              appRouter.go(AppRoutes.winners);
+            }
             break;
           case 'trending':
           case 'trendingVideos':
             appRouter.go(AppRoutes.trendingVideos);
             break;
           default:
-            debugPrint('Unknown notification screen payload: $screen. Opening notifications screen.');
+            debugPrint(
+                'Unknown notification screen payload: $screen. Opening notifications screen.');
             appRouter.push(AppRoutes.notifications);
             break;
         }

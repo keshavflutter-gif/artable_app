@@ -11,6 +11,7 @@ import 'package:crypto/crypto.dart';
 import 'package:artable_app/core/network/api_exception.dart';
 import 'package:artable_app/core/storage/local_storage.dart';
 import 'package:artable_app/core/services/notification_service.dart';
+import 'package:artable_app/core/utils/social_links_utils.dart';
 import 'package:artable_app/features/auth/data/apple_auth_config.dart';
 import 'package:artable_app/features/auth/data/models/change_password_request.dart';
 import 'package:artable_app/features/auth/data/models/forgot_password_request.dart';
@@ -221,15 +222,15 @@ class AuthCubit extends Cubit<AuthState> {
 
     try {
       String? effectiveFcm = fcmToken;
-      if (effectiveFcm == null || effectiveFcm.trim().isEmpty) {
-        effectiveFcm = NotificationService.instance.currentToken;
-      }
-      if (effectiveFcm == null || effectiveFcm.trim().isEmpty) {
-        try {
-          effectiveFcm = await NotificationService.instance.getFcmToken();
-        } catch (e) {
-          debugPrint('AuthCubit error retrieving FCM token: $e');
+      try {
+        if (effectiveFcm == null || effectiveFcm.trim().isEmpty) {
+          effectiveFcm = NotificationService.instance.currentToken;
         }
+        if (effectiveFcm == null || effectiveFcm.trim().isEmpty) {
+          effectiveFcm = await NotificationService.instance.getFcmToken();
+        }
+      } catch (e) {
+        debugPrint('AuthCubit error retrieving FCM token: $e');
       }
       if (effectiveFcm == null || effectiveFcm.trim().isEmpty) {
         effectiveFcm = 'optional-fcm-token';
@@ -410,12 +411,13 @@ class AuthCubit extends Cubit<AuthState> {
 
       final (firstName, middleName, lastName) = _splitFullNameParts(name);
 
-      String? googleFcm = NotificationService.instance.currentToken;
-      if (googleFcm == null || googleFcm.trim().isEmpty) {
-        try {
+      String? googleFcm;
+      try {
+        googleFcm = NotificationService.instance.currentToken;
+        if (googleFcm == null || googleFcm.trim().isEmpty) {
           googleFcm = await NotificationService.instance.getFcmToken();
-        } catch (_) {}
-      }
+        }
+      } catch (_) {}
       if (googleFcm == null || googleFcm.trim().isEmpty) {
         googleFcm = 'optional-fcm-token';
       }
@@ -586,12 +588,13 @@ class AuthCubit extends Cubit<AuthState> {
       final resolvedMiddle = splitParts.$2;
       final resolvedLast = splitParts.$3;
 
-      String? appleFcm = NotificationService.instance.currentToken;
-      if (appleFcm == null || appleFcm.trim().isEmpty) {
-        try {
+      String? appleFcm;
+      try {
+        appleFcm = NotificationService.instance.currentToken;
+        if (appleFcm == null || appleFcm.trim().isEmpty) {
           appleFcm = await NotificationService.instance.getFcmToken();
-        } catch (_) {}
-      }
+        }
+      } catch (_) {}
       if (appleFcm == null || appleFcm.trim().isEmpty) {
         appleFcm = 'optional-fcm-token';
       }
@@ -1346,10 +1349,32 @@ class AuthCubit extends Cubit<AuthState> {
       if (currentSocial is List) {
         socialListToPersist = currentSocial
             .whereType<Map>()
-            .map((e) => Map<String, dynamic>.from(e))
+            .map((e) => _normalizeSocialLinkMap(Map<String, dynamic>.from(e)))
+            .whereType<Map<String, dynamic>>()
             .toList();
       } else if (currentSocial is Map) {
-        socialListToPersist = [Map<String, dynamic>.from(currentSocial)];
+        final normalized =
+            _normalizeSocialLinkMap(Map<String, dynamic>.from(currentSocial));
+        if (normalized != null) {
+          socialListToPersist = [normalized];
+        } else {
+          // Map shaped like {instagramUrl: "..."} → list of {platform,url}
+          socialListToPersist = currentSocial.entries
+              .map((e) {
+                final url = e.value?.toString().trim() ?? '';
+                if (url.isEmpty || url == 'https://') return null;
+                return <String, dynamic>{
+                  'platform': e.key.toString(),
+                  'url': url,
+                };
+              })
+              .whereType<Map<String, dynamic>>()
+              .toList();
+        }
+      }
+
+      if (socialListToPersist != null && socialListToPersist.isNotEmpty) {
+        finalUserMap['socialLinks'] = socialListToPersist;
       }
 
       await _authRepository.persistLocalProfileDetails(
@@ -1600,6 +1625,17 @@ class AuthCubit extends Cubit<AuthState> {
     } else {
       return {'websiteUrl': trimmed};
     }
+  }
+
+  /// Normalize any social-link map shape to `{platform, url}` for UI/storage.
+  static Map<String, dynamic>? _normalizeSocialLinkMap(Map<String, dynamic> raw) {
+    final url = SocialLinksUtils.extractUrl(raw);
+    if (url.isEmpty) return null;
+    return {
+      'platform': raw['platform']?.toString() ??
+          SocialLinksUtils.labelFor(url: url).toLowerCase(),
+      'url': url,
+    };
   }
 
   (String, String, String) _splitFullNameParts(String fullName) {

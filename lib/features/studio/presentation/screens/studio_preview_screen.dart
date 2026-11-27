@@ -711,9 +711,13 @@ class _StudioPreviewScreenState extends State<StudioPreviewScreen> {
                                 final studioCubit = context.read<StudioCubit>();
                                 studioCubit.toggleMute();
                                 final newMuted = studioCubit.isMuted;
-                                _videoController?.setVolume(newMuted ? 0.0 : 1.0);
+                                // Respect BGM: unmute uses originalAudioVolume (0 when track selected).
+                                final vol = newMuted
+                                    ? 0.0
+                                    : studioCubit.originalAudioVolume;
+                                _videoController?.setVolume(vol);
                                 for (final c in _clipControllers) {
-                                  c.setVolume(newMuted ? 0.0 : 1.0);
+                                  c.setVolume(vol);
                                 }
                                 setState(() {});
                               },

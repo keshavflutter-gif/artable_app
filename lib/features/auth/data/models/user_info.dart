@@ -1,3 +1,5 @@
+import 'package:artable_app/core/utils/social_links_utils.dart';
+
 class UserInfo {
   const UserInfo({
     required this.id,
@@ -297,15 +299,71 @@ class UserInfo {
     if (source == null) return null;
 
     final results = <Map<String, dynamic>>[];
+    final seenUrls = <String>{};
+
+    void addLink(String platform, String url) {
+      // Reuse shared sanitizer so auth/provider blobs never become social links.
+      final clean = SocialLinksUtils.extractUrl(url);
+      if (clean.isEmpty) return;
+      final key = clean.toLowerCase();
+      if (seenUrls.contains(key)) return;
+      seenUrls.add(key);
+      results.add({'platform': platform, 'url': clean});
+    }
+
+    String? urlFromMap(Map item) {
+      for (final key in [
+        'url',
+        'websiteUrl',
+        'website',
+        'instagramUrl',
+        'instagram',
+        'youtubeUrl',
+        'youtube',
+        'link',
+        'href',
+        'value',
+        'socialUrl',
+      ]) {
+        final v = item[key]?.toString().trim();
+        if (v != null &&
+            v.isNotEmpty &&
+            v != '#' &&
+            v != 'https://' &&
+            v.toLowerCase() != 'null') {
+          return v;
+        }
+      }
+      for (final entry in item.entries) {
+        final v = entry.value?.toString().trim() ?? '';
+        if (v.startsWith('http') || v.contains('.') || v.startsWith('@')) {
+          return v;
+        }
+      }
+      return null;
+    }
 
     dynamic rawLinks;
-    if (source is Map<String, dynamic> || source is Map) {
+    if (source is Map) {
       rawLinks = source['socialLinks'] ?? source['social_links'];
 
-      for (final key in ['websiteUrl', 'website_url', 'website', 'instagramUrl', 'instagram_url', 'instagram', 'youtubeUrl', 'youtube_url', 'youtube']) {
+      for (final key in [
+        'websiteUrl',
+        'website_url',
+        'website',
+        'instagramUrl',
+        'instagram_url',
+        'instagram',
+        'youtubeUrl',
+        'youtube_url',
+        'youtube',
+      ]) {
         final val = source[key]?.toString().trim();
-        if (val != null && val.isNotEmpty && val != 'null' && val != 'undefined') {
-          results.add({'platform': key, 'url': val});
+        if (val != null &&
+            val.isNotEmpty &&
+            val != 'null' &&
+            val != 'undefined') {
+          addLink(key, val);
         }
       }
     } else {
@@ -315,15 +373,29 @@ class UserInfo {
     if (rawLinks is List) {
       for (final item in rawLinks) {
         if (item is Map) {
-          results.add(Map<String, dynamic>.from(item));
+          final map = Map<String, dynamic>.from(item);
+          final url = urlFromMap(map);
+          if (url != null) {
+            final platform = map['platform']?.toString() ??
+                map['type']?.toString() ??
+                'website';
+            addLink(platform, url);
+          }
+        } else if (item is String) {
+          addLink('website', item);
         }
       }
     } else if (rawLinks is Map) {
       rawLinks.forEach((k, v) {
-        if (v != null && v.toString().trim().isNotEmpty && v.toString().trim() != 'null') {
-          results.add({'platform': k.toString(), 'url': v.toString().trim()});
+        if (v is Map) {
+          final url = urlFromMap(Map<String, dynamic>.from(v));
+          if (url != null) addLink(k.toString(), url);
+        } else if (v != null) {
+          addLink(k.toString(), v.toString());
         }
       });
+    } else if (rawLinks is String) {
+      addLink('website', rawLinks);
     }
 
     return results.isNotEmpty ? results : null;

@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_gradients.dart';
+import 'package:artable_app/core/utils/social_links_utils.dart';
 import 'package:artable_app/core/widgets/app_back_header.dart';
 import 'package:artable_app/core/widgets/app_image.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
@@ -52,7 +53,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       text: (auth.currentUser['category'] as String?) ?? '',
     );
     _social = TextEditingController(
-      text: _extractSocialLinkUrl(auth.currentUser['socialLinks']),
+      text: SocialLinksUtils.extractUrl(
+        auth.currentUser['socialLinks'] ?? auth.socialLinks,
+      ),
     );
     _coverUrl = auth.currentUser['coverUrl'] as String? ?? _coverUrl;
     _avatarUrl = auth.currentUser['avatarUrl'] as String? ?? _avatarUrl;
@@ -178,10 +181,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         } else if (user.category != null && user.category!.isNotEmpty) {
           _category.text = user.category!;
         }
-        final socialUrl = _extractSocialLinkUrl(user.socialLinks);
-        if (socialUrl.isNotEmpty && socialUrl != 'https://') {
-          _social.text = socialUrl;
-        }
+        final socialUrl = SocialLinksUtils.extractUrl(user.socialLinks);
+        final fromAuth = SocialLinksUtils.extractUrl(
+          auth.currentUser['socialLinks'] ?? auth.socialLinks,
+        );
+        final best = socialUrl.isNotEmpty ? socialUrl : fromAuth;
+        // Always sync field: clear junk/auth blobs if no real URL exists.
+        _social.text = best;
         if (auth.avatarUrl.isNotEmpty) {
           _avatarUrl = auth.avatarUrl;
         } else if (user.profilePhotoUrl != null &&
@@ -196,29 +202,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         }
       });
     }
-  }
-
-  static String _extractSocialLinkUrl(dynamic source) {
-    if (source is List && source.isNotEmpty) {
-      final first = source.first;
-      if (first is Map) {
-        final url = first['url']?.toString() ??
-            first['websiteUrl']?.toString() ??
-            first['website']?.toString();
-        if (url != null && url.isNotEmpty && url != '#') {
-          return url;
-        }
-      }
-    } else if (source is Map) {
-      final url = source['websiteUrl']?.toString() ??
-          source['url']?.toString() ??
-          source['instagramUrl']?.toString() ??
-          source['youtubeUrl']?.toString();
-      if (url != null && url.isNotEmpty && url != '#') {
-        return url;
-      }
-    }
-    return '';
   }
 
   @override

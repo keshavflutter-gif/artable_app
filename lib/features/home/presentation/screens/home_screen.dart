@@ -1238,7 +1238,18 @@ class _MiniChallengeCard extends StatelessWidget {
       }
     }
 
-    return Container(
+    void openChallenge() {
+      final id = challenge['id'];
+      if (id != null && id.toString().isNotEmpty) {
+        context.push('/challenge-detail?id=$id');
+      } else {
+        context.go('${AppRoutes.challenges}?tab=active');
+      }
+    }
+
+    return GestureDetector(
+      onTap: openChallenge,
+      child: Container(
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
@@ -1333,40 +1344,30 @@ class _MiniChallengeCard extends StatelessWidget {
                   ),
                 ],
                 const SizedBox(height: 10),
-                GestureDetector(
-                  onTap: () {
-                    final id = challenge['id'];
-                    if (id != null && id.toString().isNotEmpty) {
-                      context.push('/challenge-detail?id=$id');
-                    } else {
-                      context.go('${AppRoutes.challenges}?tab=active');
-                    }
-                  },
-                  child: Container(
-                    height: 34,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFFFF2A6D), Color(0xFF9E00FF)],
-                      ),
-                      borderRadius: BorderRadius.circular(10),
-                      boxShadow: [
-                        BoxShadow(
-                          color: const Color(0xFFFF2A6D).withValues(alpha: 0.35),
-                          blurRadius: 12,
-                          offset: const Offset(0, 5),
-                        ),
-                      ],
+                Container(
+                  height: 34,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFFFF2A6D), Color(0xFF9E00FF)],
                     ),
-                    child: const Text(
-                      'JOIN NOW →',
-                      style: TextStyle(
-                        fontFamily: 'Poppins',
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w900,
-                        color: Colors.white,
-                        letterSpacing: 0.4,
+                    borderRadius: BorderRadius.circular(10),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFFFF2A6D).withValues(alpha: 0.35),
+                        blurRadius: 12,
+                        offset: const Offset(0, 5),
                       ),
+                    ],
+                  ),
+                  child: const Text(
+                    'JOIN NOW →',
+                    style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.white,
+                      letterSpacing: 0.4,
                     ),
                   ),
                 ),
@@ -1374,6 +1375,7 @@ class _MiniChallengeCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
       ),
     );
   }
@@ -1855,6 +1857,12 @@ class _DownloadBannerState extends State<_DownloadBanner> {
   bool _ready = false;
   bool _failed = false;
 
+  Future<void> _onDownloadNow() async {
+    // User is already inside the app — drive them to Challenges to join & win.
+    if (!mounted) return;
+    context.go(AppRoutes.challenges);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -2080,18 +2088,26 @@ class _DownloadBannerState extends State<_DownloadBanner> {
             ),
           ),
           const SizedBox(height: 14),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-            decoration: BoxDecoration(
-              gradient: AppGradients.button,
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: _onDownloadNow,
               borderRadius: BorderRadius.circular(24),
-            ),
-            child: Text(
-              'DOWNLOAD NOW',
-              style: AppTypography.display(
-                fontSize: 12.5,
-                fontWeight: FontWeight.w800,
-                color: Colors.white,
+              child: Ink(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                decoration: BoxDecoration(
+                  gradient: AppGradients.button,
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: Text(
+                  'DOWNLOAD NOW',
+                  style: AppTypography.display(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
+                  ),
+                ),
               ),
             ),
           ),

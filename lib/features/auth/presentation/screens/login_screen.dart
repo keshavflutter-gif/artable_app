@@ -37,7 +37,11 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _goAfterLogin() async {
     final opened = await DeepLinkService.consumePendingIfAny();
     if (!mounted) return;
-    if (!opened) {
+    if (opened) return;
+    final openedNotif =
+        await NotificationService.instance.consumePendingNavigation();
+    if (!mounted) return;
+    if (!openedNotif) {
       context.go(AppRoutes.home);
     }
   }

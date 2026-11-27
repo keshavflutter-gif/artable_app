@@ -9,6 +9,7 @@ import 'package:artable_app/app/theme/app_gradients.dart';
 import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/core/services/deep_link_service.dart';
+import 'package:artable_app/core/services/notification_service.dart';
 import 'package:artable_app/core/storage/onboarding_storage_service.dart';
 
 /// Splash screen — matches Figma splash design 100%.
@@ -76,7 +77,11 @@ class _SplashScreenState extends State<SplashScreen> {
     if (auth.isLoggedIn) {
       final openedDeepLink = await DeepLinkService.consumePendingIfAny();
       if (!mounted) return;
-      if (!openedDeepLink) {
+      if (openedDeepLink) return;
+      final openedNotif =
+          await NotificationService.instance.consumePendingNavigation();
+      if (!mounted) return;
+      if (!openedNotif) {
         context.go(AppRoutes.home);
       }
     } else if (!onboardingCompleted) {

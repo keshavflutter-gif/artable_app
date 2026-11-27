@@ -843,10 +843,21 @@ class _PrimePaymentScreenState extends State<PrimePaymentScreen> {
       final data = ApiResponseHelpers.dataAsMap(subscribeRes) ?? subscribeRes;
       final orderId = data['razorpayOrderId']?.toString() ??
           data['orderId']?.toString();
+      final keyId = data['razorpayKeyId']?.toString() ??
+          data['keyId']?.toString();
       final amountRaw = data['amount'] ?? _amount;
-      final amount = amountRaw is num
+      var amount = amountRaw is num
           ? amountRaw.toDouble()
           : (double.tryParse(amountRaw.toString()) ?? _amount);
+      // Razorpay order amounts are usually integers in paise. PaymentOptionsModel
+      // expects rupees and multiplies by 100 — convert when clearly paise.
+      final hasOrder = orderId != null && orderId.isNotEmpty;
+      final looksLikePaise = amount >= 100 &&
+          amount == amount.roundToDouble() &&
+          amount > (_amount * 5);
+      if (hasOrder && looksLikePaise) {
+        amount = amount / 100.0;
+      }
 
       final user = auth.currentUser;
       final email = user['email']?.toString();
@@ -856,6 +867,7 @@ class _PrimePaymentScreenState extends State<PrimePaymentScreen> {
         options: PaymentOptionsModel(
           amount: amount,
           orderId: orderId,
+          keyId: (keyId != null && keyId.isNotEmpty) ? keyId : null,
           description: 'Artable Prime Membership',
           userEmail: email,
           userContact: phone,

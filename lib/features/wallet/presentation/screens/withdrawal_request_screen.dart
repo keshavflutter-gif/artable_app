@@ -450,6 +450,13 @@ class _WithdrawalRequestScreenState extends State<WithdrawalRequestScreen> {
                                   final parsed =
                                       double.tryParse(_amountController.text) ??
                                           0.0;
+                                  final available = double.tryParse(
+                                        availableStr.replaceAll(
+                                          RegExp(r'[^0-9.]'),
+                                          '',
+                                        ),
+                                      ) ??
+                                      0.0;
                                   if (parsed < 50.0) {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       const SnackBar(
@@ -457,6 +464,18 @@ class _WithdrawalRequestScreenState extends State<WithdrawalRequestScreen> {
                                           'Minimum withdrawal amount is ₹50.',
                                         ),
                                         backgroundColor: Color(0xFFFF3D77),
+                                      ),
+                                    );
+                                    return;
+                                  }
+                                  if (parsed > available) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          'Amount exceeds available balance ($availableStr).',
+                                        ),
+                                        backgroundColor:
+                                            const Color(0xFFFF3D77),
                                       ),
                                     );
                                     return;

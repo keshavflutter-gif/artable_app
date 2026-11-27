@@ -9,6 +9,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:artable_app/app/theme/app_gradients.dart';
 import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
+import 'package:artable_app/core/services/deep_link_service.dart';
+import 'package:artable_app/core/services/notification_service.dart';
 import 'package:artable_app/features/referral/data/referral_storage.dart';
 import 'package:artable_app/features/referral/presentation/bloc/referral_cubit.dart';
 
@@ -28,6 +30,18 @@ class _SignupScreenState extends State<SignupScreen> {
   final _passwordController = TextEditingController();
   final _confirmController = TextEditingController();
   final _referralController = TextEditingController();
+
+  Future<void> _goAfterSignup() async {
+    final opened = await DeepLinkService.consumePendingIfAny();
+    if (!mounted) return;
+    if (opened) return;
+    final openedNotif =
+        await NotificationService.instance.consumePendingNavigation();
+    if (!mounted) return;
+    if (!openedNotif) {
+      context.go(AppRoutes.home);
+    }
+  }
 
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
@@ -594,7 +608,7 @@ class _SignupScreenState extends State<SignupScreen> {
                             final success = await auth.loginWithGoogle();
                             if (!context.mounted) return;
                             if (success) {
-                              context.go(AppRoutes.home);
+                              await _goAfterSignup();
                             } else if (auth.errorMessage != null &&
                                 auth.errorMessage!.isNotEmpty) {
                               ScaffoldMessenger.of(context).showSnackBar(
@@ -617,7 +631,7 @@ class _SignupScreenState extends State<SignupScreen> {
                             final success = await auth.loginWithApple();
                             if (!context.mounted) return;
                             if (success) {
-                              context.go(AppRoutes.home);
+                              await _goAfterSignup();
                             } else if (auth.errorMessage != null &&
                                 auth.errorMessage!.isNotEmpty) {
                               ScaffoldMessenger.of(context).showSnackBar(

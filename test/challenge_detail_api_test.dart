@@ -62,17 +62,17 @@ void main() {
             "approvedVideos": 1,
             "updatedAt": "2026-08-14T06:11:09.560Z"
           },
-          "startDate": "2026-08-08T18:30:00.000Z",
-          "endDate": "2026-08-29T18:29:59.999Z",
+          "startDate": "2026-11-01T18:30:00.000Z",
+          "endDate": "2027-03-31T18:29:59.999Z",
           "status": "ACTIVE",
           "isFeatured": true,
           "joinedCount": 0,
           "approvedVideosCount": 0,
           "averageRating": 0,
           "joinedLabel": "0 joined",
-          "daysLeft": 16,
-          "daysLeftLabel": "16 days left",
-          "endDateLabel": "Aug 29, 2026",
+          "daysLeft": 120,
+          "daysLeftLabel": "120 days left",
+          "endDateLabel": "Mar 31, 2027",
           "joined": false
         }
       ]

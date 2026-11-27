@@ -8,6 +8,7 @@ import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/core/utils/media_url_utils.dart';
 import 'package:artable_app/core/utils/app_filter_utils.dart';
 import 'package:artable_app/core/utils/reel_helpers.dart';
+import 'package:artable_app/core/utils/social_links_utils.dart';
 import 'package:artable_app/core/utils/video_share_helper.dart';
 import 'package:artable_app/core/widgets/app_image.dart';
 import 'package:artable_app/core/widgets/app_scaffold.dart';
@@ -127,44 +128,22 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
         currentUser['isBlueTick'] == true ||
         currentUser['isVerified'] == true;
 
-    final dynamic socialSource = user?.socialLinks ?? auth.socialLinks ?? currentUser['socialLinks'];
-    String socialLabel = 'Website';
-    String? socialUrl;
+    final dynamic socialSource =
+        user?.socialLinks ?? auth.socialLinks ?? currentUser['socialLinks'];
+    final socialUrlRaw = SocialLinksUtils.extractUrl(socialSource);
+    final String? socialUrl =
+        socialUrlRaw.isNotEmpty ? socialUrlRaw : null;
+    String? platformHint;
     if (socialSource is List && socialSource.isNotEmpty) {
       final first = socialSource.first;
       if (first is Map) {
-        socialUrl = first['url']?.toString() ?? first['websiteUrl']?.toString();
-        final p = first['platform']?.toString();
-        if (p != null && p.isNotEmpty) {
-          socialLabel = p.replaceAll('Url', '').replaceAll('_url', '');
-          socialLabel = socialLabel.isNotEmpty
-              ? socialLabel[0].toUpperCase() + socialLabel.substring(1)
-              : 'Website';
-        } else if (socialUrl != null && socialUrl.contains('instagram')) {
-          socialLabel = 'Instagram';
-        } else if (socialUrl != null && (socialUrl.contains('youtube') || socialUrl.contains('youtu.be'))) {
-          socialLabel = 'YouTube';
-        }
-      }
-    } else if (socialSource is Map && socialSource.isNotEmpty) {
-      if (socialSource['websiteUrl'] != null && socialSource['websiteUrl'].toString().isNotEmpty) {
-        socialUrl = socialSource['websiteUrl'].toString();
-        socialLabel = 'Website';
-      } else if (socialSource['instagramUrl'] != null && socialSource['instagramUrl'].toString().isNotEmpty) {
-        socialUrl = socialSource['instagramUrl'].toString();
-        socialLabel = 'Instagram';
-      } else if (socialSource['youtubeUrl'] != null && socialSource['youtubeUrl'].toString().isNotEmpty) {
-        socialUrl = socialSource['youtubeUrl'].toString();
-        socialLabel = 'YouTube';
-      } else {
-        final firstKey = socialSource.keys.first.toString();
-        socialUrl = socialSource[firstKey]?.toString();
-        socialLabel = firstKey.replaceAll('Url', '').replaceAll('_url', '');
-        socialLabel = socialLabel.isNotEmpty
-            ? socialLabel[0].toUpperCase() + socialLabel.substring(1)
-            : 'Website';
+        platformHint = first['platform']?.toString();
       }
     }
+    final socialLabel = SocialLinksUtils.labelFor(
+      url: socialUrl,
+      platform: platformHint,
+    );
 
     final recentVideosTitle = profileState.data?.recentVideosTitle ?? 'Recent Videos';
 
