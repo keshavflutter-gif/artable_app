@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:artable_app/app/theme/app_gradients.dart';
 import 'package:artable_app/app/theme/app_typography.dart';
 import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
+import 'package:artable_app/features/home/presentation/bloc/home_cubit.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/core/utils/app_icons.dart';
 
@@ -181,40 +182,48 @@ class _NotificationBell extends StatelessWidget {
             alignment: Alignment.center,
             children: [
               AppIcons.bell(size: 20, color: Colors.white),
-              Positioned(
-                top: -5,
-                right: -8,
-                child: Container(
-                  constraints: const BoxConstraints(
-                    minWidth: 16,
-                    minHeight: 16,
-                  ),
-                  padding: const EdgeInsets.symmetric(horizontal: 3),
-                  decoration: BoxDecoration(
-                    gradient: AppGradients.button,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: const Color(0xFF170A30),
-                      width: 1.5,
-                    ),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Color(0x8CFF3D77),
-                        blurRadius: 6,
-                        offset: Offset(0, 2),
+              Builder(
+                builder: (context) {
+                  final unreadCount = context.select<HomeCubit, int>(
+                    (c) => c.state.unreadNotificationsCount,
+                  );
+                  if (unreadCount <= 0) return const SizedBox.shrink();
+                  return Positioned(
+                    top: -5,
+                    right: -8,
+                    child: Container(
+                      constraints: const BoxConstraints(
+                        minWidth: 16,
+                        minHeight: 16,
                       ),
-                    ],
-                  ),
-                  alignment: Alignment.center,
-                  child: Text(
-                    '3',
-                    style: AppTypography.body(
-                      fontSize: 9,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 3),
+                      decoration: BoxDecoration(
+                        gradient: AppGradients.button,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: const Color(0xFF170A30),
+                          width: 1.5,
+                        ),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0x8CFF3D77),
+                            blurRadius: 6,
+                            offset: Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        unreadCount > 99 ? '99+' : '$unreadCount',
+                        style: AppTypography.body(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                        ),
+                      ),
                     ),
-                  ),
-                ),
+                  );
+                },
               ),
             ],
           ),

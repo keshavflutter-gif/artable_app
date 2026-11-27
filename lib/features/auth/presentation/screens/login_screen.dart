@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
@@ -419,29 +421,31 @@ class _LoginScreenState extends State<LoginScreen> {
                           },
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _SocialButton(
-                          asset: 'assets/apple.svg',
-                          label: 'Apple',
-                          onTap: () async {
-                            final auth = context.read<AuthCubit>();
-                            final success = await auth.loginWithApple();
-                            if (!context.mounted) return;
-                            if (success) {
-                              await _goAfterLogin();
-                            } else if (auth.errorMessage != null &&
-                                auth.errorMessage!.isNotEmpty) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(auth.errorMessage!),
-                                  backgroundColor: Colors.redAccent,
-                                ),
-                              );
-                            }
-                          },
+                      if (Platform.isIOS) ...[
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _SocialButton(
+                            asset: 'assets/apple.svg',
+                            label: 'Apple',
+                            onTap: () async {
+                              final auth = context.read<AuthCubit>();
+                              final success = await auth.loginWithApple();
+                              if (!context.mounted) return;
+                              if (success) {
+                                await _goAfterLogin();
+                              } else if (auth.errorMessage != null &&
+                                  auth.errorMessage!.isNotEmpty) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(auth.errorMessage!),
+                                    backgroundColor: Colors.redAccent,
+                                  ),
+                                );
+                              }
+                            },
+                          ),
                         ),
-                      ),
+                      ],
                     ],
                   ),
 

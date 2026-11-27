@@ -6,7 +6,6 @@ import 'package:artable_app/core/network/api_client.dart';
 import 'package:artable_app/core/network/api_session_callbacks_factory.dart';
 import 'package:artable_app/core/storage/auth_storage_service.dart';
 import 'package:artable_app/features/studio/data/services/video_thumbnail_generator.dart';
-import 'package:artable_app/data/datasources/mock_data.dart';
 import 'package:artable_app/core/utils/validators.dart';
 import 'package:artable_app/core/utils/reel_helpers.dart';
 import 'package:artable_app/core/widgets/app_image.dart';
@@ -697,7 +696,6 @@ class VideosRepository {
       newReelItem['beautyOn'] = uploadedFilter.beautyOn;
       newReelItem['beautyIntensity'] = uploadedFilter.beautyIntensity;
     }
-    MockData.REELS.insert(0, Map<String, Object>.from(newReelItem));
     if (localPrimaryPath != null && finalVideoUrl.startsWith('http')) {
       await VideoCacheManager.associateLocalFile(localPrimaryPath, finalVideoUrl);
     }
@@ -996,25 +994,39 @@ class VideosRepository {
   Future<Map<String, dynamic>> reportVideo({
     required String videoId,
     required String reason,
+    String? details,
     String? sessionToken,
     String? refreshToken,
   }) async {
     final cleanId = videoId.trim();
-    final headers = (sessionToken != null &&
-            sessionToken.isNotEmpty &&
-            refreshToken != null &&
-            refreshToken.isNotEmpty)
+    if (cleanId.isEmpty) {
+      return {'success': false, 'message': 'videoId is required'};
+    }
+
+    var sToken = sessionToken;
+    var rToken = refreshToken;
+    if (sToken == null || sToken.isEmpty || sToken == 'design_preview') {
+      sToken = await _storageService.getSessionToken();
+    }
+    if (rToken == null || rToken.isEmpty || rToken == 'design_preview') {
+      rToken = await _storageService.getRefreshToken();
+    }
+    final headers = (sToken != null && sToken.isNotEmpty)
         ? ApiAuthHeaders.authenticated(
-            sessionToken: sessionToken,
-            refreshToken: refreshToken,
+            sessionToken: sToken,
+            refreshToken: (rToken != null && rToken.isNotEmpty) ? rToken : null,
           )
         : <String, String>{};
 
+    final body = <String, dynamic>{
+      'reason': reason.trim(),
+      if (details != null && details.trim().isNotEmpty)
+        'details': details.trim(),
+    };
+
     return _apiClient.post(
       '/app/videos/$cleanId/report',
-      body: {
-        'reason': reason.trim(),
-      },
+      body: body,
       headers: headers.isNotEmpty ? headers : null,
     );
   }

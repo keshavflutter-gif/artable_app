@@ -5,7 +5,6 @@ import 'package:go_router/go_router.dart';
 import 'package:artable_app/app/theme/app_colors.dart';
 import 'package:artable_app/app/theme/app_typography.dart';
 import 'package:artable_app/core/utils/challenge_helpers.dart';
-import 'package:artable_app/data/datasources/mock_data.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/features/shell/presentation/widgets/app_shell.dart';
 import 'package:artable_app/core/widgets/gradient_button.dart';
@@ -68,17 +67,13 @@ class _SubmitEntryScreenState extends State<SubmitEntryScreen> {
         'imageUrl': '',
       };
     }
-    return findChallengeById(
-          MockData.CHALLENGES.cast<Map<String, dynamic>>(),
-          id,
-        ) ??
-        {
-          'id': id,
-          'title': 'Challenge',
-          'category': 'Dance',
-          'prize': '',
-          'imageUrl': '',
-        };
+    return {
+      'id': id,
+      'title': 'Challenge',
+      'category': 'Dance',
+      'prize': '',
+      'imageUrl': '',
+    };
   }
 
   void _goBack() {

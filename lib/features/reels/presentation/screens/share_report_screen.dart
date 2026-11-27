@@ -56,8 +56,11 @@ class ShareReportScreen extends StatefulWidget {
 
 class _ShareReportScreenState extends State<ShareReportScreen> {
   String? _selectedReason;
+  final TextEditingController _detailsController = TextEditingController();
   bool _reportSubmitted = false;
+  bool _alreadyReported = false;
   bool _reportSubmitting = false;
+  String? _reportMessage;
   String? _sharedOptionId;
 
   @override
@@ -74,6 +77,7 @@ class _ShareReportScreenState extends State<ShareReportScreen> {
 
   @override
   void dispose() {
+    _detailsController.dispose();
     // Do NOT call silenceForNavigation() here — it re-locks BGM after the
     // feed already unlocked on pop, which leaves video stuck paused.
     super.dispose();
@@ -335,15 +339,61 @@ class _ShareReportScreenState extends State<ShareReportScreen> {
                         ),
                       );
                     }),
+                    if (_selectedReason?.toUpperCase() == 'OTHER') ...[
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: _detailsController,
+                        enabled: !_reportSubmitted && !_reportSubmitting,
+                        minLines: 3,
+                        maxLines: 4,
+                        maxLength: 2000,
+                        textInputAction: TextInputAction.done,
+                        style: AppTextStyles.bodyRegular145.copyWith(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        decoration: InputDecoration(
+                          hintText: 'Please describe your reason...',
+                          hintStyle: AppTextStyles.hint12.copyWith(fontSize: 12.5),
+                          filled: true,
+                          fillColor: Colors.white,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide: const BorderSide(
+                              color: AppColors.inputBorder,
+                              width: 1.5,
+                            ),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide: const BorderSide(
+                              color: AppColors.inputBorder,
+                              width: 1.5,
+                            ),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide: const BorderSide(
+                              color: AppColors.purple,
+                              width: 1.5,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 16),
                     SecondaryOutlineButton(
                       label: _reportSubmitted
-                          ? 'Reported'
+                          ? (_alreadyReported ? 'Already Reported' : 'Reported')
                           : (_reportSubmitting ? 'Submitting...' : 'Submit Report'),
                       onPressed: _selectedReason != null &&
                               !_reportSubmitted &&
                               !_reportSubmitting
-                          ? _submitReport
+                          ? () => _submitReport(effectiveVideoId)
                           : null,
                     ),
                     if (_reportSubmitted) ...[
@@ -351,20 +401,36 @@ class _ShareReportScreenState extends State<ShareReportScreen> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                         decoration: BoxDecoration(
-                          color: AppColors.success.withValues(alpha: 0.1),
+                          color: (_alreadyReported ? Colors.amber : AppColors.success)
+                              .withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Row(
                           children: [
-                            Icon(Icons.check, size: 16, color: AppColors.success.withValues(alpha: 0.9)),
+                            Icon(
+                              _alreadyReported
+                                  ? Icons.info_outline_rounded
+                                  : Icons.check,
+                              size: 16,
+                              color: (_alreadyReported
+                                      ? Colors.amber.shade800
+                                      : AppColors.success)
+                                  .withValues(alpha: 0.9),
+                            ),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                'Thanks — our team will review this report.',
+                                _reportMessage ??
+                                    (_alreadyReported
+                                        ? 'You already reported this video.'
+                                        : 'Thanks. Our team will review your report.'),
                                 style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w700,
-                                  color: AppColors.success.withValues(alpha: 0.85),
+                                  color: (_alreadyReported
+                                          ? Colors.amber.shade900
+                                          : AppColors.success)
+                                      .withValues(alpha: 0.9),
                                 ),
                               ),
                             ),
@@ -382,9 +448,9 @@ class _ShareReportScreenState extends State<ShareReportScreen> {
     );
   }
 
-  Future<void> _submitReport() async {
+  Future<void> _submitReport(String videoId) async {
     final reason = _selectedReason;
-    final reelId = widget.reelId?.trim() ?? '';
+    final reelId = videoId.trim();
     if (reason == null || reason.isEmpty || reelId.isEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -396,23 +462,63 @@ class _ShareReportScreenState extends State<ShareReportScreen> {
       return;
     }
 
+    final isOther = reason.toUpperCase() == 'OTHER';
+    final details = isOther ? _detailsController.text.trim() : null;
+    if (isOther && (details == null || details.isEmpty)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please describe your reason.'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
+
     setState(() => _reportSubmitting = true);
     try {
-      final ok = await context.read<ReelsCubit>().reportVideo(
+      final res = await context.read<ReelsCubit>().reportVideo(
             videoId: reelId,
             reason: reason,
+            details: details,
           );
       if (!mounted) return;
+      final ok = res['success'] == true;
+      final data = res['data'] is Map ? res['data'] as Map : null;
+      final alreadyReported = data?['alreadyReported'] == true;
+      final msg = res['message']?.toString().trim();
+      final err = res['error']?.toString().trim();
       if (ok) {
+        final displayMsg = (msg != null && msg.isNotEmpty)
+            ? msg
+            : (alreadyReported
+                ? 'You already reported this video.'
+                : 'Thanks. Our team will review your report.');
         setState(() {
           _reportSubmitted = true;
+          _alreadyReported = alreadyReported;
           _reportSubmitting = false;
+          _reportMessage = displayMsg;
         });
+        if (alreadyReported) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(displayMsg),
+              backgroundColor: Colors.amber.shade800,
+            ),
+          );
+        }
       } else {
         setState(() => _reportSubmitting = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Failed to submit report. Please try again.'),
+          SnackBar(
+            content: Text(
+              (msg != null && msg.isNotEmpty)
+                  ? msg
+                  : ((err != null && err.isNotEmpty)
+                      ? err
+                      : 'Failed to submit report. Please try again.'),
+            ),
             backgroundColor: Colors.redAccent,
           ),
         );

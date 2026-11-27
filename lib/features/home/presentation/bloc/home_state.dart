@@ -7,12 +7,14 @@ class HomeState {
     this.isLoading = false,
     this.hasLoaded = false,
     this.errorMessage,
+    this.unreadNotificationsCount = 0,
   });
 
   final HomeDashboardResponse? dashboard;
   final bool isLoading;
   final bool hasLoaded;
   final String? errorMessage;
+  final int unreadNotificationsCount;
 
   List<Map<String, dynamic>> get megaPromoBanners {
     if (dashboard != null) {
@@ -79,12 +81,15 @@ class HomeState {
     bool? hasLoaded,
     String? errorMessage,
     bool clearError = false,
+    int? unreadNotificationsCount,
   }) {
     return HomeState(
       dashboard: dashboard ?? this.dashboard,
       isLoading: isLoading ?? this.isLoading,
       hasLoaded: hasLoaded ?? this.hasLoaded,
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
+      unreadNotificationsCount:
+          unreadNotificationsCount ?? this.unreadNotificationsCount,
     );
   }
 }

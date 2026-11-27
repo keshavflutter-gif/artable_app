@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:artable_app/app/theme/app_colors.dart';
@@ -6,6 +7,7 @@ import 'package:artable_app/app/theme/app_gradients.dart';
 import 'package:artable_app/app/theme/app_text_styles.dart';
 import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/core/utils/app_icons.dart';
+import 'package:artable_app/features/home/presentation/bloc/home_cubit.dart';
 
 enum BottomNavVariant { home, categories, defaultNav }
 
@@ -240,34 +242,42 @@ class StudioHeader extends StatelessWidget {
             clipBehavior: Clip.none,
             children: [
               AppIcons.bell(),
-              Positioned(
-                top: -5,
-                right: -8,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 3),
-                  constraints: const BoxConstraints(
-                    minWidth: 16,
-                    minHeight: 16,
-                  ),
-                  decoration: BoxDecoration(
-                    gradient: AppGradients.button,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: const Color(0xFF170A30),
-                      width: 1.5,
-                    ),
-                  ),
-                  child: const Center(
-                    child: Text(
-                      '3',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 9,
-                        fontWeight: FontWeight.w800,
+              Builder(
+                builder: (context) {
+                  final unreadCount = context.select<HomeCubit, int>(
+                    (c) => c.state.unreadNotificationsCount,
+                  );
+                  if (unreadCount <= 0) return const SizedBox.shrink();
+                  return Positioned(
+                    top: -5,
+                    right: -8,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 3),
+                      constraints: const BoxConstraints(
+                        minWidth: 16,
+                        minHeight: 16,
+                      ),
+                      decoration: BoxDecoration(
+                        gradient: AppGradients.button,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: const Color(0xFF170A30),
+                          width: 1.5,
+                        ),
+                      ),
+                      child: Center(
+                        child: Text(
+                          unreadCount > 99 ? '99+' : '$unreadCount',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 9,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                ),
+                  );
+                },
               ),
             ],
           ),

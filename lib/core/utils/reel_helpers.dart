@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import 'package:artable_app/data/datasources/mock_data.dart';
 
 import 'dart:convert';
 import 'package:artable_app/core/storage/local_storage.dart';
@@ -205,12 +204,10 @@ abstract final class ReelHelpers {
       }
     }
     if (cid.isEmpty && title.isEmpty) return null;
-    for (final c in MockData.CHALLENGES) {
-      if (c['id']?.toString() == cid) return c;
-    }
-    // Live API challenge ids are real CUIDs — return a map from the reel
-    // itself so Video Detail / feed badges work without MockData.
+    // Live API challenge data — return a map from the reel itself (and any
+    // nested challenge object) without MockData.
     return {
+      if (nested is Map) ...Map<String, dynamic>.from(nested),
       'id': cid,
       'title': title.isNotEmpty ? title : 'Challenge',
       'challengeId': cid,
@@ -221,10 +218,7 @@ abstract final class ReelHelpers {
   static Map<String, dynamic>? challengeById(String id) {
     final clean = id.trim();
     if (clean.isEmpty) return null;
-    for (final c in MockData.CHALLENGES) {
-      if (c['id']?.toString() == clean) return c;
-    }
-    // Stub for real API ids so studio chrome doesn't force-unwrap to a wrong mock.
+    // Non-null fallback stub for studio chrome when only an ID is passed.
     return {
       'id': clean,
       'title': 'Challenge',

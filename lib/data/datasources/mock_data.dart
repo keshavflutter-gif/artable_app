@@ -276,10 +276,10 @@ class MockData {
   { 'id': 'social',   'label': 'Social Share', 'icon': 'share' },
 ];
   static final REPORT_REASONS = [
-  { 'id': 'spam',         'label': 'Spam' },
-  { 'id': 'inappropriate', 'label': 'Inappropriate Content' },
-  { 'id': 'copyright',    'label': 'Copyright Issue' },
-  { 'id': 'other',        'label': 'Other' },
+  { 'id': 'SPAM',                  'label': 'Spam' },
+  { 'id': 'INAPPROPRIATE_CONTENT', 'label': 'Inappropriate Content' },
+  { 'id': 'COPYRIGHT_ISSUE',       'label': 'Copyright Issue' },
+  { 'id': 'OTHER',                 'label': 'Other' },
 ];
   static final QUICK_ACTIONS = [
   { 'label': 'Upload Video',       'icon': 'upload',   'href': '/studio-start',                'highlight': true, 'tint': 'red' },

@@ -52,10 +52,15 @@ class NetworkImageWidget extends StatelessWidget {
             (constraints.hasBoundedHeight && constraints.maxHeight.isFinite
                 ? constraints.maxHeight
                 : null);
+        final dpr = MediaQuery.devicePixelRatioOf(context);
+        final cacheWidth = (w != null && w.isFinite && w > 0)
+            ? (w * dpr).round().clamp(64, 2048)
+            : null;
         return CachedNetworkImage(
           imageUrl: cleanUrl,
           width: w,
           height: h,
+          memCacheWidth: cacheWidth,
           fit: fit,
           alignment: alignment,
           placeholder: (context, url) => Container(

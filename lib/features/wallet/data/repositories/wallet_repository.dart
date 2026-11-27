@@ -12,7 +12,7 @@ import '../models/wallet_transactions_response.dart';
 
 class WalletRepository {
   WalletRepository({
-    ApiClient? apiClient,
+    ApiClient? apiClient, 
     AuthStorageService? storageService,
     void Function({
       required String sessionToken,

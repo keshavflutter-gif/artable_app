@@ -55,6 +55,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
   bool _routeCovered = false;
   Timer? _precacheDelayTimer;
   Timer? _viewRecordTimer;
+  Timer? _pageSettleTimer;
   final ValueNotifier<_ReelSeekInfo?> _seekController =
       ValueNotifier<_ReelSeekInfo?>(null);
 
@@ -386,6 +387,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
     WidgetsBinding.instance.removeObserver(this);
     _precacheDelayTimer?.cancel();
     _viewRecordTimer?.cancel();
+    _pageSettleTimer?.cancel();
     _seekController.value = null;
     _seekController.dispose();
     _pageController.dispose();
@@ -919,8 +921,12 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen>
                 _currentPage = page;
                 _pausedReelIds.clear();
               });
-              _fetchCommentsForPage(page);
-              _fetchDetailForPage(page);
+              _pageSettleTimer?.cancel();
+              _pageSettleTimer = Timer(const Duration(milliseconds: 180), () {
+                if (!mounted || _currentPage != page) return;
+                _fetchCommentsForPage(page);
+                _fetchDetailForPage(page);
+              });
               _scheduleViewForPage(page);
               _precacheUpcomingReels(page, items);
             },
@@ -2033,8 +2039,11 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
           child: IgnorePointer(
             child: TickerMode(
               enabled: visible,
-              child: Opacity(
-                opacity: visible ? 1 : 0,
+              child: Visibility(
+                visible: visible,
+                maintainState: true,
+                maintainAnimation: true,
+                maintainSize: true,
                 child: _buildPlayerSurface(c),
               ),
             ),
@@ -2755,7 +2764,7 @@ class _ReelVideoPlayerState extends State<_ReelVideoPlayer>
   void _startPlaybackTimer() {
     _playbackTimer?.cancel();
     if (!_hasMultiClips) return;
-    _playbackTimer = Timer.periodic(const Duration(milliseconds: 50), (_) {
+    _playbackTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
       if (!mounted || !_hasMultiClips || !widget.isActive) {
         return;
       }

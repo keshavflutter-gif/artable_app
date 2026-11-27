@@ -1,5 +1,4 @@
 import 'package:artable_app/core/utils/challenge_helpers.dart';
-import 'package:artable_app/data/datasources/mock_data.dart';
 import 'package:artable_app/features/challenges/data/models/categories_response.dart';
 import 'package:artable_app/features/challenges/data/models/challenge_detail_response.dart';
 
@@ -37,7 +36,7 @@ class ChallengesState {
         loadedCategoryChallenges = loadedCategoryChallenges ?? const {},
         errorCategoryChallenges = errorCategoryChallenges ?? const {},
         joiningChallenges = joiningChallenges ?? const {},
-        challenges = customChallenges ?? List<Map<String, dynamic>>.from(MockData.CHALLENGES);
+        challenges = customChallenges ?? const [];
 
   final CategoriesResponse? categoriesResponse;
   final bool isLoadingCategories;

@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import 'package:artable_app/app/routes/app_routes.dart';
 import 'package:artable_app/features/auth/presentation/bloc/auth_cubit.dart';
+import 'package:artable_app/features/home/presentation/bloc/home_cubit.dart';
 import 'package:artable_app/features/notifications/data/mappers/notification_mappers.dart';
 import 'package:artable_app/features/notifications/data/repositories/activity_repository.dart';
 import 'package:artable_app/features/notifications/data/repositories/notifications_repository.dart';
@@ -61,8 +62,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         refreshToken: auth.refreshToken,
       );
       if (!mounted) return;
+      final mapped = rows.map(notificationToUiMap).toList();
+      if (_filter == 'All') {
+        final unread = mapped.where((n) => n['read'] != true).length;
+        context.read<HomeCubit>().setUnreadNotificationsCount(unread);
+      }
       setState(() {
-        _items = rows.map(notificationToUiMap).toList();
+        _items = mapped;
         _loading = false;
       });
     } catch (e) {
@@ -93,6 +99,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       );
     } catch (_) {}
     if (!mounted) return;
+    context.read<HomeCubit>().setUnreadNotificationsCount(0);
     setState(() {
       for (final n in _items) {
         n['read'] = true;
@@ -104,6 +111,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     final id = n['id']?.toString() ?? '';
     if (id.isEmpty || n['read'] == true) return;
     setState(() => n['read'] = true);
+    context.read<HomeCubit>().decrementUnreadNotificationsCount();
     try {
       final auth = context.read<AuthCubit>();
       await _repository().markRead(

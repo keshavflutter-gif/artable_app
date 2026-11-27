@@ -979,31 +979,36 @@ class ReelsCubit extends Cubit<ReelsState> {
     }
   }
 
-  Future<bool> reportVideo({
+  Future<Map<String, dynamic>> reportVideo({
     required String videoId,
     required String reason,
+    String? details,
   }) async {
     final vId = videoId.trim();
     final reasonClean = reason.trim();
-    if (vId.isEmpty || reasonClean.isEmpty) return false;
+    if (vId.isEmpty || reasonClean.isEmpty) {
+      return {'success': false, 'message': 'Invalid video or reason.'};
+    }
 
     try {
       final token = _authCubit?.sessionToken;
       final refresh = _authCubit?.refreshToken;
-      if (token == null || token.isEmpty || token == 'design_preview') {
-        return false;
-      }
 
       final res = await _videosRepository.reportVideo(
         videoId: vId,
         reason: reasonClean,
-        sessionToken: token,
-        refreshToken: refresh != 'design_preview' ? refresh : null,
+        details: details,
+        sessionToken: (token != null && token.isNotEmpty && token != 'design_preview')
+            ? token
+            : null,
+        refreshToken: (refresh != null && refresh.isNotEmpty && refresh != 'design_preview')
+            ? refresh
+            : null,
       );
-      return res['success'] != false;
+      return res;
     } catch (e) {
       debugPrint('reportVideo API error: $e');
-      return false;
+      return {'success': false, 'error': e.toString()};
     }
   }
 

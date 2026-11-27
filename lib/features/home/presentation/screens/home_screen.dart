@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -40,7 +41,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final _heroController = PageController();
-  int _heroIndex = 0;
+  final ValueNotifier<int> _heroIndex = ValueNotifier<int>(0);
   bool _isNoInternetDialogShowing = false;
 
   @override
@@ -74,6 +75,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _heroController.dispose();
+    _heroIndex.dispose();
     super.dispose();
   }
 
@@ -229,41 +231,51 @@ class _HomeScreenState extends State<HomeScreen> {
                   context.read<ChallengesCubit>().loadTabChallenges('ACTIVE', forceRefresh: true),
                 ]);
               },
-            child: SingleChildScrollView(
+            child: CustomScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const StudioHeader(),
-                  const HomeBannerAd(fallback: _SponsoredBanner()),
-                  _HeroSlider(
+              slivers: [
+                const SliverToBoxAdapter(child: StudioHeader()),
+                const SliverToBoxAdapter(
+                  child: HomeBannerAd(fallback: _SponsoredBanner()),
+                ),
+                SliverToBoxAdapter(
+                  child: _HeroSlider(
                     controller: _heroController,
-                    index: _heroIndex,
-                    onPageChanged: (i) => setState(() => _heroIndex = i),
+                    indexListenable: _heroIndex,
+                    onPageChanged: (i) => _heroIndex.value = i,
                     apiBannerSlides: heroBannerSlides,
                   ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(22, 0, 22, 8),
+                ),
+                SliverPadding(
+                  padding: const EdgeInsets.symmetric(horizontal: 22),
+                  sliver: SliverToBoxAdapter(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         _QuickStripCard(actions: quickActions),
                         _ActiveChallengesCard(challenges: activeChallenges),
-                        SectionHeader(
+                        const SectionHeader(
                           title: '🔥 Trending Reels',
                           viewAllLabel: 'View All',
                           viewAllRoute: AppRoutes.trendingVideos,
                           marginTop: 18,
                         ),
-                        _ReelGrid(reels: trendingReels.take(6).toList()),
-                        const SizedBox(height: 12),
-                        _MegaPromoScroll(banners: megaPromoBanners),
                       ],
                     ),
                   ),
-                  const _DownloadBanner(),
-                ],
-              ),
+                ),
+                SliverPadding(
+                  padding: const EdgeInsets.symmetric(horizontal: 22),
+                  sliver: _ReelGrid.buildSliver(trendingReels.take(6).toList()),
+                ),
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(22, 12, 22, 8),
+                  sliver: SliverToBoxAdapter(
+                    child: _MegaPromoScroll(banners: megaPromoBanners),
+                  ),
+                ),
+                const SliverToBoxAdapter(child: _DownloadBanner()),
+              ],
             ),
           ),
           if (isLoading && !hasLoaded)
@@ -490,13 +502,13 @@ class _DiagonalClipper extends CustomClipper<Path> {
 class _HeroSlider extends StatelessWidget {
   const _HeroSlider({
     required this.controller,
-    required this.index,
+    required this.indexListenable,
     required this.onPageChanged,
     required this.apiBannerSlides,
   });
 
   final PageController controller;
-  final int index;
+  final ValueListenable<int> indexListenable;
   final ValueChanged<int> onPageChanged;
   final List<Map<String, dynamic>> apiBannerSlides;
 
@@ -575,23 +587,28 @@ class _HeroSlider extends StatelessWidget {
           if (slides.length > 1)
             Positioned(
               bottom: 10,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: List.generate(slides.length, (i) {
-                  final active = i == index;
-                  return AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    width: active ? 18 : 6,
-                    height: 6,
-                    margin: const EdgeInsets.symmetric(horizontal: 3),
-                    decoration: BoxDecoration(
-                      color: active
-                          ? Colors.white
-                          : Colors.white.withValues(alpha: 0.35),
-                      borderRadius: BorderRadius.circular(active ? 4 : 3),
-                    ),
+              child: ValueListenableBuilder<int>(
+                valueListenable: indexListenable,
+                builder: (context, index, _) {
+                  return Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: List.generate(slides.length, (i) {
+                      final active = i == index;
+                      return AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        width: active ? 18 : 6,
+                        height: 6,
+                        margin: const EdgeInsets.symmetric(horizontal: 3),
+                        decoration: BoxDecoration(
+                          color: active
+                              ? Colors.white
+                              : Colors.white.withValues(alpha: 0.35),
+                          borderRadius: BorderRadius.circular(active ? 4 : 3),
+                        ),
+                      );
+                    }),
                   );
-                }),
+                },
               ),
             ),
         ],
@@ -1409,34 +1426,56 @@ class _ReelGrid extends StatelessWidget {
 
   final List<Map<String, dynamic>> reels;
 
+  static Widget buildSliver(List<Map<String, dynamic>> reels) {
+    if (reels.isEmpty) {
+      return SliverToBoxAdapter(child: _emptyWidget());
+    }
+    return SliverGrid(
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
+        childAspectRatio: 3 / 4,
+      ),
+      delegate: SliverChildBuilderDelegate(
+        (context, index) => RepaintBoundary(child: _buildItem(context, reels[index])),
+        childCount: reels.length,
+      ),
+    );
+  }
+
+  static Widget _emptyWidget() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9F8FC),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFECE8F5), width: 1.2),
+      ),
+      child: const Column(
+        children: [
+          Icon(Icons.movie_filter_outlined, size: 36, color: Color(0xFF8B849C)),
+          SizedBox(height: 8),
+          Text(
+            'No trending videos available right now.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 13.5,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF8B849C),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (reels.isEmpty) {
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 16),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF9F8FC),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFECE8F5), width: 1.2),
-        ),
-        child: const Column(
-          children: [
-            Icon(Icons.movie_filter_outlined, size: 36, color: Color(0xFF8B849C)),
-            SizedBox(height: 8),
-            Text(
-              'No trending videos available right now.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 13.5,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF8B849C),
-              ),
-            ),
-          ],
-        ),
-      );
+      return _emptyWidget();
     }
 
     return GridView.builder(
@@ -1449,8 +1488,13 @@ class _ReelGrid extends StatelessWidget {
         childAspectRatio: 3 / 4,
       ),
       itemCount: reels.length,
-      itemBuilder: (context, index) {
-        final reel = reels[index];
+      itemBuilder: (context, index) => RepaintBoundary(
+        child: _buildItem(context, reels[index]),
+      ),
+    );
+  }
+
+  static Widget _buildItem(BuildContext context, Map<String, dynamic> reel) {
         final categoryTint = {
           'Dance': const Color(0xFFE01D5C),
           'Comedy': const Color(0xFF3450D6),
@@ -1641,8 +1685,6 @@ class _ReelGrid extends StatelessWidget {
             ),
           ),
         );
-      },
-    );
   }
 }
 
@@ -1856,6 +1898,7 @@ class _DownloadBannerState extends State<_DownloadBanner> {
   VideoPlayerController? _controller;
   bool _ready = false;
   bool _failed = false;
+  bool _isPlaying = false;
 
   Future<void> _onDownloadNow() async {
     // User is already inside the app — drive them to Challenges to join & win.
@@ -1889,6 +1932,7 @@ class _DownloadBannerState extends State<_DownloadBanner> {
       setState(() {
         _ready = controller.value.isInitialized;
         _failed = !controller.value.isInitialized;
+        _isPlaying = controller.value.isPlaying;
       });
     } catch (e, st) {
       debugPrint('Download Ad video failed: $e\n$st');
@@ -1906,7 +1950,10 @@ class _DownloadBannerState extends State<_DownloadBanner> {
 
   void _onVideoTick() {
     if (!mounted) return;
-    setState(() {});
+    final nowPlaying = _controller?.value.isPlaying ?? false;
+    if (nowPlaying != _isPlaying) {
+      setState(() => _isPlaying = nowPlaying);
+    }
   }
 
   Future<void> _togglePlay() async {
@@ -1930,7 +1977,7 @@ class _DownloadBannerState extends State<_DownloadBanner> {
 
   @override
   Widget build(BuildContext context) {
-    final playing = _controller?.value.isPlaying ?? false;
+    final playing = _isPlaying;
 
     return Container(
       margin: const EdgeInsets.fromLTRB(22, 10, 22, 20),
@@ -2026,7 +2073,7 @@ class _DownloadBannerState extends State<_DownloadBanner> {
                         child: SizedBox(
                           width: _controller!.value.size.width,
                           height: _controller!.value.size.height,
-                          child: VideoPlayer(_controller!),
+                          child: RepaintBoundary(child: VideoPlayer(_controller!)),
                         ),
                       )
                     else if (_failed)

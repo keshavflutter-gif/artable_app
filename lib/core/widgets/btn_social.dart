@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
@@ -58,10 +60,12 @@ class SocialRow extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(top: 4),
       child: Row(
-        children: const [
-          BtnSocial(label: 'Google', assetPath: 'assets/google.svg'),
-          SizedBox(width: 12),
-          BtnSocial(label: 'Apple', assetPath: 'assets/apple.svg'),
+        children: [
+          const BtnSocial(label: 'Google', assetPath: 'assets/google.svg'),
+          if (Platform.isIOS) ...[
+            const SizedBox(width: 12),
+            const BtnSocial(label: 'Apple', assetPath: 'assets/apple.svg'),
+          ],
         ],
       ),
     );
